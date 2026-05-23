@@ -30,7 +30,7 @@ function SignalBadge({ action }) {
 
 function StatCard({ icon: Icon, label, value, subValue, iconColor }) {
   return (
-    <div className="glass-panel p-5 flex flex-col justify-between h-28 relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 group">
+    <div className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 group">
       {/* Subtle top glare overlay */}
       <div className="absolute inset-0 bg-gradient-to-br from-white/[0.015] to-transparent pointer-events-none" />
       
@@ -83,7 +83,7 @@ function LivePriceCard({ asset, price, signal, tech }) {
       : 'border-[var(--color-border)]';
 
   return (
-    <div className={`glass-panel p-5 flex flex-col justify-between h-32 relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 ${glowBorder}`}>
+    <div className={`glass-panel py-4 px-5 flex flex-col justify-between min-h-[128px] gap-3 relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 ${glowBorder}`}>
       {/* Decorative center light ray */}
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#02c0f9]/20 to-transparent pointer-events-none" />
 

@@ -139,7 +139,7 @@ export default function Agents() {
             const Icon = agentIcons[name] || Bot;
             const status = health.status || 'stopped';
             return (
-              <div key={name} className="glass-panel p-4 flex flex-col justify-between h-36">
+              <div key={name} className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[144px] gap-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded flex items-center justify-center bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">

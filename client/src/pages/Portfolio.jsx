@@ -64,7 +64,7 @@ export default function Portfolio() {
           { label: 'Open Positions', value: portfolio.openPositions || 0, icon: BarChart3, color: '#02c0f9' },
           { label: 'Available cash', value: `$${portfolio.availableBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet, color: '#f0b90b' },
         ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="glass-panel p-5 flex flex-col justify-between h-28 relative overflow-hidden group">
+          <div key={label} className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
             {/* Subtle top glare overlay */}
             <div className="absolute inset-0 bg-gradient-to-br from-white/[0.015] to-transparent pointer-events-none" />
             
