@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { usePortfolioStore } from '../store.js';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3 } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity } from 'lucide-react';
 import axios from 'axios';
 
-const COLORS = ['#02c0f9', '#f0b90b', '#0ecb81', '#f6465d', '#8b5cf6'];
+const COLORS = ['#0071e3', '#ff9f0a', '#30d158', '#ff453a', '#bf5af2'];
 
 export default function Portfolio() {
   const portfolio = usePortfolioStore((s) => s.portfolio);
@@ -45,55 +45,55 @@ export default function Portfolio() {
     : [{ asset: 'USDT (Cash)', percentage: 100, value: portfolio.availableBalance }];
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="page-layout">
       {/* Header */}
-      <div className="border-b border-[var(--color-border)] pb-4">
-        <h2 className="text-base font-extrabold text-[var(--color-text-primary)] uppercase tracking-wide flex items-center gap-2">
-          <Wallet size={16} className="text-[var(--color-accent-blue)]" />
-          Portfolio Performance
-        </h2>
-        <p className="text-[11px] text-[var(--color-text-secondary)] font-semibold">Live balance breakdown, allocations, and trade stats auditing.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 border-b border-[#2c2c2e]/60 pb-5">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-[#f5f5f7]">Portfolio</h2>
+          <p className="text-[11px] text-[#86868b] mt-1 font-medium">
+            Analyze asset allocation models, historic performance returns, and session statistics.
+          </p>
+        </div>
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5">
         {[
-          { label: 'Total Balances', value: `$${portfolio.totalBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet, color: '#02c0f9' },
-          { label: 'Realized PnL', value: `${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl?.toFixed(2)}`, icon: portfolio.totalPnl >= 0 ? TrendingUp : TrendingDown, color: portfolio.totalPnl >= 0 ? '#0ecb81' : '#f6465d' },
-          { label: 'Win Rate', value: `${((portfolio.winRate || 0) * 100).toFixed(1)}%`, icon: Target, color: '#f0b90b' },
-          { label: 'Open Positions', value: portfolio.openPositions || 0, icon: BarChart3, color: '#02c0f9' },
-          { label: 'Available cash', value: `$${portfolio.availableBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet, color: '#f0b90b' },
+          { label: 'Net Balances', value: `$${portfolio.totalBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet, color: '#86868b' },
+          { label: 'Realized Return', value: `${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl?.toFixed(2)}`, icon: portfolio.totalPnl >= 0 ? TrendingUp : TrendingDown, color: portfolio.totalPnl >= 0 ? '#30d158' : '#ff453a' },
+          { label: 'Win Rate', value: `${((portfolio.winRate || 0) * 100).toFixed(1)}%`, icon: Target, color: '#86868b' },
+          { label: 'Open Exposure', value: portfolio.openPositions || 0, icon: Activity, color: '#86868b' },
+          { label: 'Margin Available', value: `$${portfolio.availableBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet, color: '#86868b' },
         ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
+          <div key={label} className="glass-panel bg-[#1c1c1e] py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
             {/* Subtle top glare overlay */}
             <div className="absolute inset-0 bg-gradient-to-br from-white/[0.015] to-transparent pointer-events-none" />
             
             {/* Elegant side-accent color band */}
             <div className="absolute left-0 top-0 bottom-0 w-1 transition-all duration-300 group-hover:h-full" style={{ background: color, height: '30%' }} />
-
             <div className="flex items-start justify-between">
-              <span className="text-[10px] font-black text-[var(--color-text-secondary)] uppercase tracking-wider">{label}</span>
-              <div className="p-1.5 rounded-md transition-all duration-300 group-hover:scale-110" style={{ background: `${color}15` }}>
-                <Icon size={14} style={{ color }} />
+              <span className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">{label}</span>
+              <div className="text-zinc-500">
+                <Icon size={13} style={{ color }} />
               </div>
             </div>
-            <div>
-              <div className="text-xl font-extrabold text-[var(--color-text-primary)] font-mono tracking-tight">{value}</div>
+            <div className="mt-4">
+              <div className="text-lg font-bold text-[#f5f5f7] font-mono tracking-tight">{value}</div>
             </div>
           </div>
         ))}
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-layout-2">
         {/* Allocation Pie Chart */}
-        <div className="glass-panel p-5">
-          <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
-            <PieIcon size={13} className="text-[var(--color-accent-blue)]" />
-            Asset Allocation
+        <div className="glass-panel bg-[#1c1c1e]">
+          <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+            <PieIcon size={14} className="text-sky-400" />
+            Asset Allocation Models
           </h3>
           <div className="flex flex-col items-center">
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={210}>
               <PieChart>
                 <Pie
                   data={allocation}
@@ -102,8 +102,8 @@ export default function Portfolio() {
                   cx="50%"
                   cy="50%"
                   outerRadius={75}
-                  innerRadius={45}
-                  paddingAngle={3}
+                  innerRadius={55}
+                  paddingAngle={4}
                   strokeWidth={0}
                 >
                   {allocation.map((_, i) => (
@@ -111,15 +111,15 @@ export default function Portfolio() {
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{ background: '#12161a', border: '1px solid #2b313a', borderRadius: '6px', color: '#eaecef', fontSize: 10 }}
-                  itemStyle={{ color: '#eaecef' }}
+                  contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7', fontSize: 10 }}
+                  itemStyle={{ color: '#f5f5f7', fontFamily: 'monospace' }}
                   formatter={(v) => `${v.toFixed(1)}%`}
                 />
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex flex-wrap gap-3 justify-center mt-2">
+            <div className="flex flex-wrap gap-4 justify-center mt-3">
               {allocation.map((a, i) => (
-                <span key={i} className="flex items-center gap-1.5 text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                <span key={i} className="flex items-center gap-2 text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">
                   <span className="w-2 h-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }}></span>
                   {a.asset} ({a.percentage?.toFixed(1)}%)
                 </span>
@@ -129,31 +129,31 @@ export default function Portfolio() {
         </div>
 
         {/* Trade PnL Bar Chart */}
-        <div className="glass-panel p-5">
-          <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
-            <BarChart3 size={13} className="text-[var(--color-accent-yellow)]" />
-            PnL returns history (Recent Closed)
+        <div className="glass-panel bg-[#1c1c1e]">
+          <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+            <BarChart3 size={14} className="text-purple-400" />
+            Returns History (Closed Trades)
           </h3>
           {trades.length > 0 ? (
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart data={trades.map((t, i) => ({ name: `#${i + 1}`, pnl: t.pnl || 0 }))} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                <XAxis dataKey="name" stroke="var(--color-text-secondary)" fontSize={9} tickLine={false} />
-                <YAxis stroke="var(--color-text-secondary)" fontSize={9} tickLine={false} />
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={trades.map((t, i) => ({ name: `#${i + 1}`, pnl: t.pnl || 0 }))} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+                <XAxis dataKey="name" stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
+                <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
                 <Tooltip
-                  contentStyle={{ background: '#12161a', border: '1px solid #2b313a', borderRadius: '6px', color: '#eaecef' }}
-                  itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#eaecef' }}
+                  contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
+                  itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
                 />
                 <Bar dataKey="pnl" radius={[2, 2, 0, 0]}>
                   {trades.map((t, i) => (
-                    <Cell key={i} fill={(t.pnl || 0) >= 0 ? 'var(--color-accent-green)' : 'var(--color-accent-red)'} />
+                    <Cell key={i} fill={(t.pnl || 0) >= 0 ? '#30d158' : '#ff453a'} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[230px] flex items-center justify-center text-xs text-[var(--color-text-secondary)] uppercase tracking-wider font-semibold">
-              No closed trades logged
+            <div className="h-[240px] flex items-center justify-center text-xs text-zinc-500 font-extrabold uppercase tracking-widest font-mono animate-pulse">
+              NO TRANSACTION HISTORY LOGGED
             </div>
           )}
         </div>
@@ -161,25 +161,25 @@ export default function Portfolio() {
 
       {/* Trade Stats Table */}
       {stats && stats.totalTrades > 0 && (
-        <div className="glass-panel p-5">
-          <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider mb-4 border-b border-[var(--color-border)] pb-2">
-            Session Performance Statistics
+        <div className="glass-panel bg-[#1c1c1e] !p-0">
+          <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest border-b border-[#2c2c2e]/60 p-6 pb-3 font-mono mb-4">
+            Session Performance Benchmarks
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-1 text-xs">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 pt-0 text-xs">
             {[
-              { label: 'Total Trades', value: stats.totalTrades },
-              { label: 'Winners', value: stats.winners, color: 'var(--color-accent-green)' },
-              { label: 'Losers', value: stats.losers, color: 'var(--color-accent-red)' },
-              { label: 'Total realized Return', value: `$${stats.totalPnl?.toFixed(2)}`, color: stats.totalPnl >= 0 ? 'var(--color-accent-green)' : 'var(--color-accent-red)' },
-              { label: 'Avg Outcome PnL', value: `$${stats.avgPnl?.toFixed(2)}` },
-              { label: 'Best Trade Profit', value: `$${stats.bestTrade?.toFixed(2)}`, color: 'var(--color-accent-green)' },
-              { label: 'Worst Trade Loss', value: `$${stats.worstTrade?.toFixed(2)}`, color: 'var(--color-accent-red)' },
-              { label: 'Avg Confidence', value: `${(stats.avgConfidence * 100).toFixed(1)}%` },
+              { label: 'Total Orders Executed', value: stats.totalTrades },
+              { label: 'Winning Trades', value: stats.winners, color: '#30d158' },
+              { label: 'Losing Trades', value: stats.losers, color: '#ff453a' },
+              { label: 'Cumulative Net return', value: `$${stats.totalPnl?.toFixed(2)}`, color: stats.totalPnl >= 0 ? '#30d158' : '#ff453a' },
+              { label: 'Average Outcome PnL', value: `$${stats.avgPnl?.toFixed(2)}` },
+              { label: 'Peak Trade Profit', value: `$${stats.bestTrade?.toFixed(2)}`, color: '#30d158' },
+              { label: 'Max Drawdown Loss', value: `$${stats.worstTrade?.toFixed(2)}`, color: '#ff453a' },
+              { label: 'Average Signal Conf', value: `${(stats.avgConfidence * 100).toFixed(1)}%` },
             ].map(({ label, value, color }) => (
-              <div key={label} className="bg-[var(--color-bg-secondary)] p-3 rounded border border-[var(--color-border)] relative overflow-hidden pl-4">
-                <div className="absolute left-0 top-0 bottom-0 w-0.5" style={{ background: color || 'var(--color-border-light)' }} />
-                <div className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-0.5">{label}</div>
-                <div className="text-base font-extrabold font-mono" style={{ color: color || 'var(--color-text-primary)' }}>
+              <div key={label} className="bg-black p-4 rounded-2xl border border-[#2c2c2e]/55 relative overflow-hidden pl-5 group">
+                <div className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: color || '#86868b' }} />
+                <div className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono mb-1">{label}</div>
+                <div className="text-lg font-bold font-mono" style={{ color: color || '#f5f5f7' }}>
                   {value}
                 </div>
               </div>

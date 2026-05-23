@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAgentStore } from '../store.js';
-import { Bot, AlertTriangle, Clock, RefreshCw, Activity, Heart, ShieldAlert, Cpu } from 'lucide-react';
+import { Bot, AlertTriangle, Clock, RefreshCw, Activity, Heart, ShieldAlert, Cpu, Terminal } from 'lucide-react';
 import axios from 'axios';
 
 const agentIcons = {
@@ -17,24 +17,24 @@ const agentIcons = {
 };
 
 const statusColors = {
-  running: 'var(--color-accent-green)',
-  idle: 'var(--color-accent-yellow)',
-  error: 'var(--color-accent-red)',
-  stopped: 'var(--color-text-secondary)',
+  running: '#30d158',
+  idle: '#ff9f0a',
+  error: '#ff453a',
+  stopped: '#86868b',
 };
 
 const bgStatusColors = {
-  running: 'var(--color-accent-green-dim)',
-  idle: 'var(--color-accent-yellow-dim)',
-  error: 'var(--color-accent-red-dim)',
-  stopped: 'var(--color-bg-secondary)',
+  running: 'rgba(48, 209, 88, 0.1)',
+  idle: 'rgba(255, 159, 10, 0.1)',
+  error: 'rgba(255, 69, 58, 0.1)',
+  stopped: 'rgba(142, 142, 147, 0.1)',
 };
 
 const borderStatusColors = {
-  running: 'rgba(14, 203, 129, 0.25)',
-  idle: 'rgba(240, 185, 11, 0.25)',
-  error: 'rgba(246, 70, 93, 0.25)',
-  stopped: 'var(--color-border)',
+  running: 'rgba(48, 209, 88, 0.2)',
+  idle: 'rgba(255, 159, 10, 0.2)',
+  error: 'rgba(255, 69, 58, 0.2)',
+  stopped: 'rgba(142, 142, 147, 0.2)',
 };
 
 function formatUptime(ms) {
@@ -54,6 +54,7 @@ export default function Agents() {
   const [logs, setLogs] = useState([]);
   const [activeTab, setActiveTab] = useState('all');
   const [nodeFeedback, setNodeFeedback] = useState(null);
+  const [restartingNodes, setRestartingNodes] = useState({});
 
   useEffect(() => {
     fetchLogs();
@@ -81,6 +82,7 @@ export default function Agents() {
 
   const handleRestartNode = async (nodeName) => {
     setNodeFeedback(null);
+    setRestartingNodes(prev => ({ ...prev, [nodeName]: true }));
     try {
       const res = await axios.post(`/api/agents/restart/${nodeName}`);
       if (res.data.success) {
@@ -91,87 +93,100 @@ export default function Agents() {
     } catch (err) {
       setNodeFeedback({ type: 'error', message: err.response?.data?.message || 'Restart node failed' });
       setTimeout(() => setNodeFeedback(null), 3000);
+    } finally {
+      setRestartingNodes(prev => ({ ...prev, [nodeName]: false }));
     }
   };
 
   const agentList = Object.entries(agents);
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="page-layout">
       {/* Header control */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--color-border)] pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 border-b border-[#2c2c2e]/60 pb-5">
         <div>
-          <h2 className="text-base font-extrabold text-[var(--color-text-primary)] uppercase tracking-wide flex items-center gap-2">
-            <Bot size={16} className="text-[var(--color-accent-blue)]" />
-            AI Sub-Agent Nodes
-          </h2>
-          <p className="text-[11px] text-[var(--color-text-secondary)] font-semibold">Cluster health diagnostics, run status, and node control terminals.</p>
+          <h2 className="text-xl font-bold tracking-tight text-[#f5f5f7]">AI Sub-Agent Nodes</h2>
+          <p className="text-[11px] text-[#86868b] mt-1 font-medium">
+            Monitor cluster health status diagnostics, uptime records, and control local node processes.
+          </p>
         </div>
 
         {emergencyStop && (
           <button
             onClick={handleResume}
-            className="px-3.5 py-1.5 rounded text-xs font-bold bg-[var(--color-accent-green)] text-[var(--color-bg-primary)] hover:opacity-90 cursor-pointer shadow-sm shadow-[var(--color-accent-green)]/10 transition-opacity"
+            className="px-4 py-1.5 rounded-full text-xs font-bold bg-[#30d158] hover:bg-[#28b54c] text-black cursor-pointer transition-colors duration-300"
           >
-            Resume All Agents
+            Resume All Nodes
           </button>
         )}
       </div>
 
       {nodeFeedback && (
-        <div className={`p-2.5 rounded text-xs font-bold border ${
+        <div className={`p-3.5 rounded-xl text-xs font-bold border font-mono ${
           nodeFeedback.type === 'success' 
-            ? 'bg-[var(--color-accent-green-dim)] border-[var(--color-accent-green)] text-[var(--color-accent-green)]' 
-            : 'bg-[var(--color-accent-red-dim)] border-[var(--color-accent-red)] text-[var(--color-accent-red)]'
+            ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]' 
+            : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
         }`}>
           {nodeFeedback.message}
         </div>
       )}
 
       {/* Cluster Node Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid-layout-3">
         {agentList.length === 0 ? (
-          <div className="col-span-full glass-panel p-10 text-center text-xs text-[var(--color-text-secondary)] uppercase tracking-widest font-semibold animate-pulse">
-            Connecting to AI node manager gateway...
+          <div className="col-span-full glass-panel p-12 text-center text-xs text-zinc-500 uppercase tracking-widest font-mono font-semibold animate-pulse">
+            CONNECTING TO DIAGNOSTICS GATEWAY...
           </div>
         ) : (
           agentList.map(([name, health]) => {
             const Icon = agentIcons[name] || Bot;
             const status = health.status || 'stopped';
+            const isRestarting = restartingNodes[name];
             return (
-              <div key={name} className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[144px] gap-3">
+              <div key={name} className="glass-panel bg-[#1c1c1e] py-4 px-5 flex flex-col justify-between min-h-[144px] gap-3 group">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded flex items-center justify-center bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
-                      <Icon size={12} style={{ color: statusColors[status] }} />
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-black border border-[#2c2c2e]/60 shadow-inner">
+                      <Icon size={14} style={{ color: statusColors[status] }} />
                     </div>
-                    <span className="text-xs font-extrabold text-[var(--color-text-primary)] capitalize">{name} Node</span>
+                    <span className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono capitalize">{name} Node</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[9px] font-bold font-mono capitalize px-2 py-0.5 rounded border" 
-                    style={{ background: bgStatusColors[status] || 'var(--color-bg-secondary)', borderColor: borderStatusColors[status] || 'var(--color-border)', color: statusColors[status] }}>
-                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: statusColors[status] }} />
+                  <div 
+                    className="flex items-center gap-1.5 text-[9px] font-bold font-mono uppercase px-2.5 py-0.5 rounded-full border" 
+                    style={{ 
+                      background: bgStatusColors[status] || 'rgba(0,0,0,0.2)', 
+                      borderColor: borderStatusColors[status] || 'rgba(255,255,255,0.05)', 
+                      color: statusColors[status] 
+                    }}
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full animate-pulse-soft" style={{ background: statusColors[status] }} />
                     <span>{status}</span>
                   </div>
                 </div>
 
-                <div className="my-2.5 space-y-1 text-xs text-[var(--color-text-secondary)]">
+                <div className="my-4 space-y-1.5 text-xs text-[#86868b] font-semibold font-mono">
                   <div className="flex justify-between">
-                    <span>Cycles Completed</span>
-                    <span className="font-bold text-[var(--color-text-primary)] font-mono">{health.cycleCount || 0}</span>
+                    <span className="text-zinc-500 text-[10px] tracking-wider uppercase">Cycles Completed</span>
+                    <span className="font-bold text-slate-200">{health.cycleCount || 0}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Uptime</span>
-                    <span className="font-bold text-[var(--color-text-primary)] font-mono">{formatUptime(health.uptime)}</span>
+                    <span className="text-zinc-500 text-[10px] tracking-wider uppercase">Uptime</span>
+                    <span className="font-bold text-slate-200">{formatUptime(health.uptime)}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-2 text-[9px] font-bold uppercase tracking-wider">
-                  <span className="text-[var(--color-text-muted)]">Node Management</span>
+                <div className="flex items-center justify-between border-t border-black pt-3 text-[9px] font-bold uppercase tracking-wider font-mono">
+                  <span className="text-zinc-600">Core Management</span>
                   <button
                     onClick={() => handleRestartNode(name)}
-                    className="px-2 py-0.5 border border-[var(--color-border)] hover:border-[var(--color-border-light)] text-[var(--color-accent-blue)] bg-[var(--color-bg-secondary)] rounded cursor-pointer transition-colors hover:text-white"
+                    disabled={isRestarting}
+                    className="px-3 py-1 border border-[#2c2c2e]/55 hover:border-[#2c2c2e]/80 text-[#0071e3] hover:text-[#0071e3]/80 bg-black rounded-full cursor-pointer transition-colors flex items-center gap-1"
                   >
-                    Restart Node
+                    {isRestarting ? (
+                      <span>Restarting...</span>
+                    ) : (
+                      <span>Restart Core</span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -180,26 +195,29 @@ export default function Agents() {
         )}
       </div>
 
-      {/* Audit diagnostics grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Diagnostics grid */}
+      <div className="grid-layout-2">
         {/* Risk Audit events */}
-        <div className="glass-panel p-5 space-y-3">
-          <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
-            <ShieldAlert size={13} className="text-[var(--color-accent-yellow)]" />
-            Security & Risk Events
+        <div className="glass-panel bg-[#1c1c1e]">
+          <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+            <ShieldAlert size={14} className="text-amber-500" />
+            Security & Risk Log
           </h3>
           {riskEvents.length === 0 ? (
-            <div className="text-xs text-center py-8 uppercase text-[var(--color-text-secondary)] font-semibold tracking-wider">
-              No anomalies reported in this session
+            <div className="flex flex-col items-center justify-center p-12 text-center h-full my-auto text-zinc-500">
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                NO ANOMALIES DETECTED IN SESSION
+              </span>
             </div>
           ) : (
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
               {riskEvents.map((event, i) => (
-                <div key={i} className="flex items-start gap-2.5 p-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-                  <AlertTriangle size={12} className="flex-shrink-0 text-[var(--color-accent-yellow)]" style={{ marginTop: 1 }} />
-                  <div className="text-[10px]">
-                    <span className="font-bold text-[var(--color-text-primary)] uppercase block">{event.type?.replace(/_/g, ' ')}</span>
-                    <span className="text-[var(--color-text-secondary)] mt-0.5 block font-semibold">{event.message}</span>
+                <div key={i} className="flex items-start gap-3 p-3 rounded-xl border border-[#2c2c2e]/60 bg-black relative overflow-hidden pl-4">
+                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#ff9f0a]" />
+                  <AlertTriangle size={13} className="flex-shrink-0 text-[#ff9f0a] mt-0.5" />
+                  <div className="text-[10px] font-semibold">
+                    <span className="font-bold text-slate-200 uppercase tracking-wider block font-mono">{event.type?.replace(/_/g, ' ')}</span>
+                    <span className="text-zinc-400 mt-1 block font-medium leading-relaxed">{event.message}</span>
                   </div>
                 </div>
               ))}
@@ -208,23 +226,23 @@ export default function Agents() {
         </div>
 
         {/* Live Network Log stream */}
-        <div className="glass-panel p-5 space-y-3">
-          <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-2">
-            <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider flex items-center gap-2">
-              <Clock size={13} className="text-[var(--color-accent-blue)]" />
-              Cluster Log Stream
+        <div className="glass-panel bg-[#1c1c1e]">
+          <div className="flex items-center justify-between border-b border-[#2c2c2e]/60 pb-3 mb-4">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 font-mono">
+              <Terminal size={14} className="text-sky-400" />
+              macOS shell terminal
             </h3>
 
             {/* Filter Tabs */}
-            <div className="flex gap-0.5">
+            <div className="flex gap-1 p-0.5 bg-black border border-[#2c2c2e]/60 rounded-full">
               {['all', 'info', 'warn', 'error'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase border transition-colors cursor-pointer ${
+                  className={`px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase transition-colors cursor-pointer font-mono ${
                     activeTab === tab
-                      ? 'bg-[var(--color-accent-blue)] border-[var(--color-accent-blue)] text-[var(--color-bg-primary)]'
-                      : 'bg-[var(--color-bg-secondary)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-white hover:border-[var(--color-border-light)]'
+                      ? 'bg-[#f5f5f7] text-black font-semibold'
+                      : 'bg-transparent text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   {tab}
@@ -234,23 +252,25 @@ export default function Agents() {
           </div>
 
           {logs.length === 0 ? (
-            <div className="text-xs text-center py-8 uppercase text-[var(--color-text-secondary)] font-semibold tracking-wider animate-pulse">
-              Buffering live server reports...
+            <div className="text-xs text-center py-12 uppercase text-zinc-500 font-extrabold tracking-widest font-mono animate-pulse">
+              SYNCING LOG BUFFER...
             </div>
           ) : (
-            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 font-mono text-[9px] leading-relaxed">
+            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 font-mono text-[9px] bg-black border border-[#2c2c2e]/60 rounded-xl p-3 leading-relaxed">
               {logs.map((log, i) => (
-                <div key={i} className="flex items-start gap-2 p-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-                  <span className="font-bold uppercase tracking-wider flex-shrink-0"
+                <div key={i} className="flex items-start gap-2 p-1 rounded hover:bg-zinc-800/10 transition-colors">
+                  <span 
+                    className="font-bold uppercase tracking-widest flex-shrink-0"
                     style={{
-                      color: log.level === 'error' ? 'var(--color-accent-red)' : log.level === 'warn' ? 'var(--color-accent-yellow)' : 'var(--color-text-secondary)',
-                    }}>
+                      color: log.level === 'error' ? '#ff453a' : log.level === 'warn' ? '#ff9f0a' : '#86868b',
+                    }}
+                  >
                     [{log.level}]
                   </span>
-                  <span className="font-bold text-[var(--color-accent-blue)] flex-shrink-0">
+                  <span className="font-bold text-purple-400 flex-shrink-0">
                     [{log.agent}]
                   </span>
-                  <span className="text-[var(--color-text-secondary)] break-all font-semibold">{log.message}</span>
+                  <span className="text-zinc-400 break-all font-medium">{log.message}</span>
                 </div>
               ))}
             </div>

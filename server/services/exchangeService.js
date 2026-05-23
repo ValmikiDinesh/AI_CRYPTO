@@ -32,13 +32,14 @@ export const fetchCandles = async (symbol, timeframe = '5m', limit = 100) => {
     const exchange = getExchange();
     const ohlcv = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
     return ohlcv.map(([timestamp, open, high, low, close, volume]) => ({
-      timestamp,
       open,
       high,
       low,
       close,
       volume,
-      date: new Date(timestamp),
+      openTime: new Date(timestamp),
+      closeTime: new Date(timestamp + 5 * 60 * 1000 - 1),
+      isClosed: true,
     }));
   } catch (err) {
     logger.error(`fetchCandles(${symbol}) error: ${err.message}`);

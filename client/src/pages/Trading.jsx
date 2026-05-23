@@ -1,24 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useMarketStore, useSignalStore, usePortfolioStore } from '../store.js';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { CandlestickChart, TrendingUp, Shield, Info, ShoppingBag, XCircle } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { CandlestickChart, TrendingUp, Shield, Info, ShoppingBag, XCircle, ChevronRight, Gauge } from 'lucide-react';
 import axios from 'axios';
+const axiosActual = axios;
 
 const ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'DOGEUSDT'];
 
 function MetricProgress({ label, value, isRisk = false }) {
   const pct = Math.min(Math.max((value || 0) * 100, 0), 100);
-  const color = isRisk 
-    ? (pct > 60 ? 'bg-[var(--color-accent-red)]' : 'bg-[var(--color-accent-green)]') 
-    : 'bg-[var(--color-accent-blue)]';
+  const barColor = isRisk 
+    ? (pct > 60 ? 'bg-[#ff453a]' : 'bg-[#30d158]') 
+    : 'bg-[#0071e3]';
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex justify-between text-xs font-semibold">
-        <span className="text-[var(--color-text-secondary)] uppercase text-[9px] tracking-wider font-bold">{label}</span>
-        <span className="text-[var(--color-text-primary)] font-extrabold font-mono text-[10px]">{pct.toFixed(0)}%</span>
+        <span className="text-[#86868b] uppercase text-[9px] tracking-widest font-mono">{label}</span>
+        <span className="text-[#f5f5f7] font-bold font-mono text-[10px]">{pct.toFixed(0)}%</span>
       </div>
-      <div className="w-full bg-[var(--color-bg-secondary)] rounded-full h-2 overflow-hidden border border-[var(--color-border)] p-[1px]">
-        <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${pct}%` }}></div>
+      <div className="w-full bg-black rounded-full h-1.5 overflow-hidden border border-[#2c2c2e]/60">
+        <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${pct}%` }}></div>
       </div>
     </div>
   );
@@ -26,7 +27,6 @@ function MetricProgress({ label, value, isRisk = false }) {
 
 export default function Trading() {
   const [selectedAsset, setSelectedAsset] = useState('BTCUSDT');
-  const [candles, setCandles] = useState([]);
   const [activePosition, setActivePosition] = useState(null);
 
   // Manual Quick Order State
@@ -38,14 +38,20 @@ export default function Trading() {
   const [takeProfit, setTakeProfit] = useState('');
   const [orderFeedback, setOrderFeedback] = useState(null);
 
-  const prices = useMarketStore((s) => s.prices);
-  const fusedSignals = useSignalStore((s) => s.fusedSignals);
-  const technicalSignals = useSignalStore((s) => s.technicalSignals);
-  const sentimentSignals = useSignalStore((s) => s.sentimentSignals);
-  const predictions = useSignalStore((s) => s.predictions);
+  const price = useMarketStore((s) => s.prices[selectedAsset]);
+  const rawCandles = useMarketStore((s) => s.candles[selectedAsset]);
+  const signal = useSignalStore((s) => s.fusedSignals[selectedAsset]);
+  const tech = useSignalStore((s) => s.technicalSignals[selectedAsset]);
+  const sent = useSignalStore((s) => s.sentimentSignals[selectedAsset]);
   const portfolio = usePortfolioStore((s) => s.portfolio);
 
-  const price = prices[selectedAsset];
+  const candles = (rawCandles || []).map((c) => ({
+    time: new Date(c.openTime || c.timestamp || c.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    price: c.close,
+    high: c.high,
+    low: c.low,
+    volume: c.volume,
+  }));
 
   useEffect(() => {
     if (price && orderType === 'Market') {
@@ -60,7 +66,7 @@ export default function Trading() {
   useEffect(() => {
     const fetchPositions = async () => {
       try {
-        const res = await axios.get('/api/portfolio/positions');
+        const res = await axiosActual.get('/api/portfolio/positions');
         if (res.data.success) {
           const open = res.data.data.find((p) => p.asset === selectedAsset);
           setActivePosition(open || null);
@@ -74,20 +80,12 @@ export default function Trading() {
 
   const fetchCandles = async (asset) => {
     try {
-      const res = await axios.get(`/api/market/candles/${asset}?limit=80`);
+      const res = await axiosActual.get(`/api/market/candles/${asset}?limit=80`);
       if (res.data.success) {
-        setCandles(
-          res.data.data.map((c) => ({
-            time: new Date(c.openTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            price: c.close,
-            high: c.high,
-            low: c.low,
-            volume: c.volume,
-          }))
-        );
+        useMarketStore.getState().setCandles(asset, res.data.data);
       }
     } catch {
-      setCandles([]);
+      useMarketStore.getState().setCandles(asset, []);
     }
   };
 
@@ -102,7 +100,7 @@ export default function Trading() {
     }
 
     try {
-      const res = await axios.post('/api/trades/manual', {
+      const res = await axiosActual.post('/api/trades/manual', {
         asset: selectedAsset,
         action: orderAction,
         entryPrice: executionPrice,
@@ -126,7 +124,7 @@ export default function Trading() {
   const handleClosePosition = async () => {
     if (!price) return;
     try {
-      const res = await axios.post('/api/trades/manual-close', {
+      const res = await axiosActual.post('/api/trades/manual-close', {
         asset: selectedAsset,
         exitPrice: price,
       });
@@ -141,28 +139,28 @@ export default function Trading() {
     }
   };
 
-  const signal = fusedSignals[selectedAsset];
-  const tech = technicalSignals[selectedAsset];
-  const sent = sentimentSignals[selectedAsset];
+  // Selected asset signals are retrieved directly via Zustand selectors above
 
   return (
-    <div className="space-y-6 animate-slide-up">
-      {/* Ticker selector */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--color-border)] pb-4">
+    <div className="page-layout">
+      {/* Selector & Title */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 border-b border-[#2c2c2e]/60 pb-5">
         <div>
-          <h2 className="text-base font-extrabold text-[var(--color-text-primary)] uppercase tracking-wide">Trading Desk</h2>
-          <p className="text-[11px] text-[var(--color-text-secondary)] font-semibold">Stream market assets, AI predictions, and execute paper trades.</p>
+          <h2 className="text-xl font-bold tracking-tight text-[#f5f5f7]">Trading Desk</h2>
+          <p className="text-[11px] text-[#86868b] mt-1 font-medium">
+            Analyze assets, configure technical indicators, and submit manual transactions.
+          </p>
         </div>
 
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 p-1 bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-full">
           {ASSETS.map((asset) => (
             <button
               key={asset}
               onClick={() => setSelectedAsset(asset)}
-              className={`px-3 py-1.5 rounded text-xs font-black transition-all cursor-pointer border ${
+              className={`px-4 py-1 rounded-full text-xs font-bold transition-all duration-300 cursor-pointer font-mono ${
                 selectedAsset === asset
-                  ? 'bg-[var(--color-accent-blue)] border-[var(--color-accent-blue)] text-[var(--color-bg-primary)] shadow-sm'
-                  : 'bg-[var(--color-bg-card)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-white hover:bg-[var(--color-bg-card-hover)]'
+                  ? 'bg-[#f5f5f7] text-black shadow-sm'
+                  : 'bg-transparent text-[#86868b] hover:text-[#f5f5f7]'
               }`}
             >
               {asset.replace('USDT', '')}
@@ -171,156 +169,159 @@ export default function Trading() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column */}
+      <div className="grid-layout-3">
+        {/* Left pane: Chart + Actions */}
         <div className="lg:col-span-2 space-y-6">
           {/* Main Chart */}
-          <div className="glass-panel p-5 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#02c0f9]/20 to-transparent pointer-events-none" />
-            <div className="flex items-center justify-between mb-4">
+          <div className="glass-panel relative overflow-hidden bg-[#1c1c1e]">
+            <div className="flex items-center justify-between mb-5">
               <div>
-                <span className="text-base font-extrabold text-[var(--color-text-primary)]">
+                <span className="text-base font-semibold tracking-tight text-[#f5f5f7] font-mono">
                   {selectedAsset.replace('USDT', '')}/USDT
                 </span>
-                <span className="text-xl font-black text-[var(--color-accent-blue)] ml-4 font-mono">
+                <span className="text-2xl font-bold text-[#f5f5f7] ml-4 font-mono">
                   {price ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                 </span>
               </div>
               {signal && (
-                <span className={`px-2.5 py-0.5 rounded text-[9px] font-black border uppercase tracking-wider ${
+                <span className={`px-3 py-1 rounded-full text-[9px] font-bold border uppercase tracking-wider font-mono ${
                   signal.action === 'BUY'
-                    ? 'bg-[var(--color-accent-green-dim)] border-[var(--color-accent-green)]/35 text-[var(--color-accent-green)]'
-                    : 'bg-[var(--color-accent-red-dim)] border-[var(--color-accent-red)]/35 text-[var(--color-accent-red)]'
+                    ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+                    : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
                 }`}>
-                  AI: {signal.action}
+                  AI STRATEGY: {signal.action}
                 </span>
               )}
             </div>
 
             {candles.length > 0 ? (
               <ResponsiveContainer width="100%" height={320}>
-                <AreaChart data={candles} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+                <AreaChart data={candles} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
                   <defs>
                     <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#02c0f9" stopOpacity={0.12} />
-                      <stop offset="95%" stopColor="#02c0f9" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#0071e3" stopOpacity={0.12} />
+                      <stop offset="95%" stopColor="#0071e3" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                  <XAxis dataKey="time" stroke="var(--color-text-secondary)" fontSize={9} tickLine={false} />
-                  <YAxis stroke="var(--color-text-secondary)" fontSize={9} tickLine={false} domain={['auto', 'auto']} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+                  <XAxis dataKey="time" stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
+                  <YAxis stroke="#86868b" fontSize={9} tickLine={false} domain={['auto', 'auto']} className="font-mono" />
                   <Tooltip
-                    contentStyle={{ background: '#12161a', border: '1px solid #2b313a', borderRadius: '6px', color: '#eaecef' }}
-                    itemStyle={{ fontSize: '11px', color: '#eaecef' }}
+                    contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
+                    itemStyle={{ fontSize: '11px', color: '#f5f5f7', fontFamily: 'monospace' }}
                   />
-                  <Area type="monotone" dataKey="price" stroke="#02c0f9" fillOpacity={1} fill="url(#chartGradient)" strokeWidth={1.5} />
+                  <Area type="monotone" dataKey="price" stroke="#0071e3" fillOpacity={1} fill="url(#chartGradient)" strokeWidth={1.5} />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[320px] flex items-center justify-center text-xs text-[var(--color-text-secondary)] font-semibold uppercase tracking-wider animate-pulse">
-                Loading candles...
+              <div className="h-[320px] flex items-center justify-center text-xs text-zinc-500 font-extrabold uppercase tracking-widest font-mono animate-pulse">
+                SYNCING FEED...
               </div>
             )}
           </div>
 
           {/* Quick order entry and open positions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid-layout-2">
             {/* Quick Order Form */}
-            <div className="glass-panel p-5 space-y-4">
-              <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-widest flex items-center gap-1.5 border-b border-[var(--color-border)] pb-2">
-                <ShoppingBag size={13} className="text-[var(--color-accent-blue)]" />
-                Paper Trading Form
+            <div className="glass-panel bg-[#1c1c1e]">
+              <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+                <ShoppingBag size={14} className="text-sky-400" />
+                Execution Ticket
               </h3>
 
-              <form onSubmit={handlePlaceOrder} className="space-y-3.5 text-xs">
-                <div className="grid grid-cols-2 gap-1.5 p-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded">
+              <form onSubmit={handlePlaceOrder} className="space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-1 p-0.5 bg-black border border-[#2c2c2e]/60 rounded-full">
                   <button
                     type="button"
                     onClick={() => setOrderAction('BUY')}
-                    className={`py-1 rounded font-black text-xs transition-all cursor-pointer ${
-                      orderAction === 'BUY' ? 'bg-[var(--color-accent-green)] text-[var(--color-bg-primary)] shadow-sm' : 'text-[var(--color-text-secondary)]'
+                    className={`py-1.5 rounded-full font-bold text-xs transition-all duration-300 cursor-pointer font-mono ${
+                      orderAction === 'BUY' 
+                        ? 'bg-[#30d158] text-black font-semibold' 
+                        : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
-                    BUY
+                    LONG / BUY
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrderAction('SELL')}
-                    className={`py-1 rounded font-black text-xs transition-all cursor-pointer ${
-                      orderAction === 'SELL' ? 'bg-[var(--color-accent-red)] text-white shadow-sm' : 'text-[var(--color-text-secondary)]'
+                    className={`py-1.5 rounded-full font-bold text-xs transition-all duration-300 cursor-pointer font-mono ${
+                      orderAction === 'SELL' 
+                        ? 'bg-[#ff453a] text-white font-semibold' 
+                        : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
-                    SELL
+                    SHORT / SELL
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[9px] text-[var(--color-text-secondary)] font-bold uppercase mb-1">Type</label>
+                    <label className="block text-[9px] text-[#86868b] font-bold uppercase tracking-widest font-mono mb-1.5">Type</label>
                     <select
                       value={orderType}
                       onChange={(e) => setOrderType(e.target.value)}
-                      className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded px-2.5 py-1.5 text-white font-bold outline-none focus:border-[var(--color-accent-blue)] transition-colors text-xs"
+                      className="w-full bg-[#2c2c2e] border border-[#2c2c2e] rounded-xl px-3 py-2 text-[#f5f5f7] font-semibold outline-none focus:border-zinc-500 transition-colors text-xs cursor-pointer"
                     >
                       <option>Market</option>
                       <option>Limit</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] text-[var(--color-text-secondary)] font-bold uppercase mb-1">Qty</label>
+                    <label className="block text-[9px] text-[#86868b] font-bold uppercase tracking-widest font-mono mb-1.5">Quantity</label>
                     <input
                       type="number"
                       step="0.001"
                       value={orderQuantity}
                       onChange={(e) => setOrderQuantity(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded px-2.5 py-1.5 text-white font-mono font-bold outline-none focus:border-[var(--color-accent-blue)] transition-colors"
+                      className="w-full bg-[#2c2c2e] border border-[#2c2c2e] rounded-xl px-3 py-2 text-[#f5f5f7] font-mono font-bold outline-none focus:border-zinc-500 transition-colors"
                     />
                   </div>
                 </div>
 
                 {orderType === 'Limit' && (
                   <div>
-                    <label className="block text-[9px] text-[var(--color-text-secondary)] font-bold uppercase mb-1">Limit Price</label>
+                    <label className="block text-[9px] text-[#86868b] font-bold uppercase tracking-widest font-mono mb-1.5">Limit Price</label>
                     <input
                       type="number"
                       step="0.01"
                       value={limitPrice}
                       onChange={(e) => setLimitPrice(e.target.value)}
-                      className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded px-2.5 py-1.5 text-white font-mono font-bold outline-none focus:border-[var(--color-accent-blue)] transition-colors"
+                      className="w-full bg-[#2c2c2e] border border-[#2c2c2e] rounded-xl px-3 py-2 text-[#f5f5f7] font-mono font-bold outline-none focus:border-zinc-500 transition-colors"
                     />
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[9px] text-[var(--color-text-secondary)] font-bold uppercase mb-1">Stop Loss (USD)</label>
+                    <label className="block text-[9px] text-[#86868b] font-bold uppercase tracking-widest font-mono mb-1.5">Stop Loss (SL)</label>
                     <input
                       type="number"
                       step="0.01"
                       placeholder="SL Price"
                       value={stopLoss}
                       onChange={(e) => setStopLoss(e.target.value)}
-                      className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded px-2.5 py-1.5 text-white font-mono outline-none focus:border-[var(--color-accent-blue)] transition-colors placeholder-[#474f57]"
+                      className="w-full bg-[#2c2c2e] border border-[#2c2c2e] rounded-xl px-3 py-2 text-[#f5f5f7] font-mono outline-none focus:border-zinc-500 transition-colors placeholder-zinc-600"
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-[var(--color-text-secondary)] font-bold uppercase mb-1">Take Profit (USD)</label>
+                    <label className="block text-[9px] text-[#86868b] font-bold uppercase tracking-widest font-mono mb-1.5">Take Profit (TP)</label>
                     <input
                       type="number"
                       step="0.01"
                       placeholder="TP Price"
                       value={takeProfit}
                       onChange={(e) => setTakeProfit(e.target.value)}
-                      className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border)] rounded px-2.5 py-1.5 text-white font-mono outline-none focus:border-[var(--color-accent-blue)] transition-colors placeholder-[#474f57]"
+                      className="w-full bg-[#2c2c2e] border border-[#2c2c2e] rounded-xl px-3 py-2 text-[#f5f5f7] font-mono outline-none focus:border-zinc-500 transition-colors placeholder-zinc-600"
                     />
                   </div>
                 </div>
 
                 {orderFeedback && (
-                  <div className={`p-2.5 rounded text-[10px] font-bold border ${
+                  <div className={`p-3 rounded-xl text-[10px] font-bold border font-mono ${
                     orderFeedback.type === 'success' 
-                      ? 'bg-[var(--color-accent-green-dim)] border-[var(--color-accent-green)]/25 text-[var(--color-accent-green)]' 
-                      : 'bg-[var(--color-accent-red-dim)] border-[var(--color-accent-red)]/25 text-[var(--color-accent-red)]'
+                      ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]' 
+                      : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
                   }`}>
                     {orderFeedback.message}
                   </div>
@@ -328,7 +329,7 @@ export default function Trading() {
 
                 <button
                   type="submit"
-                  className="w-full py-2 bg-[var(--color-accent-blue)] text-[var(--color-bg-primary)] font-black rounded text-xs tracking-wider uppercase hover:opacity-90 transition-opacity cursor-pointer"
+                  className="w-full py-2.5 bg-[#f5f5f7] hover:bg-[#e5e5ea] text-black font-bold rounded-full text-xs tracking-wider uppercase transition-all duration-300 cursor-pointer shadow-sm mt-2"
                 >
                   Submit Order
                 </button>
@@ -336,41 +337,41 @@ export default function Trading() {
             </div>
 
             {/* Active Position Info */}
-            <div className="glass-panel p-5 space-y-4">
-              <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-widest flex items-center gap-1.5 border-b border-[var(--color-border)] pb-2">
-                <Shield size={13} className="text-purple-400" />
-                Active Position Exposure
+            <div className="glass-panel bg-[#1c1c1e]">
+              <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+                <Shield size={14} className="text-purple-400" />
+                Exposure
               </h3>
 
               {activePosition ? (
-                <div className="space-y-3.5 text-xs">
-                  <div className="flex justify-between items-center bg-[var(--color-bg-secondary)] p-2.5 rounded border border-[var(--color-border)]">
-                    <span className="text-[9px] text-[var(--color-text-secondary)] font-bold uppercase tracking-wider">Asset</span>
-                    <span className="font-extrabold text-white">{activePosition.asset?.replace('USDT', '')}</span>
+                <div className="space-y-4 text-xs">
+                  <div className="flex justify-between items-center bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                    <span className="text-[9px] text-[#86868b] font-bold uppercase tracking-widest font-mono">Asset Pair</span>
+                    <span className="font-bold text-[#f5f5f7] font-mono">{activePosition.asset?.replace('USDT', '')}/USDT</span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[var(--color-bg-secondary)] p-2.5 rounded border border-[var(--color-border)]">
-                      <span className="block text-[9px] text-[var(--color-text-secondary)] uppercase tracking-wider font-bold mb-0.5">Side</span>
-                      <span className={`font-black uppercase text-[10px] ${activePosition.side === 'long' ? 'text-[var(--color-accent-green)]' : 'text-[var(--color-accent-red)]'}`}>
+                    <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                      <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Direction</span>
+                      <span className={`font-black uppercase text-[10px] font-mono ${activePosition.side === 'long' ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
                         {activePosition.side?.toUpperCase()}
                       </span>
                     </div>
-                    <div className="bg-[var(--color-bg-secondary)] p-2.5 rounded border border-[var(--color-border)]">
-                      <span className="block text-[9px] text-[var(--color-text-secondary)] uppercase tracking-wider font-bold mb-0.5">Entry</span>
-                      <span className="font-bold text-white font-mono">${activePosition.entryPrice?.toLocaleString()}</span>
+                    <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                      <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Entry Price</span>
+                      <span className="font-bold text-[#f5f5f7] font-mono">${activePosition.entryPrice?.toLocaleString()}</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[var(--color-bg-secondary)] p-2.5 rounded border border-[var(--color-border)]">
-                      <span className="block text-[9px] text-[var(--color-text-secondary)] uppercase tracking-wider font-bold mb-0.5">Qty</span>
-                      <span className="font-bold text-[var(--color-text-primary)] font-mono">{activePosition.quantity?.toFixed(4)}</span>
+                    <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                      <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Position Qty</span>
+                      <span className="font-bold text-zinc-300 font-mono">{activePosition.quantity?.toFixed(4)}</span>
                     </div>
-                    <div className="bg-[var(--color-bg-secondary)] p-2.5 rounded border border-[var(--color-border)]">
-                      <span className="block text-[9px] text-[var(--color-text-secondary)] uppercase tracking-wider font-bold mb-0.5">Unrealized PnL</span>
+                    <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                      <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Unrealized PnL</span>
                       <span className={`font-black font-mono text-sm ${
-                        activePosition.unrealizedPnl >= 0 ? 'text-[var(--color-accent-green)]' : 'text-[var(--color-accent-red)]'
+                        activePosition.unrealizedPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'
                       }`}>
                         {activePosition.unrealizedPnl >= 0 ? '+' : ''}${activePosition.unrealizedPnl?.toFixed(2)}
                       </span>
@@ -379,16 +380,18 @@ export default function Trading() {
 
                   <button
                     onClick={handleClosePosition}
-                    className="w-full py-2 bg-transparent text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/20 hover:bg-[var(--color-accent-red)]/10 font-bold rounded text-xs uppercase cursor-pointer transition-colors"
+                    className="w-full py-2.5 bg-transparent text-[#ff453a] border border-[#ff453a]/30 hover:border-[#ff453a]/50 hover:bg-[#ff453a]/10 font-bold rounded-full text-xs uppercase cursor-pointer transition-all duration-300 mt-2"
                   >
-                    Close Position
+                    Liquidate Position
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center p-8 text-center h-44 text-[var(--color-text-secondary)]">
-                  <span className="text-[10px] text-[var(--color-text-secondary)] font-bold uppercase tracking-wider">No Active Position</span>
-                  <p className="text-[9px] text-[var(--color-text-secondary)] mt-1.5 max-w-[160px] leading-normal font-semibold">
-                    Enter a mock trade manually or wait for the autonomous agents to buy or sell.
+                <div className="flex flex-col items-center justify-center p-8 text-center h-full my-auto text-[#86868b]">
+                  <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                    NO EXPOSURE RECORDED
+                  </span>
+                  <p className="text-[9px] text-zinc-500 mt-2 max-w-[170px] leading-normal font-semibold">
+                    Submit manual ticket or wait for auto agents.
                   </p>
                 </div>
               )}
@@ -396,124 +399,125 @@ export default function Trading() {
           </div>
         </div>
 
-        {/* Right Column: AI Signal & Technical indicators */}
+        {/* Right pane: AI and Indicators */}
         <div className="space-y-6">
-          {/* AI Decision with Progress Bars */}
-          <div className="glass-panel p-5">
-            <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
-              <TrendingUp size={13} className="text-[var(--color-accent-blue)]" />
-              AI Fusion Consensus
+          {/* AI Decision progress */}
+          <div className="glass-panel bg-[#1c1c1e]">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+              <TrendingUp size={14} className="text-sky-400" />
+              Consensus Signal
             </h3>
 
             {signal ? (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase tracking-wider text-[9px]">Recommendation</span>
-                  <span className={`font-black px-1.5 py-0.5 rounded text-[9px] tracking-wide uppercase border ${
+                  <span className="text-[#86868b] font-bold uppercase tracking-widest text-[9px] font-mono">Recommendation</span>
+                  <span className={`font-bold px-2.5 py-0.5 rounded-full text-[9px] tracking-widest uppercase border font-mono ${
                     signal.action === 'BUY' 
-                      ? 'bg-[var(--color-accent-green-dim)] border-[var(--color-accent-green)]/35 text-[var(--color-accent-green)]' 
+                      ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]' 
                       : signal.action === 'SELL' 
-                        ? 'bg-[var(--color-accent-red-dim)] border-[var(--color-accent-red)]/35 text-[var(--color-accent-red)]' 
-                        : 'bg-[var(--color-bg-secondary)] border-[var(--color-border)] text-[var(--color-text-secondary)]'
+                        ? 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]' 
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400'
                   }`}>{signal.action}</span>
                 </div>
 
-                <div className="space-y-3 py-1">
-                  <MetricProgress label="Confidence" value={signal.confidence} />
-                  <MetricProgress label="Risk Index" value={signal.riskScore} isRisk={true} />
+                <div className="space-y-4 py-1">
+                  <MetricProgress label="Signal Confidence" value={signal.confidence} />
+                  <MetricProgress label="Volatility Risk Index" value={signal.riskScore} isRisk={true} />
                 </div>
 
-                <div className="space-y-1.5 text-xs border-t border-[var(--color-border)] pt-3">
+                <div className="space-y-2 text-xs border-t border-[#2c2c2e]/60 pt-4 font-semibold">
                   <div className="flex justify-between">
-                    <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px] tracking-wider">Stop Loss</span>
-                    <span className="font-bold text-[var(--color-accent-red)] font-mono">${signal.stopLoss?.toLocaleString()}</span>
+                    <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">Stop Loss Limit</span>
+                    <span className="font-bold text-[#ff453a] font-mono">${signal.stopLoss?.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px] tracking-wider">Take Profit</span>
-                    <span className="font-bold text-[var(--color-accent-green)] font-mono">${signal.takeProfit?.toLocaleString()}</span>
+                    <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">Target Take Profit</span>
+                    <span className="font-bold text-[#30d158] font-mono">${signal.takeProfit?.toLocaleString()}</span>
                   </div>
                 </div>
 
                 {signal.reasoning && (
-                  <div className="p-3 rounded-md text-[10px] bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border border-[var(--color-border)] leading-normal font-semibold relative overflow-hidden pl-4">
-                    <div className="absolute top-0 left-0 bottom-0 w-0.5 bg-[var(--color-accent-blue)]" />
-                    <Info size={11} className="inline mr-1.5 text-[var(--color-accent-blue)] align-[-2px]" />
+                  <div className="p-3.5 rounded-xl text-[10px] bg-black text-[#86868b] border border-[#2c2c2e]/65 leading-normal font-semibold relative overflow-hidden pl-5 mt-2">
+                    <div className="absolute top-0 left-0 bottom-0 w-[2px] bg-[#0071e3]" />
+                    <Info size={11} className="inline mr-2 text-[#0071e3] align-[-2px]" />
                     {signal.reasoning}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-text-secondary)] py-6 text-center uppercase tracking-wider font-semibold animate-pulse">
-                Pending AI consensus...
+              <div className="text-xs text-zinc-500 py-8 text-center uppercase tracking-widest font-mono font-semibold animate-pulse">
+                WAITING FOR PIPELINE SYNC...
               </div>
             )}
           </div>
 
-          {/* Technical indicators */}
-          <div className="glass-panel p-5">
-            <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
-              <Shield size={13} className="text-purple-400" />
-              Technical Signals
+          {/* Technical signals */}
+          <div className="glass-panel bg-[#1c1c1e]">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+              <Gauge size={14} className="text-purple-400" />
+              Technical Indicators
             </h3>
 
             {tech?.indicators ? (
-              <div className="space-y-2.5 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px]">RSI (14)</span>
-                  <span className={`font-bold font-mono px-1.5 py-0.5 rounded text-[10px] ${
-                    tech.indicators.rsi > 70 ? 'bg-[var(--color-accent-red-dim)] text-[var(--color-accent-red)]' :
-                      tech.indicators.rsi < 30 ? 'bg-[var(--color-accent-green-dim)] text-[var(--color-accent-green)]' : 'text-[var(--color-text-primary)]'
+              <div className="space-y-3.5 text-xs">
+                <div className="flex justify-between items-center font-semibold">
+                  <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">RSI (14 Period)</span>
+                  <span className={`font-bold font-mono px-2 py-0.5 rounded-full text-[10px] ${
+                    tech.indicators.rsi > 70 ? 'bg-[#ff453a]/10 text-[#ff453a] border border-[#ff453a]/20' :
+                      tech.indicators.rsi < 30 ? 'bg-[#30d158]/10 text-[#30d158] border border-[#30d158]/20' : 'bg-black border border-[#2c2c2e]/60 text-zinc-200'
                   }`}>{tech.indicators.rsi?.toFixed(1)}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px]">MACD Histogram</span>
-                  <span className={`font-bold font-mono ${tech.indicators.macd?.histogram > 0 ? 'text-[var(--color-accent-green)]' : 'text-[var(--color-accent-red)]'}`}>
+                <div className="flex justify-between items-center font-semibold">
+                  <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">MACD Delta Hist</span>
+                  <span className={`font-bold font-mono ${tech.indicators.macd?.histogram > 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
                     {tech.indicators.macd?.histogram > 0 ? '+' : ''}{tech.indicators.macd?.histogram?.toFixed(2)}
                   </span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px]">Regime</span>
-                  <span className="font-extrabold text-[var(--color-accent-blue)] uppercase text-[9px] tracking-wide">{tech.indicators.regime}</span>
+                <div className="flex justify-between items-center font-semibold">
+                  <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">Regime Label</span>
+                  <span className="font-bold text-[#f5f5f7] uppercase text-[9px] tracking-widest font-mono">{tech.indicators.regime}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px]">Volume Ratio</span>
-                  <span className="font-bold text-[var(--color-text-primary)] font-mono">{tech.indicators.volume?.ratio?.toFixed(2)}x</span>
+                <div className="flex justify-between items-center font-semibold">
+                  <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">Volume Ratio</span>
+                  <span className="font-bold text-[#f5f5f7] font-mono">{tech.indicators.volume?.ratio?.toFixed(2)}x</span>
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-text-secondary)] py-4 text-center uppercase tracking-wider font-semibold animate-pulse">
-                Buffering indicators...
+              <div className="text-xs text-zinc-500 py-6 text-center uppercase tracking-widest font-mono font-semibold animate-pulse">
+                WAITING FOR STREAM...
               </div>
             )}
           </div>
 
           {/* Sentiment */}
-          <div className="glass-panel p-5">
-            <h3 className="text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider mb-4 border-b border-[var(--color-border)] pb-2">
-              Macro Sentiment
+          <div className="glass-panel bg-[#1c1c1e]">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+              <ChevronRight size={14} className="text-sky-400" />
+              Sentiment Analysis
             </h3>
 
             {sent ? (
-              <div className="space-y-2.5 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px]">Label</span>
-                  <span className={`font-extrabold uppercase text-[9px] tracking-wide px-1.5 py-0.5 rounded ${
-                    sent.label === 'bullish' ? 'bg-[var(--color-accent-green-dim)] text-[var(--color-accent-green)]' :
-                      sent.label === 'bearish' ? 'bg-[var(--color-accent-red-dim)] text-[var(--color-accent-red)]' : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)]'
+              <div className="space-y-3.5 text-xs">
+                <div className="flex justify-between items-center font-semibold">
+                  <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">NLP Sentiment</span>
+                  <span className={`font-bold uppercase text-[9px] tracking-widest px-2.5 py-0.5 rounded-full border ${
+                    sent.label === 'bullish' ? 'bg-[#30d158]/10 text-[#30d158] border-[#30d158]/20' :
+                      sent.label === 'bearish' ? 'bg-[#ff453a]/10 text-[#ff453a] border-[#ff453a]/20' : 'bg-black border border-[#2c2c2e]/60 text-[#86868b]'
                   }`}>{sent.label}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px]">NLP Score</span>
-                  <span className="font-bold text-[var(--color-text-primary)] font-mono">{sent.sentiment?.toFixed(2)}</span>
+                <div className="flex justify-between items-center font-semibold">
+                  <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">Normalized Score</span>
+                  <span className="font-bold text-[#f5f5f7] font-mono">{sent.sentiment?.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--color-text-secondary)] font-bold uppercase text-[9px]">Articles analysed</span>
-                  <span className="font-bold text-[var(--color-text-primary)] font-mono">{sent.articleCount}</span>
+                <div className="flex justify-between items-center font-semibold">
+                  <span className="text-[#86868b] font-bold uppercase text-[9px] tracking-widest font-mono">Articles Crawled</span>
+                  <span className="font-bold text-[#f5f5f7] font-mono">{sent.articleCount}</span>
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-text-secondary)] py-4 text-center uppercase tracking-wider font-semibold animate-pulse">
-                Sentiment offline...
+              <div className="text-xs text-zinc-500 py-6 text-center uppercase tracking-widest font-mono font-semibold animate-pulse">
+                WAITING FOR SYNC...
               </div>
             )}
           </div>
