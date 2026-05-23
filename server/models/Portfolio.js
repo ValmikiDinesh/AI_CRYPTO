@@ -1,0 +1,57 @@
+import mongoose from 'mongoose';
+
+const positionSchema = new mongoose.Schema({
+  asset: { type: String, required: true },
+  side: { type: String, enum: ['long', 'short'], required: true },
+  entryPrice: { type: Number, required: true },
+  currentPrice: { type: Number, default: 0 },
+  quantity: { type: Number, required: true },
+  leverage: { type: Number, default: 1 },
+  unrealizedPnl: { type: Number, default: 0 },
+  realizedPnl: { type: Number, default: 0 },
+  stopLoss: { type: Number },
+  takeProfit: { type: Number },
+  openedAt: { type: Date, default: Date.now },
+  closedAt: { type: Date },
+  status: { type: String, enum: ['open', 'closed'], default: 'open' },
+}, { _id: true });
+
+const portfolioSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    unique: true,
+  },
+  totalBalance: { type: Number, default: 10000 },   // paper-trading start capital
+  availableBalance: { type: Number, default: 10000 },
+  totalPnl: { type: Number, default: 0 },
+  totalPnlPercent: { type: Number, default: 0 },
+  dailyPnl: { type: Number, default: 0 },
+  maxDrawdown: { type: Number, default: 0 },
+  winRate: { type: Number, default: 0 },
+  totalTrades: { type: Number, default: 0 },
+  winningTrades: { type: Number, default: 0 },
+  losingTrades: { type: Number, default: 0 },
+  positions: [positionSchema],
+  allocationBreakdown: [{
+    asset: String,
+    percentage: Number,
+    value: Number,
+  }],
+  peakBalance: { type: Number, default: 10000 },
+  dailyLossToday: { type: Number, default: 0 },
+  lastRebalancedAt: { type: Date },
+}, {
+  timestamps: true,
+});
+
+// Virtual: current drawdown %
+portfolioSchema.virtual('currentDrawdown').get(function () {
+  if (this.peakBalance === 0) return 0;
+  return (this.peakBalance - this.totalBalance) / this.peakBalance;
+});
+
+portfolioSchema.set('toJSON', { virtuals: true });
+
+export default mongoose.model('Portfolio', portfolioSchema);

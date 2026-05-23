@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+
+  /* Premium Obsidian Slate (Binance Pro / TradingView style) */
+  --color-bg-primary: #0b0e11;
+  --color-bg-secondary: #12161a;
+  --color-bg-card: #181a20;
+  --color-bg-card-hover: #1e2329;
+  --color-bg-input: #12161a;
+  --color-border: #2b313a;
+  --color-border-light: #363c4e;
+
+  --color-text-primary: #eaecef;
+  --color-text-secondary: #848e9c;
+  --color-text-muted: #474f57;
+
+  --color-accent-green: #0ecb81;
+  --color-accent-green-dim: rgba(14, 203, 129, 0.08);
+  --color-accent-red: #f6465d;
+  --color-accent-red-dim: rgba(246, 70, 93, 0.08);
+  --color-accent-blue: #02c0f9;
+  --color-accent-blue-dim: rgba(2, 192, 249, 0.08);
+  --color-accent-yellow: #f0b90b;
+  --color-accent-yellow-dim: rgba(240, 185, 11, 0.08);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg-primary);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(2, 192, 249, 0.02) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(14, 203, 129, 0.015) 0px, transparent 50%),
+    linear-gradient(rgba(255, 255, 255, 0.002) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.002) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 50px 50px, 50px 50px;
+  color: var(--color-text-primary);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Institutional Grade Card Panel with 3D elevations and accent shines */
+.glass-panel {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel:hover {
+  border-color: rgba(2, 192, 249, 0.35);
+  background-color: var(--color-bg-card-hover);
+  transform: translateY(-2px);
+  box-shadow: 
+    0 12px 24px -10px rgba(0, 0, 0, 0.5), 
+    0 0 15px -3px rgba(2, 192, 249, 0.05);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: #2b313a;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #363c4e;
+}
+
+/* Apple/Stripe-Style Fluid Transitions */
+@keyframes slide-up {
+  from { 
+    opacity: 0; 
+    transform: translateY(8px); 
+    filter: blur(4px);
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+    filter: blur(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Shimmer Highlight sweeps */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.shimmer-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-effect::after {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.02) 20%,
+    rgba(255, 255, 255, 0.04) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 3s infinite;
+  content: '';
+}
+
+/* Subtle Price Updates */
+.price-up {
+  color: var(--color-accent-green) !important;
+  transition: color 0.1s ease-in;
+}
+
+.price-down {
+  color: var(--color-accent-red) !important;
+  transition: color 0.1s ease-in;
+}
+
+.nav-active {
+  background-color: var(--color-bg-card-hover) !important;
+  color: var(--color-accent-blue) !important;
+  border-left: 2px solid var(--color-accent-blue);
+}
+
+.nav-inactive:hover {
+  background-color: var(--color-bg-card-hover) !important;
+  color: #fff !important;
+}
+
