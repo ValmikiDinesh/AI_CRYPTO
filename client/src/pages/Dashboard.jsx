@@ -154,7 +154,7 @@ export default function Dashboard() {
       ? MEME_ASSETS 
       : RECOMMENDED_ASSETS;
 
-  const displayedSignals = signalHistory.filter((sig) => displayedAssets.includes(sig.asset));
+  const displayedSignals = signalHistory.filter((sig) => ASSETS.includes(sig.asset));
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -301,7 +301,7 @@ export default function Dashboard() {
                           {sig.asset?.replace('1000', '').replace('USDT', '')}
                         </span>
                         <span className="text-[9px] text-[#86868b] ml-3 font-mono font-medium">
-                          {sig.timestamp ? new Date(sig.timestamp).toLocaleTimeString() : ''}
+                          {(sig.timestamp || sig.createdAt) ? new Date(sig.timestamp || sig.createdAt).toLocaleTimeString() : ''}
                         </span>
                       </div>
                     </div>
