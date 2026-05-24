@@ -16,49 +16,106 @@ export default class SentimentAgent extends BaseAgent {
   }
 
   async execute() {
-    for (const asset of SUPPORTED_ASSETS) {
-      try {
-        const baseAsset = asset.replace('USDT', '').toLowerCase();
+    try {
+      // 1. Fetch latest general news articles once (e.g. 50 articles)
+      const allArticles = await this.fetchGeneralNews();
+      this.logger.debug(`Fetched ${allArticles.length} general articles for local filtering`);
 
-        // Fetch crypto news from public API (CryptoCompare)
-        const newsData = await this.fetchCryptoNews(baseAsset);
-        const sentiment = this.analyzeSentiment(newsData, baseAsset);
+      for (const asset of SUPPORTED_ASSETS) {
+        try {
+          const baseAsset = asset.replace('USDT', '').toLowerCase();
 
-        const sentimentData = {
-          asset,
-          sentiment: sentiment.score,       // -1 to +1
-          label: sentiment.label,           // bullish | bearish | neutral
-          confidence: sentiment.confidence,
-          sources: sentiment.sources,
-          summary: sentiment.summary,
-          articleCount: sentiment.articleCount,
-        };
+          // 2. Filter articles relevant to this specific asset locally
+          const relevantArticles = this.filterArticlesForAsset(allArticles, baseAsset);
+          
+          // 3. Analyze sentiment locally
+          const sentiment = this.analyzeSentiment(relevantArticles, baseAsset);
 
-        this.sentimentCache[asset] = sentimentData;
+          const sentimentData = {
+            asset,
+            sentiment: sentiment.score,       // -1 to +1
+            label: sentiment.label,           // bullish | bearish | neutral
+            confidence: sentiment.confidence,
+            sources: sentiment.sources,
+            summary: sentiment.summary,
+            articleCount: sentiment.articleCount,
+          };
 
-        // Publish via Redis
-        await publishEvent(CHANNELS.SENTIMENT_SIGNALS, sentimentData);
+          this.sentimentCache[asset] = sentimentData;
 
-        this.logger.info(
-          `${asset}: sentiment=${sentiment.label} (score=${sentiment.score.toFixed(2)}, confidence=${sentiment.confidence.toFixed(2)})`
-        );
-      } catch (err) {
-        this.logger.error(`Sentiment analysis for ${asset}: ${err.message}`);
+          // Publish via Redis
+          await publishEvent(CHANNELS.SENTIMENT_SIGNALS, sentimentData);
+
+          this.logger.info(
+            `${asset}: sentiment=${sentiment.label} (score=${sentiment.score.toFixed(2)}, confidence=${sentiment.confidence.toFixed(2)}, articles=${sentiment.articleCount})`
+          );
+        } catch (err) {
+          this.logger.error(`Sentiment analysis for ${asset}: ${err.message}`);
+        }
       }
+    } catch (err) {
+      this.logger.error(`Sentiment agent execution error: ${err.message}`);
     }
   }
 
-  async fetchCryptoNews(baseAsset) {
+  async fetchGeneralNews() {
     try {
       const apiKey = process.env.CRYPTOCOMPARE_API_KEY;
       const headers = apiKey ? { Authorization: `Apikey ${apiKey}` } : {};
-      const url = `https://min-api.cryptocompare.com/data/v2/news/?categories=${baseAsset}&sortOrder=latest&limit=20`;
+      // Fetch a larger pool of latest articles in a single call
+      const url = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&limit=50';
       const response = await axios.get(url, { headers, timeout: 10_000 });
       return response.data?.Data || [];
     } catch (err) {
-      this.logger.warn(`News fetch failed for ${baseAsset}: ${err.message}`);
+      this.logger.warn(`General news fetch failed: ${err.message}`);
       return [];
     }
+  }
+
+  filterArticlesForAsset(articles, baseAsset) {
+    const searchTerms = [
+      baseAsset,                            // e.g. "sol"
+      this.getAssetNameFull(baseAsset),     // e.g. "solana"
+    ].filter(Boolean);
+
+    return articles.filter((article) => {
+      const title = (article.title || '').toLowerCase();
+      const body = (article.body || '').toLowerCase();
+      
+      // Parse categories and tags
+      const categories = (article.categories || '').toLowerCase().split('|');
+      const tags = (article.tags || '').toLowerCase().split('|');
+
+      return searchTerms.some((term) => 
+        title.includes(term) || 
+        body.includes(term) ||
+        categories.includes(term) ||
+        tags.includes(term)
+      );
+    });
+  }
+
+  getAssetNameFull(baseAsset) {
+    const names = {
+      btc: 'bitcoin',
+      eth: 'ethereum',
+      bnb: 'binance',
+      sol: 'solana',
+      xrp: 'ripple',
+      doge: 'dogecoin',
+      ada: 'cardano',
+      link: 'chainlink',
+      shib: 'shiba',
+      pepe: 'pepe',
+      wif: 'dogwifhat',
+      floki: 'floki',
+      bonk: 'bonk',
+      avax: 'avalanche',
+      dot: 'polkadot',
+      pol: 'polygon',
+      ltc: 'litecoin',
+    };
+    return names[baseAsset] || baseAsset;
   }
 
   analyzeSentiment(articles, baseAsset) {

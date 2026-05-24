@@ -112,7 +112,7 @@ async function bootAgents() {
   // Start agents with staggered intervals
   await marketAgent.start(30_000);                               // 30s — price refresh
   await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 60s
-  await sentimentAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 5);   // 5min
+  await sentimentAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 10);  // 10min
   await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 2);  // 2min
   await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 60s
   await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 60s
