@@ -154,6 +154,8 @@ export default function Dashboard() {
       ? MEME_ASSETS 
       : RECOMMENDED_ASSETS;
 
+  const displayedSignals = signalHistory.filter((sig) => displayedAssets.includes(sig.asset));
+
   useEffect(() => {
     const fetchPortfolio = async () => {
       try {
@@ -163,7 +165,16 @@ export default function Dashboard() {
         }
       } catch {}
     };
+    const fetchSignals = async () => {
+      try {
+        const res = await axios.get('/api/trades/signals?limit=100');
+        if (res.data.success) {
+          useSignalStore.setState({ signalHistory: res.data.data });
+        }
+      } catch {}
+    };
     fetchPortfolio();
+    fetchSignals();
   }, []);
 
   return (
@@ -273,7 +284,7 @@ export default function Dashboard() {
             Recent AI Signals
           </h3>
           <div className="glass-panel min-h-[300px] flex flex-col justify-between bg-[#1c1c1e] !p-0">
-            {signalHistory.length === 0 ? (
+            {displayedSignals.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-12 text-center my-auto">
                 <span className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-widest font-mono animate-pulse">
                   SYNCING PIPELINE...
@@ -281,7 +292,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="divide-y divide-[#2c2c2e]/60 max-h-[320px] overflow-y-auto pr-1">
-                {signalHistory.slice(0, 5).map((sig, i) => (
+                {displayedSignals.slice(0, 5).map((sig, i) => (
                   <div key={i} className="flex items-center justify-between px-5 py-4 hover:bg-zinc-800/20 transition-colors duration-200 group">
                     <div className="flex items-center gap-3">
                       <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />
