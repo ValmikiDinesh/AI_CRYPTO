@@ -1,6 +1,7 @@
 import express from 'express';
 import AgentLog from '../models/AgentLog.js';
 import RiskEvent from '../models/RiskEvent.js';
+import { SUPPORTED_ASSETS } from '../config/constants.js';
 
 const router = express.Router();
 
@@ -10,6 +11,35 @@ let supervisorAgent = null;
 export const setAgentReferences = (supervisor) => {
   supervisorAgent = supervisor;
 };
+
+// GET /api/agents/latest-signals — latest cached signals from running agent memory
+router.get('/latest-signals', (req, res) => {
+  if (!supervisorAgent) {
+    return res.status(503).json({ success: false, message: 'Agents not started' });
+  }
+
+  const technicalAgent = supervisorAgent.agents.get('technical');
+  const sentimentAgent = supervisorAgent.agents.get('sentiment');
+  const predictionAgent = supervisorAgent.agents.get('prediction');
+  const fusionAgent = supervisorAgent.agents.get('fusion');
+
+  const data = {
+    technical: {},
+    sentiment: {},
+    prediction: {},
+    fusion: {},
+  };
+
+  const assets = SUPPORTED_ASSETS || [];
+  for (const asset of assets) {
+    if (technicalAgent) data.technical[asset] = technicalAgent.getLastSignal(asset);
+    if (sentimentAgent) data.sentiment[asset] = sentimentAgent.getSentiment(asset);
+    if (predictionAgent) data.prediction[asset] = predictionAgent.getPrediction(asset);
+    if (fusionAgent) data.fusion[asset] = fusionAgent.getLastSignal(asset);
+  }
+
+  res.json({ success: true, data });
+});
 
 // GET /api/agents/health — all agents health
 router.get('/health', (req, res) => {

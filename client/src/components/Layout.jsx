@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { useMarketStore, useAgentStore } from '../store.js';
+import { useMarketStore, useAgentStore, useSignalStore } from '../store.js';
 import { LayoutDashboard, CandlestickChart, Wallet, Bot, Play, Pause, Activity, ShieldAlert, Cpu, Menu, X } from 'lucide-react';
 import axios from 'axios';
 
@@ -15,6 +15,33 @@ export default function Layout() {
   const connected = useMarketStore((s) => s.connected);
   const emergencyStop = useAgentStore((s) => s.emergencyStop);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const bootstrapData = async () => {
+      try {
+        // 1. Fetch initial market prices for all assets
+        const pricesRes = await axios.get('/api/market/prices');
+        if (pricesRes.data.success) {
+          useMarketStore.setState({ prices: pricesRes.data.data });
+        }
+      } catch {}
+
+      try {
+        // 2. Fetch latest active signals & indicators for all sub-agents
+        const signalsRes = await axios.get('/api/agents/latest-signals');
+        if (signalsRes.data.success) {
+          const { technical, sentiment, prediction, fusion } = signalsRes.data.data;
+          useSignalStore.setState({
+            technicalSignals: technical || {},
+            sentimentSignals: sentiment || {},
+            predictions: prediction || {},
+            fusedSignals: fusion || {},
+          });
+        }
+      } catch {}
+    };
+    bootstrapData();
+  }, []);
 
   const toggleTradingState = async () => {
     if (emergencyStop) {
