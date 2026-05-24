@@ -13,15 +13,21 @@ let redisSub = null;
 async function tryLoadRedis() {
   try {
     const Redis = (await import('ioredis')).default;
-    const testClient = new Redis({
-      host: process.env.REDIS_HOST || '127.0.0.1',
-      port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-      password: process.env.REDIS_PASSWORD || undefined,
+    const clientOptions = {
       maxRetriesPerRequest: 1,
       retryStrategy: () => null,       // don't retry during probe
       lazyConnect: true,
       connectTimeout: 3000,
-    });
+    };
+
+    const testClient = process.env.REDIS_URL
+      ? new Redis(process.env.REDIS_URL, clientOptions)
+      : new Redis({
+          host: process.env.REDIS_HOST || '127.0.0.1',
+          port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+          password: process.env.REDIS_PASSWORD || undefined,
+          ...clientOptions,
+        });
 
     await testClient.connect();
     await testClient.ping();
@@ -30,9 +36,9 @@ async function tryLoadRedis() {
     redisModule = Redis;
     redisAvailable = true;
     logger.info('Redis is available — using Redis Pub/Sub');
-  } catch {
+  } catch (err) {
     redisAvailable = false;
-    logger.warn('Redis not available — falling back to in-memory event bus');
+    logger.warn(`Redis not available — falling back to in-memory event bus: ${err.message}`);
   }
 }
 
@@ -40,14 +46,20 @@ async function tryLoadRedis() {
 await tryLoadRedis();
 
 function createRedisClient(label) {
-  const client = new redisModule({
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
+  const clientOptions = {
     retryStrategy: (times) => Math.min(times * 200, 5000),
     maxRetriesPerRequest: null,
     lazyConnect: true,
-  });
+  };
+
+  const client = process.env.REDIS_URL
+    ? new redisModule(process.env.REDIS_URL, clientOptions)
+    : new redisModule({
+        host: process.env.REDIS_HOST || '127.0.0.1',
+        port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+        password: process.env.REDIS_PASSWORD || undefined,
+        ...clientOptions,
+      });
 
   client.on('connect', () => logger.info(`Redis [${label}] connected`));
   client.on('error', (err) => logger.error(`Redis [${label}] error: ${err.message}`));
