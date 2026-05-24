@@ -10,7 +10,7 @@ export const RISK = {
   MAX_PORTFOLIO_DRAWDOWN: parseFloat(process.env.MAX_PORTFOLIO_DRAWDOWN) || 0.10, // 10%
   MAX_LEVERAGE: 5,
   MAX_OPEN_POSITIONS: 5,
-  MIN_CONFIDENCE_THRESHOLD: 0.65,
+  MIN_CONFIDENCE_THRESHOLD: parseFloat(process.env.MIN_CONFIDENCE_THRESHOLD) || 0.65,
   EMERGENCY_VOLATILITY_THRESHOLD: 0.08, // 8% price swing triggers emergency
 };
 
