@@ -5,7 +5,8 @@ import axios from 'axios';
 
 const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
 const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT'];
-const ASSETS = [...CORE_ASSETS, ...MEME_ASSETS];
+const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT'];
+const ASSETS = [...CORE_ASSETS, ...MEME_ASSETS, ...RECOMMENDED_ASSETS];
 
 function formatPrice(price) {
   if (price === undefined || price === null) return '—';
@@ -145,9 +146,13 @@ export default function Dashboard() {
   const signalHistory = useSignalStore((s) => s.signalHistory);
   const portfolio = usePortfolioStore((s) => s.portfolio);
   const recentTrades = useTradeStore((s) => s.recentTrades);
-  const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme'
+  const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme' | 'recommended'
 
-  const displayedAssets = activeTab === 'core' ? CORE_ASSETS : MEME_ASSETS;
+  const displayedAssets = activeTab === 'core' 
+    ? CORE_ASSETS 
+    : activeTab === 'meme' 
+      ? MEME_ASSETS 
+      : RECOMMENDED_ASSETS;
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -238,6 +243,16 @@ export default function Dashboard() {
                 }`}
               >
                 Meme Coins
+              </button>
+              <button 
+                onClick={() => setActiveTab('recommended')}
+                className={`px-3 py-1 rounded-md transition-all duration-300 ${
+                  activeTab === 'recommended' 
+                    ? 'bg-[#0071e3] text-white shadow-md' 
+                    : 'text-[#86868b] hover:text-[#f5f5f7]'
+                }`}
+              >
+                Recommended
               </button>
             </div>
           </div>

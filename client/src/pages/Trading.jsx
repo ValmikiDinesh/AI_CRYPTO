@@ -7,7 +7,8 @@ const axiosActual = axios;
 
 const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
 const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT'];
-const ASSETS = [...CORE_ASSETS, ...MEME_ASSETS];
+const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT'];
+const ASSETS = [...CORE_ASSETS, ...MEME_ASSETS, ...RECOMMENDED_ASSETS];
 
 function MetricProgress({ label, value, isRisk = false }) {
   const pct = Math.min(Math.max((value || 0) * 100, 0), 100);
@@ -36,8 +37,10 @@ export default function Trading() {
     setActiveTab(tab);
     if (tab === 'core') {
       setSelectedAsset('BTCUSDT');
-    } else {
+    } else if (tab === 'meme') {
       setSelectedAsset('DOGEUSDT');
+    } else {
+      setSelectedAsset('AVAXUSDT');
     }
   };
 
@@ -187,11 +190,25 @@ export default function Trading() {
             >
               Memes
             </button>
+            <button 
+              onClick={() => handleTabChange('recommended')}
+              className={`px-3 py-1 rounded-full transition-all duration-300 ${
+                activeTab === 'recommended' 
+                  ? 'bg-[#0071e3] text-white shadow-md' 
+                  : 'text-[#86868b] hover:text-[#f5f5f7]'
+              }`}
+            >
+              Recommended
+            </button>
           </div>
 
           {/* Asset List Buttons */}
           <div className="flex flex-wrap gap-1 p-1 bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-full">
-            {(activeTab === 'core' ? CORE_ASSETS : MEME_ASSETS).map((asset) => (
+            {(activeTab === 'core' 
+              ? CORE_ASSETS 
+              : activeTab === 'meme' 
+                ? MEME_ASSETS 
+                : RECOMMENDED_ASSETS).map((asset) => (
               <button
                 key={asset}
                 onClick={() => setSelectedAsset(asset)}
