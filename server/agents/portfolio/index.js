@@ -52,10 +52,10 @@ export default class PortfolioAgent extends BaseAgent {
       totalUnrealizedPnl += position.unrealizedPnl;
     }
 
-    // Recalculate total balance
+    // Recalculate total balance using universal equity formula: entryPrice * quantity + unrealizedPnl
     const positionValue = portfolio.positions
       .filter((p) => p.status === 'open')
-      .reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
+      .reduce((sum, p) => sum + (p.entryPrice * p.quantity + p.unrealizedPnl), 0);
 
     portfolio.totalBalance = portfolio.availableBalance + positionValue;
 
@@ -111,8 +111,8 @@ export default class PortfolioAgent extends BaseAgent {
     position.realizedPnl = position.unrealizedPnl;
     position.unrealizedPnl = 0;
 
-    // Return funds to available balance
-    const returnValue = closePrice * position.quantity;
+    // Return funds (collateral + realized PnL) to available balance
+    const returnValue = (position.entryPrice * position.quantity) + position.realizedPnl;
     portfolio.availableBalance += returnValue;
     portfolio.totalPnl += position.realizedPnl;
     portfolio.dailyLossToday += Math.min(0, position.realizedPnl); // track losses
