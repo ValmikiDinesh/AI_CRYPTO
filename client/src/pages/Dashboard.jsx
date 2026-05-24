@@ -173,8 +173,17 @@ export default function Dashboard() {
         }
       } catch {}
     };
+    const fetchPrices = async () => {
+      try {
+        const res = await axios.get('/api/market/prices');
+        if (res.data.success) {
+          useMarketStore.setState({ prices: res.data.data });
+        }
+      } catch {}
+    };
     fetchPortfolio();
     fetchSignals();
+    fetchPrices();
   }, []);
 
   return (

@@ -98,6 +98,10 @@ export default function Trading() {
       const res = await axiosActual.get(`/api/market/candles/${asset}?limit=80`);
       if (res.data.success) {
         useMarketStore.getState().setCandles(asset, res.data.data);
+        if (res.data.data.length > 0) {
+          const lastCandle = res.data.data[res.data.data.length - 1];
+          useMarketStore.getState().setPrice(asset, lastCandle.close || lastCandle.price);
+        }
       }
     } catch {
       useMarketStore.getState().setCandles(asset, []);
