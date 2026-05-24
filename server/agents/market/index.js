@@ -77,8 +77,9 @@ export default class MarketAgent extends BaseAgent {
 
   attemptReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger.error('Max reconnect attempts reached — stopping MarketAgent');
-      this.status = 'error';
+      this.logger.error('Max reconnect attempts reached — resetting counters and retrying in 30s');
+      this.reconnectAttempts = 0;
+      setTimeout(() => this.connectWebSocket(), 30000);
       return;
     }
     this.reconnectAttempts++;
