@@ -3,7 +3,7 @@ import { useMarketStore, useSignalStore, usePortfolioStore, useTradeStore } from
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, BarChart3, Bot, Zap, ArrowUpRight, ArrowDownRight, ShieldCheck, Star } from 'lucide-react';
 import axios from 'axios';
 
-const ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'DOGEUSDT'];
+const ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT'];
 
 function formatPrice(price) {
   if (price === undefined || price === null) return '—';

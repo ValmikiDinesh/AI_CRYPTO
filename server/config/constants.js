@@ -1,5 +1,5 @@
 // ─── Supported Assets ────────────────────────────────────────────
-export const SUPPORTED_ASSETS = (process.env.SUPPORTED_ASSETS || 'BTCUSDT,ETHUSDT,BNBUSDT,DOGEUSDT')
+export const SUPPORTED_ASSETS = (process.env.SUPPORTED_ASSETS || 'BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT')
   .split(',')
   .map((s) => s.trim());
 
