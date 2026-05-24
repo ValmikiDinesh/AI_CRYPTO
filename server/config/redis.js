@@ -45,7 +45,7 @@ function createRedisClient(label) {
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
     password: process.env.REDIS_PASSWORD || undefined,
     retryStrategy: (times) => Math.min(times * 200, 5000),
-    maxRetriesPerRequest: 3,
+    maxRetriesPerRequest: null,
     lazyConnect: true,
   });
 
