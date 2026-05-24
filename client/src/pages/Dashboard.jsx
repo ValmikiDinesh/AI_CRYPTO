@@ -154,7 +154,7 @@ export default function Dashboard() {
       ? MEME_ASSETS 
       : RECOMMENDED_ASSETS;
 
-  const displayedSignals = signalHistory.filter((sig) => ASSETS.includes(sig.asset));
+  const displayedSignals = signalHistory.filter((sig) => sig.source === 'fusion' && ASSETS.includes(sig.asset));
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -167,7 +167,7 @@ export default function Dashboard() {
     };
     const fetchSignals = async () => {
       try {
-        const res = await axios.get('/api/trades/signals?limit=100');
+        const res = await axios.get('/api/trades/signals?source=fusion&limit=100');
         if (res.data.success) {
           useSignalStore.setState({ signalHistory: res.data.data });
         }
