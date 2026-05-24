@@ -45,10 +45,8 @@ export default class FusionAgent extends BaseAgent {
 
         this.lastSignals[asset] = fusedSignal;
 
-        // Only persist actionable signals
-        if (fusedSignal.action !== ACTIONS.HOLD) {
-          await Signal.create(fusedSignal);
-        }
+        // Persist all fused signals (including HOLD) to maintain a complete history for all assets
+        await Signal.create(fusedSignal);
 
         await publishEvent(CHANNELS.FUSED_SIGNALS, fusedSignal);
 
