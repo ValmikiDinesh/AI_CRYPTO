@@ -69,11 +69,42 @@ export default function Portfolio() {
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5">
         {[
-          { label: 'Net Balances', value: `$${portfolio.totalBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet, color: '#86868b' },
-          { label: 'Realized Return', value: `${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl?.toFixed(2)}`, icon: portfolio.totalPnl >= 0 ? TrendingUp : TrendingDown, color: portfolio.totalPnl >= 0 ? '#30d158' : '#ff453a' },
-          { label: 'Win Rate', value: `${((portfolio.winRate || 0) * 100).toFixed(1)}%`, icon: Target, color: '#86868b' },
-          { label: 'Open Exposure', value: portfolio.openPositions || 0, icon: Activity, color: '#86868b' },
-          { label: 'Margin Available', value: `$${portfolio.availableBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet, color: '#86868b' },
+          { 
+            label: 'Net Balances', 
+            value: portfolio.totalBalance !== undefined && portfolio.totalBalance !== null 
+              ? `$${portfolio.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}` 
+              : '$10,000.00', 
+            icon: Wallet, 
+            color: '#86868b' 
+          },
+          { 
+            label: 'Realized Return', 
+            value: portfolio.totalPnl !== undefined && portfolio.totalPnl !== null 
+              ? `${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl.toFixed(2)}` 
+              : '$0.00', 
+            icon: portfolio.totalPnl >= 0 ? TrendingUp : TrendingDown, 
+            color: portfolio.totalPnl >= 0 ? '#30d158' : '#ff453a' 
+          },
+          { 
+            label: 'Win Rate', 
+            value: `${((portfolio.winRate || 0) * 100).toFixed(1)}%`, 
+            icon: Target, 
+            color: '#86868b' 
+          },
+          { 
+            label: 'Open Exposure', 
+            value: portfolio.openPositions || 0, 
+            icon: Activity, 
+            color: '#86868b' 
+          },
+          { 
+            label: 'Margin Available', 
+            value: portfolio.availableBalance !== undefined && portfolio.availableBalance !== null 
+              ? `$${portfolio.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}` 
+              : '$10,000.00', 
+            icon: Wallet, 
+            color: '#86868b' 
+          },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="glass-panel bg-[#1c1c1e] py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
             {/* Subtle top glare overlay */}
