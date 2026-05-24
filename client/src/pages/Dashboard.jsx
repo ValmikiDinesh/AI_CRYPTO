@@ -3,7 +3,9 @@ import { useMarketStore, useSignalStore, usePortfolioStore, useTradeStore } from
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, BarChart3, Bot, Zap, ArrowUpRight, ArrowDownRight, ShieldCheck, Star } from 'lucide-react';
 import axios from 'axios';
 
-const ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT'];
+const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
+const MEME_ASSETS = ['DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'WIFUSDT', 'FLOKIUSDT', 'BONKUSDT'];
+const ASSETS = [...CORE_ASSETS, ...MEME_ASSETS];
 
 function formatPrice(price) {
   if (price === undefined || price === null) return '—';
@@ -143,6 +145,9 @@ export default function Dashboard() {
   const signalHistory = useSignalStore((s) => s.signalHistory);
   const portfolio = usePortfolioStore((s) => s.portfolio);
   const recentTrades = useTradeStore((s) => s.recentTrades);
+  const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme'
+
+  const displayedAssets = activeTab === 'core' ? CORE_ASSETS : MEME_ASSETS;
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -208,12 +213,36 @@ export default function Dashboard() {
       <div className="grid-layout-3">
         {/* Tickers section */}
         <div className="lg:col-span-2 space-y-4">
-          <h3 className="text-xs font-bold text-[#86868b] uppercase tracking-widest flex items-center gap-1.5 font-mono mb-2">
-            <Zap size={13} className="text-sky-400" />
-            Live Market Prices
-          </h3>
+          <div className="flex items-center justify-between border-b border-[#2c2c2e]/60 pb-2 mb-4">
+            <h3 className="text-xs font-bold text-[#86868b] uppercase tracking-widest flex items-center gap-1.5 font-mono">
+              <Zap size={13} className="text-sky-400" />
+              Live Market Prices
+            </h3>
+            <div className="flex bg-[#1c1c1e] p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
+              <button 
+                onClick={() => setActiveTab('core')}
+                className={`px-3 py-1 rounded-md transition-all duration-300 ${
+                  activeTab === 'core' 
+                    ? 'bg-[#0071e3] text-white shadow-md' 
+                    : 'text-[#86868b] hover:text-[#f5f5f7]'
+                }`}
+              >
+                Core Crypto
+              </button>
+              <button 
+                onClick={() => setActiveTab('meme')}
+                className={`px-3 py-1 rounded-md transition-all duration-300 ${
+                  activeTab === 'meme' 
+                    ? 'bg-[#0071e3] text-white shadow-md' 
+                    : 'text-[#86868b] hover:text-[#f5f5f7]'
+                }`}
+              >
+                Meme Coins
+              </button>
+            </div>
+          </div>
           <div className="grid-layout-2">
-            {ASSETS.map((asset) => (
+            {displayedAssets.map((asset) => (
               <LivePriceCard
                 key={asset}
                 asset={asset}

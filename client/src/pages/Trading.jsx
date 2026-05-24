@@ -5,7 +5,7 @@ import { CandlestickChart, TrendingUp, Shield, Info, ShoppingBag, XCircle, Chevr
 import axios from 'axios';
 const axiosActual = axios;
 
-const ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT'];
+const ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT', 'SHIBUSDT', 'PEPEUSDT', 'WIFUSDT', 'FLOKIUSDT', 'BONKUSDT'];
 
 function MetricProgress({ label, value, isRisk = false }) {
   const pct = Math.min(Math.max((value || 0) * 100, 0), 100);
