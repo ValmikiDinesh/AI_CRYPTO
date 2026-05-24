@@ -4,7 +4,7 @@ import { TrendingUp, TrendingDown, DollarSign, Activity, Target, BarChart3, Bot,
 import axios from 'axios';
 
 const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
-const MEME_ASSETS = ['DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'WIFUSDT', 'FLOKIUSDT', 'BONKUSDT'];
+const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT'];
 const ASSETS = [...CORE_ASSETS, ...MEME_ASSETS];
 
 function formatPrice(price) {
@@ -102,7 +102,7 @@ function LivePriceCard({ asset }) {
     <div className={`glass-panel transition-all duration-300 hover:shadow-lg ${flashClass}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-1">
-          <span className="text-sm font-semibold tracking-tight text-[#f5f5f7]">{asset.replace('USDT', '')}</span>
+          <span className="text-sm font-semibold tracking-tight text-[#f5f5f7]">{asset.replace('1000', '').replace('USDT', '')}</span>
           <span className="text-[9px] text-[#86868b] font-bold uppercase tracking-wider font-mono">/ USDT</span>
         </div>
         {signal ? (
@@ -272,7 +272,7 @@ export default function Dashboard() {
                       <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />
                       <div>
                         <span className="font-bold text-[#f5f5f7] font-mono">
-                          {sig.asset?.replace('USDT', '')}
+                          {sig.asset?.replace('1000', '').replace('USDT', '')}
                         </span>
                         <span className="text-[9px] text-[#86868b] ml-3 font-mono font-medium">
                           {sig.timestamp ? new Date(sig.timestamp).toLocaleTimeString() : ''}
@@ -329,7 +329,7 @@ export default function Dashboard() {
                   {recentTrades.slice(0, 5).map((trade, i) => (
                     <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
                       <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
-                        {trade.asset?.replace('USDT', '')}
+                        {trade.asset?.replace('1000', '').replace('USDT', '')}
                       </td>
                       <td className="px-6 py-4">
                         <SignalBadge action={trade.action} />

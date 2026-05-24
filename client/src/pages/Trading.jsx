@@ -5,7 +5,9 @@ import { CandlestickChart, TrendingUp, Shield, Info, ShoppingBag, XCircle, Chevr
 import axios from 'axios';
 const axiosActual = axios;
 
-const ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT', 'SHIBUSDT', 'PEPEUSDT', 'WIFUSDT', 'FLOKIUSDT', 'BONKUSDT'];
+const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
+const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT'];
+const ASSETS = [...CORE_ASSETS, ...MEME_ASSETS];
 
 function MetricProgress({ label, value, isRisk = false }) {
   const pct = Math.min(Math.max((value || 0) * 100, 0), 100);
@@ -28,6 +30,16 @@ function MetricProgress({ label, value, isRisk = false }) {
 export default function Trading() {
   const [selectedAsset, setSelectedAsset] = useState('BTCUSDT');
   const [activePosition, setActivePosition] = useState(null);
+  const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme'
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'core') {
+      setSelectedAsset('BTCUSDT');
+    } else {
+      setSelectedAsset('DOGEUSDT');
+    }
+  };
 
   // Manual Quick Order State
   const [orderAction, setOrderAction] = useState('BUY');
@@ -152,20 +164,47 @@ export default function Trading() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-1 p-1 bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-full">
-          {ASSETS.map((asset) => (
-            <button
-              key={asset}
-              onClick={() => setSelectedAsset(asset)}
-              className={`px-4 py-1 rounded-full text-xs font-bold transition-all duration-300 cursor-pointer font-mono ${
-                selectedAsset === asset
-                  ? 'bg-[#f5f5f7] text-black shadow-sm'
-                  : 'bg-transparent text-[#86868b] hover:text-[#f5f5f7]'
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          {/* Tab Selector Switcher */}
+          <div className="flex bg-[#1c1c1e] p-0.5 rounded-full border border-[#2c2c2e]/60 text-[10px] font-bold font-mono">
+            <button 
+              onClick={() => handleTabChange('core')}
+              className={`px-3 py-1 rounded-full transition-all duration-300 ${
+                activeTab === 'core' 
+                  ? 'bg-[#0071e3] text-white shadow-md' 
+                  : 'text-[#86868b] hover:text-[#f5f5f7]'
               }`}
             >
-              {asset.replace('USDT', '')}
+              Core
             </button>
-          ))}
+            <button 
+              onClick={() => handleTabChange('meme')}
+              className={`px-3 py-1 rounded-full transition-all duration-300 ${
+                activeTab === 'meme' 
+                  ? 'bg-[#0071e3] text-white shadow-md' 
+                  : 'text-[#86868b] hover:text-[#f5f5f7]'
+              }`}
+            >
+              Memes
+            </button>
+          </div>
+
+          {/* Asset List Buttons */}
+          <div className="flex flex-wrap gap-1 p-1 bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-full">
+            {(activeTab === 'core' ? CORE_ASSETS : MEME_ASSETS).map((asset) => (
+              <button
+                key={asset}
+                onClick={() => setSelectedAsset(asset)}
+                className={`px-4 py-1 rounded-full text-xs font-bold transition-all duration-300 cursor-pointer font-mono ${
+                  selectedAsset === asset
+                    ? 'bg-[#f5f5f7] text-black shadow-sm'
+                    : 'bg-transparent text-[#86868b] hover:text-[#f5f5f7]'
+                }`}
+              >
+                {asset.replace('1000', '').replace('USDT', '')}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -177,10 +216,10 @@ export default function Trading() {
             <div className="flex items-center justify-between mb-5">
               <div>
                 <span className="text-base font-semibold tracking-tight text-[#f5f5f7] font-mono">
-                  {selectedAsset.replace('USDT', '')}/USDT
+                  {selectedAsset.replace('1000', '').replace('USDT', '')}/USDT
                 </span>
                 <span className="text-2xl font-bold text-[#f5f5f7] ml-4 font-mono">
-                  {price ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                  {price ? (price >= 1 ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${price.toFixed(6)}`) : '—'}
                 </span>
               </div>
               {signal && (
