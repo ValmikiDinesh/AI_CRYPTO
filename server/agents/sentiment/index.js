@@ -50,8 +50,10 @@ export default class SentimentAgent extends BaseAgent {
 
   async fetchCryptoNews(baseAsset) {
     try {
+      const apiKey = process.env.CRYPTOCOMPARE_API_KEY;
+      const headers = apiKey ? { Authorization: `Apikey ${apiKey}` } : {};
       const url = `https://min-api.cryptocompare.com/data/v2/news/?categories=${baseAsset}&sortOrder=latest&limit=20`;
-      const response = await axios.get(url, { timeout: 10_000 });
+      const response = await axios.get(url, { headers, timeout: 10_000 });
       return response.data?.Data || [];
     } catch (err) {
       this.logger.warn(`News fetch failed for ${baseAsset}: ${err.message}`);
