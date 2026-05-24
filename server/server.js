@@ -4,6 +4,7 @@ import http from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import mongoose from 'mongoose';
 
 import connectDB from './config/db.js';
 import { INTERVALS } from './config/constants.js';
@@ -124,15 +125,48 @@ async function bootAgents() {
 }
 
 // ─── Graceful shutdown ───────────────────────────────────────────
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received — shutting down');
-  server.close(() => process.exit(0));
-});
+const shutdown = async (signal) => {
+  logger.info(`${signal} received — starting graceful shutdown`);
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received — shutting down');
-  server.close(() => process.exit(0));
-});
+  // Set a timeout watchdog to force exit if graceful close hangs
+  const forceExitTimeout = setTimeout(() => {
+    logger.warn('Graceful shutdown timed out — forcing process exit');
+    process.exit(1);
+  }, 2000);
+  forceExitTimeout.unref();
+
+  // 1. Close HTTP server
+  server.close(() => {
+    logger.info('HTTP server closed');
+  });
+
+  // 2. Disconnect Mongoose
+  try {
+    await mongoose.connection.close();
+    logger.info('MongoDB connection closed');
+  } catch (err) {
+    logger.error(`Error closing MongoDB: ${err.message}`);
+  }
+
+  // 3. Close Redis connections (if any)
+  try {
+    const { getPublisher, getSubscriber } = await import('./config/redis.js');
+    const pub = await getPublisher();
+    const sub = await getSubscriber();
+    if (pub) await pub.quit();
+    if (sub) await sub.quit();
+    logger.info('Redis connections closed');
+  } catch (err) {
+    logger.error(`Error closing Redis: ${err.message}`);
+  }
+
+  logger.info('Graceful shutdown completed successfully');
+  clearTimeout(forceExitTimeout);
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 process.on('unhandledRejection', (err) => {
   logger.error(`Unhandled rejection: ${err.message}`);
