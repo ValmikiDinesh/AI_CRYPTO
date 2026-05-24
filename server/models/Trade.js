@@ -4,7 +4,6 @@ const tradeSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
     index: true,
   },
   asset: { type: String, required: true, index: true },

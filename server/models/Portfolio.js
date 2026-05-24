@@ -20,8 +20,7 @@ const portfolioSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    unique: true,
+    index: true,
   },
   totalBalance: { type: Number, default: 10000 },   // paper-trading start capital
   availableBalance: { type: Number, default: 10000 },
