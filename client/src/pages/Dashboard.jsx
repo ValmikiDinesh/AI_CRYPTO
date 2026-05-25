@@ -181,9 +181,18 @@ export default function Dashboard() {
         }
       } catch {}
     };
+    const fetchTrades = async () => {
+      try {
+        const res = await axios.get('/api/trades?limit=50');
+        if (res.data.success) {
+          useTradeStore.setState({ recentTrades: res.data.data });
+        }
+      } catch {}
+    };
     fetchPortfolio();
     fetchSignals();
     fetchPrices();
+    fetchTrades();
   }, []);
 
   return (

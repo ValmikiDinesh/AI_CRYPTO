@@ -278,6 +278,8 @@ export default function Portfolio() {
                     <th className="px-6 py-4">Action</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Entry Price</th>
+                    <th className="px-6 py-4 text-right">Stop Loss</th>
+                    <th className="px-6 py-4 text-right">Target</th>
                     <th className="px-6 py-4 text-right">Exit Price</th>
                     <th className="px-6 py-4 text-right">Quantity</th>
                     <th className="px-6 py-4 text-right">Realized Return</th>
@@ -315,6 +317,12 @@ export default function Portfolio() {
                         </td>
                         <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
                           {price ? (price >= 1 ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${price.toFixed(6)}`) : '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
+                          {trade.stopLoss ? (trade.stopLoss >= 1 ? `$${trade.stopLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.stopLoss.toFixed(6)}`) : '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
+                          {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
                         </td>
                         <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
                           {exit ? (exit >= 1 ? `$${exit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${exit.toFixed(6)}`) : '—'}
