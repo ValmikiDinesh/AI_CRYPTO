@@ -419,7 +419,9 @@ export default function Trading() {
                     </div>
                     <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
                       <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Entry Price</span>
-                      <span className="font-bold text-[#f5f5f7] font-mono">${activePosition.entryPrice?.toLocaleString()}</span>
+                      <span className="font-bold text-[#f5f5f7] font-mono">
+                        {activePosition.entryPrice ? (activePosition.entryPrice >= 1 ? `$${activePosition.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${activePosition.entryPrice.toFixed(6)}`) : '—'}
+                      </span>
                     </div>
                   </div>
 
@@ -434,6 +436,21 @@ export default function Trading() {
                         activePosition.unrealizedPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'
                       }`}>
                         {activePosition.unrealizedPnl >= 0 ? '+' : ''}${activePosition.unrealizedPnl?.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                      <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Stop Loss</span>
+                      <span className="font-bold text-[#ff453a] font-mono">
+                        {activePosition.stopLoss ? (activePosition.stopLoss >= 1 ? `$${activePosition.stopLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${activePosition.stopLoss.toFixed(6)}`) : '—'}
+                      </span>
+                    </div>
+                    <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                      <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Take Profit</span>
+                      <span className="font-bold text-[#30d158] font-mono">
+                        {activePosition.takeProfit ? (activePosition.takeProfit >= 1 ? `$${activePosition.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${activePosition.takeProfit.toFixed(6)}`) : '—'}
                       </span>
                     </div>
                   </div>
