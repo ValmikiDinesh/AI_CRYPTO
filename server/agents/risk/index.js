@@ -93,6 +93,16 @@ export default class RiskAgent extends BaseAgent {
         );
       }
 
+      // 5.5. Duplicate position check
+      const hasOpenPosition = portfolio.positions?.some((p) => p.asset === signal.asset && p.status === 'open');
+      if (hasOpenPosition) {
+        return this.reject(
+          `Position already open for ${signal.asset}`,
+          'duplicate_position',
+          signal
+        );
+      }
+
       // 6. Max open positions
       const openPositions = portfolio.positions?.filter((p) => p.status === 'open').length || 0;
       if (openPositions >= RISK.MAX_OPEN_POSITIONS) {

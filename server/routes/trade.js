@@ -98,6 +98,11 @@ router.post('/manual', async (req, res, next) => {
       });
     }
 
+    const hasOpenPosition = portfolio.positions?.some((p) => p.asset === asset && p.status === 'open');
+    if (hasOpenPosition) {
+      return res.status(400).json({ success: false, message: `Position already open for ${asset}` });
+    }
+
     const marginRequired = (entryPrice * quantity) / leverage;
 
     if (portfolio.availableBalance < marginRequired) {
