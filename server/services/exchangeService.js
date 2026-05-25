@@ -12,7 +12,6 @@ export const getExchange = () => {
   exchangeInstance = new ccxt.binance({
     apiKey: process.env.BINANCE_TESTNET_API_KEY,
     secret: process.env.BINANCE_TESTNET_API_SECRET,
-    sandbox: true,            // forces testnet URLs
     enableRateLimit: true,
     options: {
       defaultType: 'future',  // futures trading
@@ -20,7 +19,10 @@ export const getExchange = () => {
     },
   });
 
-  logger.info('CCXT Binance Futures Testnet exchange initialized');
+  // Enable newer Binance Demo Trading mode since old testnet/sandbox is deprecated for futures
+  exchangeInstance.enableDemoTrading(true);
+
+  logger.info('CCXT Binance Futures Demo Trading exchange initialized');
   return exchangeInstance;
 };
 
