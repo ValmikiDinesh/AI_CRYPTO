@@ -379,7 +379,7 @@ export default function Dashboard() {
                         <SignalBadge action={trade.action} />
                       </td>
                       <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
-                        {formatPrice(trade.price)}
+                        {formatPrice(trade.price || trade.entryPrice)}
                       </td>
                       <td className="px-6 py-4 text-right text-[#86868b] font-mono">
                         {trade.quantity?.toFixed(5) || '—'}
@@ -389,9 +389,9 @@ export default function Dashboard() {
                       </td>
                       <td 
                         className="px-6 py-4 text-right font-bold font-mono"
-                        style={{ color: (trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a' }}
+                        style={{ color: trade.status === 'open' ? '#86868b' : ((trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a') }}
                       >
-                        {trade.pnl != null ? `${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}` : 'ACTIVE'}
+                        {trade.status === 'open' ? 'ACTIVE' : `${(trade.pnl || 0) >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}`}
                       </td>
                     </tr>
                   ))}
