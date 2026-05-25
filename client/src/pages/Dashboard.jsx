@@ -207,8 +207,8 @@ export default function Dashboard() {
         <StatCard
           icon={DollarSign}
           label="Net Worth"
-          value={`$${portfolio.totalBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '10,000.00'}`}
-          subValue={`Margin Available: $${portfolio.availableBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '10,000.00'}`}
+          value={`$${portfolio.totalBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '1,000.00'}`}
+          subValue={`Margin Available: $${portfolio.availableBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '1,000.00'}`}
           iconColor="#86868b"
         />
         <StatCard
