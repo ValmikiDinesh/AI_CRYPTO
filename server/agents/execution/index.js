@@ -63,7 +63,19 @@ export default class ExecutionAgent extends BaseAgent {
 
     // Calculate position size
     const positionPct = parseFloat(signal.positionSize) / 100;
-    const positionValue = portfolio.availableBalance * positionPct;
+    let positionValue = portfolio.availableBalance * positionPct;
+
+    // Enforce Binance Futures minimum notional order limit of 50 USDT
+    const MIN_NOTIONAL = 50;
+    if (positionValue < MIN_NOTIONAL) {
+      positionValue = MIN_NOTIONAL;
+    }
+
+    if (portfolio.availableBalance < positionValue) {
+      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than minimum notional ($${MIN_NOTIONAL}) — skipping`);
+      return;
+    }
+
     const quantity = positionValue / currentPrice;
 
     if (quantity <= 0) {
@@ -82,7 +94,7 @@ export default class ExecutionAgent extends BaseAgent {
       side: signal.action === ACTIONS.BUY ? 'long' : 'short',
       entryPrice: currentPrice,
       quantity,
-      positionSize: positionPct * 100,
+      positionSize: (positionValue / portfolio.availableBalance) * 100,
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
       confidence: signal.confidence,
