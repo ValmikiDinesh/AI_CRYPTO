@@ -22,8 +22,8 @@ const portfolioSchema = new mongoose.Schema({
     ref: 'User',
     index: true,
   },
-  totalBalance: { type: Number, default: 10000 },   // paper-trading start capital
-  availableBalance: { type: Number, default: 10000 },
+  totalBalance: { type: Number, default: 1000 },   // paper-trading start capital
+  availableBalance: { type: Number, default: 1000 },
   totalPnl: { type: Number, default: 0 },
   totalPnlPercent: { type: Number, default: 0 },
   dailyPnl: { type: Number, default: 0 },
@@ -38,7 +38,7 @@ const portfolioSchema = new mongoose.Schema({
     percentage: Number,
     value: Number,
   }],
-  peakBalance: { type: Number, default: 10000 },
+  peakBalance: { type: Number, default: 1000 },
   dailyLossToday: { type: Number, default: 0 },
   lastRebalancedAt: { type: Date },
 }, {

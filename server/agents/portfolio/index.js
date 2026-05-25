@@ -167,7 +167,7 @@ export default class PortfolioAgent extends BaseAgent {
     }));
 
     portfolio.totalPnlPercent = portfolio.totalBalance > 0
-      ? ((portfolio.totalBalance - 10000) / 10000) * 100  // vs initial capital
+      ? ((portfolio.totalBalance - 1000) / 1000) * 100  // vs initial capital
       : 0;
 
     await portfolio.save();

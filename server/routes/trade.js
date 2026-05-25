@@ -93,8 +93,8 @@ router.post('/manual', async (req, res, next) => {
     let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
     if (!portfolio) {
       portfolio = await Portfolio.create({
-        totalBalance: 10000,
-        availableBalance: 10000,
+        totalBalance: 1000,
+        availableBalance: 1000,
       });
     }
 

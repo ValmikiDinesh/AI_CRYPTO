@@ -10,8 +10,8 @@ router.get('/', async (req, res, next) => {
 
     if (!portfolio) {
       portfolio = await Portfolio.create({
-        totalBalance: 10000,
-        availableBalance: 10000,
+        totalBalance: 1000,
+        availableBalance: 1000,
       });
     }
 

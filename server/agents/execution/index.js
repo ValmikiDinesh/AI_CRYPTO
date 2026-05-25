@@ -34,8 +34,8 @@ export default class ExecutionAgent extends BaseAgent {
         if (!portfolio) {
           portfolio = await Portfolio.create({
             userId: null,   // system portfolio for paper trading
-            totalBalance: 10000,
-            availableBalance: 10000,
+            totalBalance: 1000,
+            availableBalance: 1000,
           });
         }
 
