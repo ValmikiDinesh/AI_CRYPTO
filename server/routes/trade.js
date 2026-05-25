@@ -3,6 +3,7 @@ import Trade from '../models/Trade.js';
 import Signal from '../models/Signal.js';
 import Portfolio from '../models/Portfolio.js';
 import { publishEvent, CHANNELS } from '../config/redis.js';
+import { sendTelegramMessage, formatPrice } from '../services/telegramService.js';
 
 const router = express.Router();
 
@@ -170,6 +171,18 @@ router.post('/manual', async (req, res, next) => {
       status: 'executed',
     });
 
+    // Notify Telegram
+    await sendTelegramMessage(
+      `🔔 <b>Manual Trade Executed!</b>\n` +
+      `<b>Asset</b>: ${asset.replace('USDT', '')}/USDT\n` +
+      `<b>Action</b>: ${action} (${side === 'long' ? 'LONG' : 'SHORT'})\n` +
+      `<b>Entry Price</b>: $${formatPrice(entryPrice)}\n` +
+      `<b>Quantity</b>: ${quantity.toFixed(5)}\n` +
+      `<b>Stop Loss</b>: ${stopLoss ? '$' + formatPrice(stopLoss) : '—'}\n` +
+      `<b>Target</b>: ${takeProfit ? '$' + formatPrice(takeProfit) : '—'}\n` +
+      `<b>Leverage</b>: ${leverage}x`
+    );
+
     await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
       totalBalance: portfolio.totalBalance,
       availableBalance: portfolio.availableBalance,
@@ -268,6 +281,18 @@ router.post('/manual-close', async (req, res, next) => {
       pnl,
       reason: 'Manually closed by user',
     });
+
+    // Notify Telegram
+    await sendTelegramMessage(
+      `✅ <b>Position Closed! [Manual]</b>\n` +
+      `<b>Asset</b>: ${asset.replace('USDT', '')}/USDT\n` +
+      `<b>Side</b>: ${pos.side.toUpperCase()}\n` +
+      `<b>Entry Price</b>: $${formatPrice(pos.entryPrice)}\n` +
+      `<b>Exit Price</b>: $${formatPrice(exitPrice)}\n` +
+      `<b>Quantity</b>: ${pos.quantity.toFixed(5)}\n` +
+      `<b>Realized PnL</b>: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}\n` +
+      `<b>Reason</b>: Manually closed by user`
+    );
 
     await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
       totalBalance: portfolio.totalBalance,

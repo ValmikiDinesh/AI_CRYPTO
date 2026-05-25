@@ -1,6 +1,7 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
+import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 
@@ -143,6 +144,18 @@ export default class PortfolioAgent extends BaseAgent {
 
     this.logger.info(
       `Position closed: ${position.asset} ${position.side} — PnL: ${position.realizedPnl.toFixed(2)} — ${reason}`
+    );
+
+    // Notify Telegram
+    await sendTelegramMessage(
+      `✅ <b>Position Closed! [Auto]</b>\n` +
+      `<b>Asset</b>: ${position.asset.replace('USDT', '')}/USDT\n` +
+      `<b>Side</b>: ${position.side.toUpperCase()}\n` +
+      `<b>Entry Price</b>: $${formatPrice(position.entryPrice)}\n` +
+      `<b>Exit Price</b>: $${formatPrice(closePrice)}\n` +
+      `<b>Quantity</b>: ${position.quantity.toFixed(5)}\n` +
+      `<b>Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
+      `<b>Reason</b>: ${reason}`
     );
 
     await publishEvent(CHANNELS.TRADE_EXECUTIONS, {

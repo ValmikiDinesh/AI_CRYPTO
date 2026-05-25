@@ -1,6 +1,7 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, INTERVALS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
+import { sendTelegramMessage } from '../../services/telegramService.js';
 
 /**
  * Supervisor Agent
@@ -63,6 +64,13 @@ export default class SupervisorAgent extends BaseAgent {
       agent.stop();
       this.logger.info(`Stopped agent: ${name}`);
     }
+
+    // Notify Telegram
+    await sendTelegramMessage(
+      `🚨 <b>SUPERVISOR EMERGENCY STOP!</b>\n` +
+      `<b>All trading agents halted!</b>\n` +
+      `<b>Reason</b>: ${reason}`
+    );
 
     await publishEvent(CHANNELS.EMERGENCY_STOP, { reason, timestamp: Date.now() });
     await this.log('error', 'emergency_stop', reason);

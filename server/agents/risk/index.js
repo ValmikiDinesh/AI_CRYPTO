@@ -1,6 +1,7 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, RISK, ACTIONS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
+import { sendTelegramMessage } from '../../services/telegramService.js';
 import RiskEvent from '../../models/RiskEvent.js';
 import Portfolio from '../../models/Portfolio.js';
 
@@ -160,6 +161,16 @@ export default class RiskAgent extends BaseAgent {
       actionTaken: 'trade_blocked',
     });
 
+    // Notify Telegram (unless it is duplicate position to prevent spamming channel every cycle)
+    if (type !== 'duplicate_position') {
+      await sendTelegramMessage(
+        `⚠️ <b>Risk Alert [${signal.asset.replace('USDT', '')}]</b>\n` +
+        `<b>Action Taken</b>: Trade Blocked\n` +
+        `<b>Violation</b>: ${type.toUpperCase().replace(/_/g, ' ')}\n` +
+        `<b>Reason</b>: ${reason}`
+      );
+    }
+
     await publishEvent(CHANNELS.RISK_EVENTS, {
       type,
       asset: signal.asset,
@@ -195,6 +206,12 @@ export default class RiskAgent extends BaseAgent {
       message: reason,
       actionTaken: 'system_paused',
     });
+
+    // Notify Telegram
+    await sendTelegramMessage(
+      `🚨 <b>EMERGENCY SHUTDOWN TRIGGERED!</b>\n` +
+      `<b>Reason</b>: ${reason}`
+    );
 
     await publishEvent(CHANNELS.EMERGENCY_STOP, { reason, timestamp: Date.now() });
   }

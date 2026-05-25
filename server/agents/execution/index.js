@@ -2,6 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS, ACTIONS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { placeMarketOrder } from '../../services/exchangeService.js';
+import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
 import Trade from '../../models/Trade.js';
 import Portfolio from '../../models/Portfolio.js';
 
@@ -159,6 +160,18 @@ export default class ExecutionAgent extends BaseAgent {
       confidence: signal.confidence,
       status: 'executed',
     });
+
+    // Notify Telegram
+    await sendTelegramMessage(
+      `🔔 <b>Trade Executed! [Auto]</b>\n` +
+      `<b>Asset</b>: ${signal.asset.replace('USDT', '')}/USDT\n` +
+      `<b>Action</b>: ${signal.action} (${signal.action === 'BUY' ? 'LONG' : 'SHORT'})\n` +
+      `<b>Entry Price</b>: $${formatPrice(currentPrice)}\n` +
+      `<b>Quantity</b>: ${quantity.toFixed(5)}\n` +
+      `<b>Stop Loss</b>: ${signal.stopLoss ? '$' + formatPrice(signal.stopLoss) : '—'}\n` +
+      `<b>Target</b>: ${signal.takeProfit ? '$' + formatPrice(signal.takeProfit) : '—'}\n` +
+      `<b>Confidence</b>: ${(signal.confidence * 100).toFixed(0)}%`
+    );
 
     this.logger.info(
       `✅ ${signal.action} ${quantity.toFixed(6)} ${signal.asset} @ ${currentPrice} (confidence=${signal.confidence.toFixed(2)})`
