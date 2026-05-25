@@ -16,22 +16,26 @@ export const formatPrice = (priceVal) => {
  */
 export const sendTelegramMessage = async (htmlText) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatIdsEnv = process.env.TELEGRAM_CHAT_ID;
 
-  if (!token || !chatId) {
+  if (!token || !chatIdsEnv) {
     logger.debug('Telegram bot credentials not configured — skipping notification');
     return;
   }
 
-  try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    await axios.post(url, {
-      chat_id: chatId,
-      text: htmlText,
-      parse_mode: 'HTML',
-    });
-    logger.info('Telegram notification sent successfully');
-  } catch (err) {
-    logger.error(`Failed to send Telegram notification: ${err.response?.data?.description || err.message}`);
+  const chatIds = chatIdsEnv.split(',').map((id) => id.trim()).filter(Boolean);
+
+  for (const chatId of chatIds) {
+    try {
+      const url = `https://api.telegram.org/bot${token}/sendMessage`;
+      await axios.post(url, {
+        chat_id: chatId,
+        text: htmlText,
+        parse_mode: 'HTML',
+      });
+      logger.info(`Telegram notification sent successfully to chat ${chatId}`);
+    } catch (err) {
+      logger.error(`Failed to send Telegram notification to ${chatId}: ${err.response?.data?.description || err.message}`);
+    }
   }
 };
