@@ -114,18 +114,14 @@ export default class FusionAgent extends BaseAgent {
       positionSize: `${positionPercent.toFixed(1)}%`,
       stopLoss: currentPrice < 0.001 
         ? Math.round(stopLoss * 100000000) / 100000000 
-        : currentPrice < 1 
+        : currentPrice < 10 
           ? Math.round(stopLoss * 1000000) / 1000000 
-          : currentPrice < 10 
-            ? Math.round(stopLoss * 10000) / 10000 
-            : Math.round(stopLoss * 100) / 100,
+          : Math.round(stopLoss * 100) / 100,
       takeProfit: currentPrice < 0.001 
         ? Math.round(takeProfit * 100000000) / 100000000 
-        : currentPrice < 1 
+        : currentPrice < 10 
           ? Math.round(takeProfit * 1000000) / 1000000 
-          : currentPrice < 10 
-            ? Math.round(takeProfit * 10000) / 10000 
-            : Math.round(takeProfit * 100) / 100,
+          : Math.round(takeProfit * 100) / 100,
       reasoning: this.buildReasoning(action, technical, sentiment, prediction, composite),
       weights: { ...this.weights },
       indicators: {
