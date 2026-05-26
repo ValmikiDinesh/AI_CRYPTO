@@ -1,5 +1,5 @@
 import BaseAgent from '../base/BaseAgent.js';
-import { AGENT_NAMES, RISK, ACTIONS } from '../../config/constants.js';
+import { AGENT_NAMES, RISK, ACTIONS, CORE_ASSETS, MEME_ASSETS, RECOMMENDED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage } from '../../services/telegramService.js';
 import RiskEvent from '../../models/RiskEvent.js';
@@ -104,14 +104,50 @@ export default class RiskAgent extends BaseAgent {
         );
       }
 
-      // 6. Max open positions
-      const openPositions = portfolio.positions?.filter((p) => p.status === 'open').length || 0;
-      if (openPositions >= RISK.MAX_OPEN_POSITIONS) {
+      // 6. Max open positions checks
+      const openPositionsList = portfolio.positions?.filter((p) => p.status === 'open') || [];
+      const totalOpen = openPositionsList.length;
+
+      if (totalOpen >= RISK.MAX_OPEN_POSITIONS) {
         return this.reject(
-          `${openPositions} open positions — max is ${RISK.MAX_OPEN_POSITIONS}`,
+          `${totalOpen} open positions — max is ${RISK.MAX_OPEN_POSITIONS}`,
           'position_limit',
           signal
         );
+      }
+
+      // Check category-specific limits
+      const isCore = CORE_ASSETS.includes(signal.asset);
+      const isMeme = MEME_ASSETS.includes(signal.asset);
+      const isRecommended = RECOMMENDED_ASSETS.includes(signal.asset);
+
+      if (isCore) {
+        const coreOpen = openPositionsList.filter((p) => CORE_ASSETS.includes(p.asset)).length;
+        if (coreOpen >= RISK.MAX_CORE_POSITIONS) {
+          return this.reject(
+            `${coreOpen} open Core Crypto positions — max is ${RISK.MAX_CORE_POSITIONS}`,
+            'position_limit',
+            signal
+          );
+        }
+      } else if (isMeme) {
+        const memeOpen = openPositionsList.filter((p) => MEME_ASSETS.includes(p.asset)).length;
+        if (memeOpen >= RISK.MAX_MEME_POSITIONS) {
+          return this.reject(
+            `${memeOpen} open Meme Coin positions — max is ${RISK.MAX_MEME_POSITIONS}`,
+            'position_limit',
+            signal
+          );
+        }
+      } else if (isRecommended) {
+        const recOpen = openPositionsList.filter((p) => RECOMMENDED_ASSETS.includes(p.asset)).length;
+        if (recOpen >= RISK.MAX_RECOMMENDED_POSITIONS) {
+          return this.reject(
+            `${recOpen} open Recommended positions — max is ${RISK.MAX_RECOMMENDED_POSITIONS}`,
+            'position_limit',
+            signal
+          );
+        }
       }
     }
 

@@ -3,13 +3,20 @@ export const SUPPORTED_ASSETS = (process.env.SUPPORTED_ASSETS || 'BTCUSDT,ETHUSD
   .split(',')
   .map((s) => s.trim());
 
+export const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
+export const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT'];
+export const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT'];
+
 // ─── Risk Management Defaults ────────────────────────────────────
 export const RISK = {
   MAX_RISK_PER_TRADE: parseFloat(process.env.MAX_RISK_PER_TRADE) || 0.01,   // 1%
   MAX_DAILY_LOSS: parseFloat(process.env.MAX_DAILY_LOSS) || 0.05,           // 5%
   MAX_PORTFOLIO_DRAWDOWN: parseFloat(process.env.MAX_PORTFOLIO_DRAWDOWN) || 0.10, // 10%
   MAX_LEVERAGE: 5,
-  MAX_OPEN_POSITIONS: 5,
+  MAX_OPEN_POSITIONS: 15,
+  MAX_CORE_POSITIONS: 5,
+  MAX_MEME_POSITIONS: 5,
+  MAX_RECOMMENDED_POSITIONS: 5,
   MIN_CONFIDENCE_THRESHOLD: parseFloat(process.env.MIN_CONFIDENCE_THRESHOLD) || 0.65,
   EMERGENCY_VOLATILITY_THRESHOLD: 0.08, // 8% price swing triggers emergency
 };
@@ -50,4 +57,4 @@ export const TRADE_TYPES = {
   PAPER: 'paper',
 };
 
-export default { SUPPORTED_ASSETS, RISK, INTERVALS, AGENT_NAMES, ACTIONS, TRADE_TYPES };
+export default { SUPPORTED_ASSETS, CORE_ASSETS, MEME_ASSETS, RECOMMENDED_ASSETS, RISK, INTERVALS, AGENT_NAMES, ACTIONS, TRADE_TYPES };
