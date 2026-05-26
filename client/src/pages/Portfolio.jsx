@@ -19,6 +19,43 @@ export default function Portfolio() {
   const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [openLedgerTab, setOpenLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [closedLedgerTab, setClosedLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
+  const [dateFilter, setDateFilter] = useState('all'); // 'all' | 'today' | 'yesterday' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+
+  const filterByDate = (createdAt) => {
+    if (dateFilter === 'all') return true;
+    const tradeDate = new Date(createdAt);
+    const now = new Date();
+    
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
+    if (dateFilter === 'today') {
+      return tradeDate >= startOfToday && tradeDate < startOfTomorrow;
+    }
+    if (dateFilter === 'yesterday') {
+      return tradeDate >= startOfYesterday && tradeDate < startOfToday;
+    }
+    if (dateFilter === 'weekly') {
+      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return tradeDate >= oneWeekAgo;
+    }
+    if (dateFilter === 'monthly') {
+      const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      return tradeDate >= oneMonthAgo;
+    }
+    if (dateFilter === 'quarterly') {
+      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      return tradeDate >= ninetyDaysAgo;
+    }
+    if (dateFilter === 'yearly') {
+      const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      return tradeDate >= oneYearAgo;
+    }
+    return true;
+  };
 
   const onlyOpenTrades = allTrades.filter((trade) => trade.status === 'open');
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
@@ -32,6 +69,7 @@ export default function Portfolio() {
   });
 
   const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
+    if (!filterByDate(trade.createdAt)) return false;
     if (closedLedgerTab === 'all') return true;
     if (closedLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (closedLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
@@ -40,6 +78,7 @@ export default function Portfolio() {
   });
 
   const filteredTrades = allTrades.filter((trade) => {
+    if (!filterByDate(trade.createdAt)) return false;
     if (ledgerTab === 'all') return true;
     if (ledgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (ledgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
@@ -88,9 +127,45 @@ export default function Portfolio() {
     ? portfolio.allocation
     : [{ asset: 'USDT (Cash)', percentage: 100, value: portfolio.availableBalance }];
 
+  const dateFilteredClosed = onlyClosedTrades.filter((t) => filterByDate(t.createdAt));
+
+  const dynamicStats = (() => {
+    const totalTrades = dateFilteredClosed.length;
+    if (totalTrades === 0) {
+      return {
+        totalTrades: 0,
+        totalPnl: 0,
+        avgPnl: 0,
+        winners: 0,
+        losers: 0,
+        avgConfidence: 0,
+        bestTrade: 0,
+        worstTrade: 0,
+      };
+    }
+    const pnls = dateFilteredClosed.map(t => t.pnl || 0);
+    const totalPnl = pnls.reduce((sum, p) => sum + p, 0);
+    const avgPnl = totalPnl / totalTrades;
+    const winners = dateFilteredClosed.filter(t => (t.pnl || 0) > 0).length;
+    const losers = dateFilteredClosed.filter(t => (t.pnl || 0) < 0).length;
+    const confidences = dateFilteredClosed.map(t => t.confidence !== undefined && t.confidence !== null ? t.confidence : 0);
+    const avgConfidence = confidences.reduce((sum, c) => sum + c, 0) / totalTrades;
+    const bestTrade = Math.max(...pnls);
+    const worstTrade = Math.min(...pnls);
+
+    return {
+      totalTrades,
+      totalPnl,
+      avgPnl,
+      winners,
+      losers,
+      avgConfidence,
+      bestTrade,
+      worstTrade,
+    };
+  })();
+
   const categoryStats = (() => {
-    const closed = allTrades.filter(t => t.status === 'closed');
-    
     const initCategory = () => ({
       winningPnLs: [],
       losingPnLs: [],
@@ -107,7 +182,7 @@ export default function Portfolio() {
       recommended: initCategory(),
     };
     
-    closed.forEach(t => {
+    dateFilteredClosed.forEach(t => {
       const pnl = t.pnl || 0;
       let cat = null;
       if (CORE_ASSETS.includes(t.asset)) cat = cats.core;
@@ -149,6 +224,31 @@ export default function Portfolio() {
           <p className="text-[11px] text-[#86868b] mt-1 font-medium">
             Analyze asset allocation models, historic performance returns, and session statistics.
           </p>
+        </div>
+        
+        {/* Date Filter Dropdown */}
+        <div className="flex items-center gap-2.5">
+          <span className="text-[10px] font-bold text-[#86868b] uppercase tracking-widest font-mono">Date Filter:</span>
+          <div className="relative">
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="appearance-none bg-[#1c1c1e] hover:bg-[#2c2c2e] text-[#f5f5f7] font-mono font-bold text-[10px] uppercase tracking-wider py-2 pl-4 pr-10 rounded-xl border border-[#2c2c2e]/80 transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[#0071e3]/50 focus:border-[#0071e3] shadow-lg cursor-pointer"
+            >
+              <option value="all">All Time</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="weekly">Weekly (Last 7d)</option>
+              <option value="monthly">Monthly (Last 30d)</option>
+              <option value="quarterly">Quarterly (Last 90d)</option>
+              <option value="yearly">Yearly (Last 365d)</option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#86868b]">
+              <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
+              </svg>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -307,9 +407,9 @@ export default function Portfolio() {
                 <BarChart3 size={14} className="text-purple-400" />
                 Returns History (Closed Trades)
               </h3>
-              {trades.length > 0 ? (
+              {dateFilteredClosed.length > 0 ? (
                 <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={trades.map((t, i) => ({ name: `#${i + 1}`, pnl: t.pnl || 0 }))} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
+                  <BarChart data={dateFilteredClosed.map((t, i) => ({ name: `#${i + 1}`, pnl: t.pnl || 0 }))} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
                     <XAxis dataKey="name" stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
                     <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
@@ -318,7 +418,7 @@ export default function Portfolio() {
                       itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
                     />
                     <Bar dataKey="pnl" radius={[2, 2, 0, 0]}>
-                      {trades.map((t, i) => (
+                      {dateFilteredClosed.map((t, i) => (
                         <Cell key={i} fill={(t.pnl || 0) >= 0 ? '#30d158' : '#ff453a'} />
                       ))}
                     </Bar>
@@ -396,21 +496,21 @@ export default function Portfolio() {
           </div>
 
           {/* Trade Stats Table */}
-          {stats && stats.totalTrades > 0 && (
+          {dynamicStats && dynamicStats.totalTrades >= 0 && (
             <div className="glass-panel bg-[#1c1c1e] !p-0">
               <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest border-b border-[#2c2c2e]/60 p-6 pb-3 font-mono mb-4">
                 Session Performance Benchmarks
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 pt-0 text-xs">
                 {[
-                  { label: 'Total Orders Executed', value: stats.totalTrades },
-                  { label: 'Winning Trades', value: stats.winners, color: '#30d158' },
-                  { label: 'Losing Trades', value: stats.losers, color: '#ff453a' },
-                  { label: 'Cumulative Net return', value: `$${stats.totalPnl?.toFixed(2)}`, color: stats.totalPnl >= 0 ? '#30d158' : '#ff453a' },
-                  { label: 'Average Outcome PnL', value: `$${stats.avgPnl?.toFixed(2)}` },
-                  { label: 'Peak Trade Profit', value: `$${stats.bestTrade?.toFixed(2)}`, color: '#30d158' },
-                  { label: 'Max Drawdown Loss', value: `$${stats.worstTrade?.toFixed(2)}`, color: '#ff453a' },
-                  { label: 'Average Signal Conf', value: `${(stats.avgConfidence * 100).toFixed(1)}%` },
+                  { label: 'Total Orders Executed', value: dynamicStats.totalTrades },
+                  { label: 'Winning Trades', value: dynamicStats.winners, color: '#30d158' },
+                  { label: 'Losing Trades', value: dynamicStats.losers, color: '#ff453a' },
+                  { label: 'Cumulative Net return', value: `$${dynamicStats.totalPnl?.toFixed(2)}`, color: dynamicStats.totalPnl >= 0 ? '#30d158' : '#ff453a' },
+                  { label: 'Average Outcome PnL', value: `$${dynamicStats.avgPnl?.toFixed(2)}` },
+                  { label: 'Peak Trade Profit', value: `$${dynamicStats.bestTrade?.toFixed(2)}`, color: '#30d158' },
+                  { label: 'Max Drawdown Loss', value: `$${dynamicStats.worstTrade?.toFixed(2)}`, color: '#ff453a' },
+                  { label: 'Average Signal Conf', value: `${(dynamicStats.avgConfidence * 100).toFixed(1)}%` },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-black p-4 rounded-2xl border border-[#2c2c2e]/55 relative overflow-hidden pl-5 group">
                     <div className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: color || '#86868b' }} />
