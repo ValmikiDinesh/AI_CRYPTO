@@ -415,9 +415,19 @@ export default function Portfolio() {
                         </td>
                         <td 
                           className="px-6 py-4 text-right font-bold font-mono"
-                          style={{ color: trade.status === 'open' ? '#86868b' : ((trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a') }}
+                          style={{ 
+                            color: trade.status === 'open' 
+                              ? '#86868b' 
+                              : trade.status === 'failed'
+                                ? '#ff453a'
+                                : ((trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a') 
+                          }}
                         >
-                          {trade.status === 'open' ? 'ACTIVE' : `${(trade.pnl || 0) >= 0 ? '+' : ''}$${trade.pnl?.toFixed(2)}`}
+                          {trade.status === 'open' 
+                            ? 'ACTIVE' 
+                            : trade.status === 'failed' 
+                              ? 'FAILED' 
+                              : `${(trade.pnl || 0) >= 0 ? '+' : ''}$${(trade.pnl || 0).toFixed(2)}`}
                         </td>
                       </tr>
                     );
