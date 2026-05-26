@@ -1,7 +1,7 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS, ACTIONS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
-import { placeMarketOrder } from '../../services/exchangeService.js';
+import { placeMarketOrder, getExchange } from '../../services/exchangeService.js';
 import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
 import Trade from '../../models/Trade.js';
 import Portfolio from '../../models/Portfolio.js';
@@ -67,7 +67,7 @@ export default class ExecutionAgent extends BaseAgent {
     let positionValue = portfolio.availableBalance * positionPct;
 
     // Enforce Binance Futures minimum notional order limit of 50 USDT
-    const MIN_NOTIONAL = 50;
+    const MIN_NOTIONAL = 53; // Base limit updated to 53 USDT (target range 52-55)
     if (positionValue < MIN_NOTIONAL) {
       positionValue = MIN_NOTIONAL;
     }
@@ -77,7 +77,25 @@ export default class ExecutionAgent extends BaseAgent {
       return;
     }
 
-    const quantity = positionValue / currentPrice;
+    let quantity = positionValue / currentPrice;
+
+    // Retrieve exchange metadata and round quantity UP to the nearest step size to prevent notional limit errors
+    try {
+      const exchange = getExchange();
+      await exchange.loadMarkets();
+      const market = exchange.market(signal.asset);
+      const stepSize = market.precision?.amount;
+      if (stepSize) {
+        const decimals = Math.max(0, Math.round(-Math.log10(stepSize)));
+        const factor = Math.pow(10, decimals);
+        quantity = Math.ceil(quantity * factor) / factor;
+        
+        // Dynamically adjust positionValue to exactly match the rounded-up quantity
+        positionValue = quantity * currentPrice;
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to dynamically retrieve lot step size for ${signal.asset}: ${err.message}`);
+    }
 
     if (quantity <= 0) {
       this.logger.warn(`${signal.asset}: calculated quantity is 0 — skipping`);
