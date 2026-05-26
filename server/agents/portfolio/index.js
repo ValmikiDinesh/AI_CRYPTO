@@ -121,7 +121,7 @@ export default class PortfolioAgent extends BaseAgent {
     // Return funds (collateral + realized PnL - exit fee) to available balance
     const returnValue = (position.entryPrice * position.quantity) + position.realizedPnl - exitFee;
     portfolio.availableBalance += returnValue;
-    portfolio.totalPnl += position.realizedPnl;
+    portfolio.totalPnl += (position.realizedPnl - totalPositionFees);
     portfolio.dailyLossToday += Math.min(0, position.realizedPnl); // track losses
 
     if (position.realizedPnl >= 0) {

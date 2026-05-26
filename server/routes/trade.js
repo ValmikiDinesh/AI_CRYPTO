@@ -244,7 +244,7 @@ router.post('/manual-close', async (req, res, next) => {
     // Refund capital and PnL (minus exit fee) to availableBalance
     const capitalCost = pos.entryPrice * pos.quantity;
     portfolio.availableBalance += (capitalCost + pnl - exitFee);
-    portfolio.totalPnl += pnl;
+    portfolio.totalPnl += (pnl - totalPositionFees);
 
     if (pnl >= 0) {
       portfolio.winningTrades += 1;
