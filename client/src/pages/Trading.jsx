@@ -440,6 +440,15 @@ export default function Trading() {
                     </div>
                   </div>
 
+                  <div className="flex justify-between items-center bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
+                    <span className="text-[9px] text-[#86868b] font-bold uppercase tracking-widest font-mono">Commission Paid (Taker 0.05%)</span>
+                    <span className="font-bold text-[#ff9f0a] font-mono">
+                      {activePosition.fees !== undefined && activePosition.fees !== null 
+                        ? `$${activePosition.fees.toFixed(4)}` 
+                        : `$${(activePosition.entryPrice * activePosition.quantity * 0.0005).toFixed(4)}`}
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-black p-3 rounded-xl border border-[#2c2c2e]/40">
                       <span className="block text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono mb-1">Stop Loss</span>

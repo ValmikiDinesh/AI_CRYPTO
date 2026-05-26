@@ -365,6 +365,7 @@ export default function Dashboard() {
                     <th className="px-6 py-4">Action</th>
                     <th className="px-6 py-4 text-right">Execution Price</th>
                     <th className="px-6 py-4 text-right">Position Size</th>
+                    <th className="px-6 py-4 text-right">Commission</th>
                     <th className="px-6 py-4 text-right">Confidence</th>
                     <th className="px-6 py-4 text-right">Realized Return</th>
                   </tr>
@@ -383,6 +384,11 @@ export default function Dashboard() {
                       </td>
                       <td className="px-6 py-4 text-right text-[#86868b] font-mono">
                         {trade.quantity?.toFixed(5) || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+                        {trade.fees !== undefined && trade.fees !== null 
+                          ? `$${trade.fees.toFixed(4)}` 
+                          : `$${((trade.price || trade.entryPrice) * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)).toFixed(4)}`}
                       </td>
                       <td className="px-6 py-4 text-right font-bold text-[#0071e3] font-mono">
                         {trade.confidence ? `${(trade.confidence * 100).toFixed(0)}%` : '—'}

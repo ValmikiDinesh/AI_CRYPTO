@@ -480,6 +480,7 @@ export default function Portfolio() {
                     <th className="px-6 py-4 text-right">Target</th>
                     <th className="px-6 py-4 text-right">Exit Price</th>
                     <th className="px-6 py-4 text-right">Quantity</th>
+                    <th className="px-6 py-4 text-right">Commission</th>
                     <th className="px-6 py-4 text-right">Realized Return</th>
                   </tr>
                 </thead>
@@ -527,6 +528,11 @@ export default function Portfolio() {
                         </td>
                         <td className="px-6 py-4 text-right text-[#86868b] font-mono">
                           {trade.quantity?.toFixed(5) || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+                          {trade.fees !== undefined && trade.fees !== null 
+                            ? `$${trade.fees.toFixed(4)}` 
+                            : `$${(trade.entryPrice * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)).toFixed(4)}`}
                         </td>
                         <td 
                           className="px-6 py-4 text-right font-bold font-mono"
@@ -606,6 +612,7 @@ export default function Portfolio() {
                     <th className="px-6 py-4 text-right">Stop Loss</th>
                     <th className="px-6 py-4 text-right">Target</th>
                     <th className="px-6 py-4 text-right">Quantity</th>
+                    <th className="px-6 py-4 text-right">Commission</th>
                     <th className="px-6 py-4 text-right">PnL Estimate</th>
                   </tr>
                 </thead>
@@ -640,6 +647,11 @@ export default function Portfolio() {
                         </td>
                         <td className="px-6 py-4 text-right text-[#86868b] font-mono">
                           {trade.quantity?.toFixed(5) || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+                          {trade.fees !== undefined && trade.fees !== null 
+                            ? `$${trade.fees.toFixed(4)}` 
+                            : `$${(trade.entryPrice * trade.quantity * 0.0005).toFixed(4)}`}
                         </td>
                         <td className="px-6 py-4 text-right font-bold font-mono text-[#86868b]">
                           ACTIVE
@@ -707,6 +719,7 @@ export default function Portfolio() {
                     <th className="px-6 py-4 text-right">Target</th>
                     <th className="px-6 py-4 text-right">Exit Price</th>
                     <th className="px-6 py-4 text-right">Quantity</th>
+                    <th className="px-6 py-4 text-right">Commission</th>
                     <th className="px-6 py-4 text-right">Realized Return</th>
                   </tr>
                 </thead>
@@ -745,6 +758,11 @@ export default function Portfolio() {
                         </td>
                         <td className="px-6 py-4 text-right text-[#86868b] font-mono">
                           {trade.quantity?.toFixed(5) || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+                          {trade.fees !== undefined && trade.fees !== null 
+                            ? `$${trade.fees.toFixed(4)}` 
+                            : `$${(trade.entryPrice * trade.quantity * 0.0010).toFixed(4)}`}
                         </td>
                         <td 
                           className="px-6 py-4 text-right font-bold font-mono"
