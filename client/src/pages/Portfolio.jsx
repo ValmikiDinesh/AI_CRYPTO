@@ -88,6 +88,58 @@ export default function Portfolio() {
     ? portfolio.allocation
     : [{ asset: 'USDT (Cash)', percentage: 100, value: portfolio.availableBalance }];
 
+  const categoryStats = (() => {
+    const closed = allTrades.filter(t => t.status === 'closed');
+    
+    const initCategory = () => ({
+      winningPnLs: [],
+      losingPnLs: [],
+      maxProfit: 0,
+      minProfit: 0,
+      maxLoss: 0,
+      minLoss: 0,
+      totalPnl: 0,
+    });
+    
+    const cats = {
+      core: initCategory(),
+      meme: initCategory(),
+      recommended: initCategory(),
+    };
+    
+    closed.forEach(t => {
+      const pnl = t.pnl || 0;
+      let cat = null;
+      if (CORE_ASSETS.includes(t.asset)) cat = cats.core;
+      else if (MEME_ASSETS.includes(t.asset)) cat = cats.meme;
+      else if (RECOMMENDED_ASSETS.includes(t.asset)) cat = cats.recommended;
+      
+      if (cat) {
+        cat.totalPnl += pnl;
+        if (pnl >= 0) {
+          cat.winningPnLs.push(pnl);
+        } else {
+          cat.losingPnLs.push(pnl);
+        }
+      }
+    });
+    
+    // Compute max/min for each category
+    Object.keys(cats).forEach(key => {
+      const c = cats[key];
+      c.maxProfit = c.winningPnLs.length > 0 ? Math.max(...c.winningPnLs) : 0;
+      c.minProfit = c.winningPnLs.length > 0 ? Math.min(...c.winningPnLs) : 0;
+      c.maxLoss = c.losingPnLs.length > 0 ? Math.min(...c.losingPnLs) : 0;
+      c.minLoss = c.losingPnLs.length > 0 ? Math.max(...c.losingPnLs) : 0;
+    });
+    
+    return [
+      { name: 'Core Crypto', maxProfit: cats.core.maxProfit, minProfit: cats.core.minProfit, maxLoss: Math.abs(cats.core.maxLoss), minLoss: Math.abs(cats.core.minLoss), totalPnl: cats.core.totalPnl },
+      { name: 'Meme Coins', maxProfit: cats.meme.maxProfit, minProfit: cats.meme.minProfit, maxLoss: Math.abs(cats.meme.maxLoss), minLoss: Math.abs(cats.meme.minLoss), totalPnl: cats.meme.totalPnl },
+      { name: 'Recommended', maxProfit: cats.recommended.maxProfit, minProfit: cats.recommended.minProfit, maxLoss: Math.abs(cats.recommended.maxLoss), minLoss: Math.abs(cats.recommended.minLoss), totalPnl: cats.recommended.totalPnl },
+    ];
+  })();
+
   return (
     <div className="page-layout">
       {/* Header */}
@@ -277,6 +329,69 @@ export default function Portfolio() {
                   NO TRANSACTION HISTORY LOGGED
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Category Performance Analytics */}
+          <div className="glass-panel bg-[#1c1c1e] mt-6">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+              <BarChart3 size={14} className="text-sky-400" />
+              Category Performance Analytics (Core vs Meme vs Recs)
+            </h3>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+              {/* Chart */}
+              <div className="lg:col-span-2">
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={categoryStats} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+                    <XAxis dataKey="name" stroke="#86868b" fontSize={10} tickLine={false} className="font-mono font-bold" />
+                    <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
+                    <Tooltip
+                      contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
+                      itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
+                      formatter={(value) => `$${value.toFixed(2)}`}
+                    />
+                    <Bar dataKey="maxProfit" name="High Profit" fill="#30d158" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="minProfit" name="Low Profit" fill="rgba(48, 209, 88, 0.45)" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="maxLoss" name="High Loss" fill="#ff453a" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="minLoss" name="Low Loss" fill="rgba(255, 69, 58, 0.45)" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Data Breakdown Table */}
+              <div className="space-y-4">
+                {categoryStats.map((cat, i) => (
+                  <div key={i} className="bg-black/40 p-4 rounded-2xl border border-[#2c2c2e]/55 pl-5 relative overflow-hidden group">
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: cat.totalPnl >= 0 ? '#30d158' : '#ff453a' }} />
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="font-bold text-[#f5f5f7] text-xs font-mono">{cat.name}</span>
+                      <span className={`text-[10px] font-mono font-extrabold ${cat.totalPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                        Net: {cat.totalPnl >= 0 ? '+' : ''}${cat.totalPnl.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[9px] font-mono text-[#86868b] font-semibold">
+                      <div className="flex flex-col">
+                        <span>High Profit</span>
+                        <span className="text-[#30d158] font-bold">+${cat.maxProfit.toFixed(2)}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span>Low Profit</span>
+                        <span className="text-[#30d158]/70">+${cat.minProfit.toFixed(2)}</span>
+                      </div>
+                      <div className="flex flex-col mt-1">
+                        <span>High Loss</span>
+                        <span className="text-[#ff453a] font-bold">-${cat.maxLoss.toFixed(2)}</span>
+                      </div>
+                      <div className="flex flex-col mt-1">
+                        <span>Low Loss</span>
+                        <span className="text-[#ff453a]/70">-${cat.minLoss.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
