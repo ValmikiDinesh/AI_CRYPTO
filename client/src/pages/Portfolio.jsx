@@ -17,8 +17,17 @@ export default function Portfolio() {
   const [stats, setStats] = useState(null);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'history' | 'closed'
   const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
+  const [closedLedgerTab, setClosedLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
 
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
+
+  const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
+    if (closedLedgerTab === 'all') return true;
+    if (closedLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
+    if (closedLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
+    if (closedLedgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
+    return true;
+  });
 
   const filteredTrades = allTrades.filter((trade) => {
     if (ledgerTab === 'all') return true;
@@ -401,14 +410,43 @@ export default function Portfolio() {
       ) : (
         /* Closed Trades Ledger */
         <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
-          <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest border-b border-[#2c2c2e]/60 p-6 pb-3 font-mono mb-4">
-            Historical Closed Trades
-          </h3>
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
+              Historical Closed Trades
+            </h3>
+            <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'core', label: 'Core Crypto' },
+                { id: 'meme', label: 'Meme Coins' },
+                { id: 'recommended', label: 'Recommended' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setClosedLedgerTab(tab.id)}
+                  className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
+                    closedLedgerTab === tab.id
+                      ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
+                      : 'text-[#86868b] hover:text-[#f5f5f7]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {onlyClosedTrades.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center h-44">
               <Activity size={20} className="text-zinc-600 mb-2" />
               <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
                 NO CLOSED TRADES ON SYSTEM
+              </span>
+            </div>
+          ) : filteredClosedTrades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+              <Activity size={20} className="text-zinc-600 mb-2" />
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                NO CLOSED TRADES MATCHING CATEGORY
               </span>
             </div>
           ) : (
@@ -428,7 +466,7 @@ export default function Portfolio() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2c2c2e]/40">
-                  {onlyClosedTrades.map((trade, i) => {
+                  {filteredClosedTrades.map((trade, i) => {
                     const price = trade.entryPrice;
                     const exit = trade.exitPrice;
                     return (
