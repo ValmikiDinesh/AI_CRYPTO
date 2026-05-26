@@ -6,12 +6,25 @@ import axios from 'axios';
 
 const COLORS = ['#0071e3', '#ff9f0a', '#30d158', '#ff453a', '#bf5af2'];
 
+const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
+const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT'];
+const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT'];
+
 export default function Portfolio() {
   const portfolio = usePortfolioStore((s) => s.portfolio);
   const [trades, setTrades] = useState([]);
   const [allTrades, setAllTrades] = useState([]);
   const [stats, setStats] = useState(null);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'history'
+  const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
+
+  const filteredTrades = allTrades.filter((trade) => {
+    if (ledgerTab === 'all') return true;
+    if (ledgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
+    if (ledgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
+    if (ledgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
+    return true;
+  });
 
   useEffect(() => {
     fetchTrades();
@@ -258,14 +271,43 @@ export default function Portfolio() {
       ) : (
         /* Detailed Transaction Ledger */
         <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
-          <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest border-b border-[#2c2c2e]/60 p-6 pb-3 font-mono mb-4">
-            Autonomous Transaction Ledger
-          </h3>
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
+              Autonomous Transaction Ledger
+            </h3>
+            <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'core', label: 'Core Crypto' },
+                { id: 'meme', label: 'Meme Coins' },
+                { id: 'recommended', label: 'Recommended' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setLedgerTab(tab.id)}
+                  className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
+                    ledgerTab === tab.id
+                      ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
+                      : 'text-[#86868b] hover:text-[#f5f5f7]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {allTrades.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center h-44">
               <Activity size={20} className="text-zinc-600 mb-2" />
               <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
                 NO TRANSACTIONS LOGGED ON SYSTEM
+              </span>
+            </div>
+          ) : filteredTrades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+              <Activity size={20} className="text-zinc-600 mb-2" />
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                NO TRANSACTIONS MATCHING CATEGORY
               </span>
             </div>
           ) : (
@@ -286,7 +328,7 @@ export default function Portfolio() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2c2c2e]/40">
-                  {allTrades.map((trade, i) => {
+                  {filteredTrades.map((trade, i) => {
                     const price = trade.entryPrice;
                     const exit = trade.exitPrice;
                     return (
