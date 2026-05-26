@@ -15,11 +15,21 @@ export default function Portfolio() {
   const [trades, setTrades] = useState([]);
   const [allTrades, setAllTrades] = useState([]);
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'history' | 'closed'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'history' | 'open' | 'closed'
   const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
+  const [openLedgerTab, setOpenLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [closedLedgerTab, setClosedLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
 
+  const onlyOpenTrades = allTrades.filter((trade) => trade.status === 'open');
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
+
+  const filteredOpenTrades = onlyOpenTrades.filter((trade) => {
+    if (openLedgerTab === 'all') return true;
+    if (openLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
+    if (openLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
+    if (openLedgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
+    return true;
+  });
 
   const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
     if (closedLedgerTab === 'all') return true;
@@ -170,6 +180,16 @@ export default function Portfolio() {
           }`}
         >
           DETAILED TRANSACTION LEDGER
+        </button>
+        <button
+          onClick={() => setActiveTab('open')}
+          className={`pb-2 border-b-2 transition-all duration-300 cursor-pointer ${
+            activeTab === 'open'
+              ? 'border-[#0071e3] text-[#f5f5f7]'
+              : 'border-transparent text-[#86868b] hover:text-[#f5f5f7]'
+          }`}
+        >
+          ALL OPEN TRADES
         </button>
         <button
           onClick={() => setActiveTab('closed')}
@@ -398,6 +418,106 @@ export default function Portfolio() {
                           style={{ color: trade.status === 'open' ? '#86868b' : ((trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a') }}
                         >
                           {trade.status === 'open' ? 'ACTIVE' : `${(trade.pnl || 0) >= 0 ? '+' : ''}$${trade.pnl?.toFixed(2)}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'open' ? (
+        /* Open Trades Ledger */
+        <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
+            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
+              Active Open Positions
+            </h3>
+            <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'core', label: 'Core Crypto' },
+                { id: 'meme', label: 'Meme Coins' },
+                { id: 'recommended', label: 'Recommended' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setOpenLedgerTab(tab.id)}
+                  className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
+                    openLedgerTab === tab.id
+                      ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
+                      : 'text-[#86868b] hover:text-[#f5f5f7]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {onlyOpenTrades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+              <Activity size={20} className="text-zinc-600 mb-2" />
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                NO ACTIVE POSITIONS ON SYSTEM
+              </span>
+            </div>
+          ) : filteredOpenTrades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+              <Activity size={20} className="text-zinc-600 mb-2" />
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                NO ACTIVE POSITIONS MATCHING CATEGORY
+              </span>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
+                    <th className="px-6 py-4">Execution Date</th>
+                    <th className="px-6 py-4">Asset</th>
+                    <th className="px-6 py-4">Action</th>
+                    <th className="px-6 py-4 text-right">Entry Price</th>
+                    <th className="px-6 py-4 text-right">Stop Loss</th>
+                    <th className="px-6 py-4 text-right">Target</th>
+                    <th className="px-6 py-4 text-right">Quantity</th>
+                    <th className="px-6 py-4 text-right">PnL Estimate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#2c2c2e]/40">
+                  {filteredOpenTrades.map((trade, i) => {
+                    const price = trade.entryPrice;
+                    return (
+                      <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+                        <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
+                          {new Date(trade.createdAt).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
+                          {trade.asset?.replace('1000', '').replace('USDT', '')}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+                            trade.action === 'BUY'
+                              ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+                              : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
+                          }`}>
+                            {trade.action}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
+                          {price ? (price >= 1 ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${price.toFixed(6)}`) : '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
+                          {trade.stopLoss ? (trade.stopLoss >= 1 ? `$${trade.stopLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.stopLoss.toFixed(6)}`) : '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
+                          {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right text-[#86868b] font-mono">
+                          {trade.quantity?.toFixed(5) || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-right font-bold font-mono text-[#86868b]">
+                          ACTIVE
                         </td>
                       </tr>
                     );
