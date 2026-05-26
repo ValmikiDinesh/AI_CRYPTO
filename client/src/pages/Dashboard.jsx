@@ -368,6 +368,7 @@ export default function Dashboard() {
                     <th className="px-6 py-4 text-right">Commission</th>
                     <th className="px-6 py-4 text-right">Confidence</th>
                     <th className="px-6 py-4 text-right">Realized Return</th>
+                    <th className="px-6 py-4 text-right">Net Return</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2c2c2e]/40">
@@ -408,6 +409,28 @@ export default function Dashboard() {
                           : trade.status === 'failed' 
                             ? 'FAILED' 
                             : `${(trade.pnl || 0) >= 0 ? '+' : ''}$${(trade.pnl || 0).toFixed(2)}`}
+                      </td>
+                      <td 
+                        className="px-6 py-4 text-right font-bold font-mono"
+                        style={{ 
+                          color: trade.status === 'open' 
+                            ? '#86868b' 
+                            : trade.status === 'failed'
+                              ? '#ff453a'
+                              : (((trade.pnl || 0) - (trade.fees !== undefined && trade.fees !== null ? trade.fees : ((trade.price || trade.entryPrice) * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)))) >= 0 ? '#30d158' : '#ff453a') 
+                        }}
+                      >
+                        {trade.status === 'open' 
+                          ? 'ACTIVE' 
+                          : trade.status === 'failed' 
+                            ? 'FAILED' 
+                            : (() => {
+                                const fees = trade.fees !== undefined && trade.fees !== null 
+                                  ? trade.fees 
+                                  : ((trade.price || trade.entryPrice) * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005));
+                                const net = (trade.pnl || 0) - fees;
+                                return `${net >= 0 ? '+' : ''}$${net.toFixed(2)}`;
+                              })()}
                       </td>
                     </tr>
                   ))}
