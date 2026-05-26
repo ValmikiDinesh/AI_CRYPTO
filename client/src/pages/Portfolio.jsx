@@ -829,92 +829,155 @@ export default function Portfolio() {
                 NO CLOSED TRADES MATCHING CATEGORY
               </span>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
-                    <th className="px-6 py-4">Execution Date</th>
-                    <th className="px-6 py-4">Asset</th>
-                    <th className="px-6 py-4">Action</th>
-                    <th className="px-6 py-4 text-right">Entry Price</th>
-                    <th className="px-6 py-4 text-right">Stop Loss</th>
-                    <th className="px-6 py-4 text-right">Target</th>
-                    <th className="px-6 py-4 text-right">Exit Price</th>
-                    <th className="px-6 py-4 text-right">Quantity</th>
-                    <th className="px-6 py-4 text-right">Commission</th>
-                    <th className="px-6 py-4 text-right">Realized Return</th>
-                    <th className="px-6 py-4 text-right">Net Return</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#2c2c2e]/40">
-                  {filteredClosedTrades.map((trade, i) => {
-                    const price = trade.entryPrice;
-                    const exit = trade.exitPrice;
-                    return (
-                      <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                        <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
-                          {new Date(trade.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
-                          {trade.asset?.replace('1000', '').replace('USDT', '')}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
-                            trade.action === 'BUY'
-                              ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
-                              : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
-                          }`}>
-                            {trade.action}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
-                          {price ? `$${price.toFixed(6)}` : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
-                          {trade.stopLoss ? `$${trade.stopLoss.toFixed(6)}` : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
-                          {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
-                          {exit ? `$${exit.toFixed(6)}` : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#86868b] font-mono">
-                          {trade.quantity?.toFixed(5) || '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
-                          {trade.fees !== undefined && trade.fees !== null 
-                            ? `$${trade.fees.toFixed(4)}` 
-                            : `$${(trade.entryPrice * trade.quantity * 0.0010).toFixed(4)}`}
-                        </td>
-                        <td 
-                          className="px-6 py-4 text-right font-bold font-mono"
-                          style={{ color: (trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a' }}
-                        >
-                          {`${(trade.pnl || 0) >= 0 ? '+' : ''}$${trade.pnl?.toFixed(2)}`}
-                        </td>
-                        <td 
-                          className="px-6 py-4 text-right font-bold font-mono"
-                          style={{ 
-                            color: (((trade.pnl || 0) - (trade.fees !== undefined && trade.fees !== null ? trade.fees : (trade.entryPrice * trade.quantity * 0.0010))) >= 0 ? '#30d158' : '#ff453a') 
-                          }}
-                        >
-                          {(() => {
-                            const fees = trade.fees !== undefined && trade.fees !== null 
-                              ? trade.fees 
-                              : (trade.entryPrice * trade.quantity * 0.0010);
-                            const net = (trade.pnl || 0) - fees;
-                            return `${net >= 0 ? '+' : ''}$${net.toFixed(2)}`;
-                          })()}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          ) : (() => {
+            const totalProfit = filteredClosedTrades
+              .filter((t) => (t.pnl || 0) > 0)
+              .reduce((sum, t) => sum + (t.pnl || 0), 0);
+
+            const totalLoss = filteredClosedTrades
+              .filter((t) => (t.pnl || 0) < 0)
+              .reduce((sum, t) => sum + (t.pnl || 0), 0);
+
+            const totalCommission = filteredClosedTrades.reduce((sum, t) => {
+              const fees = t.fees !== undefined && t.fees !== null 
+                ? t.fees 
+                : (t.entryPrice * t.quantity * 0.0010);
+              return sum + fees;
+            }, 0);
+
+            const totalGross = totalProfit + totalLoss;
+            const totalNet = totalGross - totalCommission;
+
+            return (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
+                      <th className="px-6 py-4">Execution Date</th>
+                      <th className="px-6 py-4">Asset</th>
+                      <th className="px-6 py-4">Action</th>
+                      <th className="px-6 py-4 text-right">Entry Price</th>
+                      <th className="px-6 py-4 text-right">Stop Loss</th>
+                      <th className="px-6 py-4 text-right">Target</th>
+                      <th className="px-6 py-4 text-right">Exit Price</th>
+                      <th className="px-6 py-4 text-right">Quantity</th>
+                      <th className="px-6 py-4 text-right">Commission</th>
+                      <th className="px-6 py-4 text-right">Realized Return</th>
+                      <th className="px-6 py-4 text-right">Net Return</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2c2c2e]/40">
+                    {filteredClosedTrades.map((trade, i) => {
+                      const price = trade.entryPrice;
+                      const exit = trade.exitPrice;
+                      return (
+                        <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+                          <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
+                            {new Date(trade.createdAt).toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
+                            {trade.asset?.replace('1000', '').replace('USDT', '')}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+                              trade.action === 'BUY'
+                                ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+                                : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
+                            }`}>
+                              {trade.action}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
+                            {price ? `$${price.toFixed(6)}` : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
+                            {trade.stopLoss ? `$${trade.stopLoss.toFixed(6)}` : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
+                            {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
+                            {exit ? `$${exit.toFixed(6)}` : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#86868b] font-mono">
+                            {trade.quantity?.toFixed(5) || '—'}
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+                            {trade.fees !== undefined && trade.fees !== null 
+                              ? `$${trade.fees.toFixed(4)}` 
+                              : `$${(trade.entryPrice * trade.quantity * 0.0010).toFixed(4)}`}
+                          </td>
+                          <td 
+                            className="px-6 py-4 text-right font-bold font-mono"
+                            style={{ color: (trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a' }}
+                          >
+                            {`${(trade.pnl || 0) >= 0 ? '+' : ''}$${trade.pnl?.toFixed(2)}`}
+                          </td>
+                          <td 
+                            className="px-6 py-4 text-right font-bold font-mono"
+                            style={{ 
+                              color: (((trade.pnl || 0) - (trade.fees !== undefined && trade.fees !== null ? trade.fees : (trade.entryPrice * trade.quantity * 0.0010))) >= 0 ? '#30d158' : '#ff453a') 
+                            }}
+                          >
+                            {(() => {
+                              const fees = trade.fees !== undefined && trade.fees !== null 
+                                ? trade.fees 
+                                : (trade.entryPrice * trade.quantity * 0.0010);
+                              const net = (trade.pnl || 0) - fees;
+                              return `${net >= 0 ? '+' : ''}$${net.toFixed(2)}`;
+                            })()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="border-t border-[#2c2c2e] bg-black/45">
+                    <tr className="align-middle">
+                      <td colSpan={4} className="px-6 py-4 text-[#86868b] font-mono text-[9px] font-extrabold uppercase tracking-widest">
+                        Totals ({filteredClosedTrades.length} Trades)
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">—</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Total Profit</span>
+                        <span className="text-[#30d158] font-bold font-mono text-[11px] mt-0.5 block">
+                          +${totalProfit.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Total Loss</span>
+                        <span className="text-[#ff453a] font-bold font-mono text-[11px] mt-0.5 block">
+                          -${Math.abs(totalLoss).toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">—</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
+                        <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
+                          -${totalCommission.toFixed(4)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Gross Return</span>
+                        <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalGross >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                          {totalGross >= 0 ? '+' : ''}${totalGross.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60">
+                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Net Return</span>
+                        <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalNet >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                          {totalNet >= 0 ? '+' : ''}${totalNet.toFixed(2)}
+                        </span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
