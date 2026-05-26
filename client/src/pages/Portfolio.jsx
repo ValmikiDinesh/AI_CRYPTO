@@ -280,7 +280,7 @@ export default function Portfolio() {
             </div>
           )}
         </>
-      ) : (
+      ) : activeTab === 'history' ? (
         /* Detailed Transaction Ledger */
         <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
           <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
