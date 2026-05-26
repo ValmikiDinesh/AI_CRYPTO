@@ -300,7 +300,9 @@ router.post('/manual-close', async (req, res, next) => {
       `<b>Entry Price</b>: $${formatPrice(pos.entryPrice)}\n` +
       `<b>Exit Price</b>: $${formatPrice(exitPrice)}\n` +
       `<b>Quantity</b>: ${pos.quantity.toFixed(5)}\n` +
-      `<b>Realized PnL</b>: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}\n` +
+      `<b>Gross Realized PnL</b>: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}\n` +
+      `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
+      `<b>Net PnL (After Fees)</b>: ${(pnl - totalPositionFees) >= 0 ? '+' : ''}$${(pnl - totalPositionFees).toFixed(2)}\n` +
       `<b>Reason</b>: Manually closed by user`
     );
 

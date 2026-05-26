@@ -161,7 +161,9 @@ export default class PortfolioAgent extends BaseAgent {
       `<b>Entry Price</b>: $${formatPrice(position.entryPrice)}\n` +
       `<b>Exit Price</b>: $${formatPrice(closePrice)}\n` +
       `<b>Quantity</b>: ${position.quantity.toFixed(5)}\n` +
-      `<b>Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
+      `<b>Gross Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
+      `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
+      `<b>Net PnL (After Fees)</b>: ${(position.realizedPnl - totalPositionFees) >= 0 ? '+' : ''}$${(position.realizedPnl - totalPositionFees).toFixed(2)}\n` +
       `<b>Reason</b>: ${reason}`
     );
 
