@@ -102,6 +102,14 @@ export default class ExecutionAgent extends BaseAgent {
       return;
     }
 
+    const futuresFeeRate = 0.0005; // 0.05% Taker Fee
+    const entryFee = positionValue * futuresFeeRate;
+
+    if (portfolio.availableBalance < (positionValue + entryFee)) {
+      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required ($${(positionValue + entryFee).toFixed(2)}) including 0.05% Taker fee — skipping`);
+      return;
+    }
+
     const side = signal.action === ACTIONS.BUY ? 'buy' : 'sell';
 
     // Create trade record
@@ -151,10 +159,11 @@ export default class ExecutionAgent extends BaseAgent {
     trade.status = 'open';
     trade.exchangeOrderId = order?.id;
     trade.executedAt = new Date();
+    trade.fees = entryFee;
     await trade.save();
 
     // Update portfolio
-    portfolio.availableBalance -= positionValue;
+    portfolio.availableBalance -= (positionValue + entryFee);
     portfolio.totalTrades += 1;
     portfolio.positions.push({
       asset: signal.asset,
@@ -165,6 +174,7 @@ export default class ExecutionAgent extends BaseAgent {
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
       status: 'open',
+      fees: entryFee,
     });
     await portfolio.save();
 

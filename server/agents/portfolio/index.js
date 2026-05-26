@@ -112,8 +112,14 @@ export default class PortfolioAgent extends BaseAgent {
     position.realizedPnl = position.unrealizedPnl;
     position.unrealizedPnl = 0;
 
-    // Return funds (collateral + realized PnL) to available balance
-    const returnValue = (position.entryPrice * position.quantity) + position.realizedPnl;
+    const futuresFeeRate = 0.0005; // 0.05% Taker Fee
+    const exitValue = closePrice * position.quantity;
+    const exitFee = exitValue * futuresFeeRate;
+    const totalPositionFees = (position.fees || 0) + exitFee;
+    position.fees = totalPositionFees;
+
+    // Return funds (collateral + realized PnL - exit fee) to available balance
+    const returnValue = (position.entryPrice * position.quantity) + position.realizedPnl - exitFee;
     portfolio.availableBalance += returnValue;
     portfolio.totalPnl += position.realizedPnl;
     portfolio.dailyLossToday += Math.min(0, position.realizedPnl); // track losses
@@ -137,6 +143,7 @@ export default class PortfolioAgent extends BaseAgent {
         status: 'closed',
         exitPrice: closePrice,
         pnl: position.realizedPnl,
+        fees: totalPositionFees,
         closedAt: new Date(),
         metadata: { closeReason: reason },
       }

@@ -9,6 +9,7 @@ const positionSchema = new mongoose.Schema({
   leverage: { type: Number, default: 1 },
   unrealizedPnl: { type: Number, default: 0 },
   realizedPnl: { type: Number, default: 0 },
+  fees: { type: Number, default: 0 },
   stopLoss: { type: Number },
   takeProfit: { type: Number },
   openedAt: { type: Date, default: Date.now },

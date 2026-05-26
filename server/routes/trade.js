@@ -105,13 +105,15 @@ router.post('/manual', async (req, res, next) => {
     }
 
     const marginRequired = (entryPrice * quantity) / leverage;
+    const futuresFeeRate = 0.0005; // 0.05% Taker Fee
+    const entryFee = (entryPrice * quantity) * futuresFeeRate;
 
-    if (portfolio.availableBalance < marginRequired) {
-      return res.status(400).json({ success: false, message: 'Insufficient available balance' });
+    if (portfolio.availableBalance < (marginRequired + entryFee)) {
+      return res.status(400).json({ success: false, message: 'Insufficient available balance to cover margin and commission fees' });
     }
 
-    // Deduct from available balance
-    portfolio.availableBalance -= marginRequired;
+    // Deduct from available balance (margin + entry fee)
+    portfolio.availableBalance -= (marginRequired + entryFee);
     portfolio.totalTrades += 1;
 
     // Create open position in portfolio
@@ -125,6 +127,7 @@ router.post('/manual', async (req, res, next) => {
       takeProfit,
       status: 'open',
       unrealizedPnl: 0,
+      fees: entryFee,
     };
     portfolio.positions.push(newPosition);
     await portfolio.save();
@@ -146,6 +149,7 @@ router.post('/manual', async (req, res, next) => {
       riskScore: 0.1,  // Low risk by default
       reasoning: 'User Manual execution',
       status: 'open',
+      fees: entryFee,
       executedAt: new Date(),
       exchange: 'binance_testnet',
     });
@@ -232,9 +236,14 @@ router.post('/manual-close', async (req, res, next) => {
     pos.realizedPnl = pnl;
     pos.unrealizedPnl = 0;
 
-    // Refund capital and PnL to availableBalance
+    const futuresFeeRate = 0.0005; // 0.05% Taker Fee
+    const exitFee = (exitPrice * pos.quantity) * futuresFeeRate;
+    const totalPositionFees = (pos.fees || 0) + exitFee;
+    pos.fees = totalPositionFees;
+
+    // Refund capital and PnL (minus exit fee) to availableBalance
     const capitalCost = pos.entryPrice * pos.quantity;
-    portfolio.availableBalance += (capitalCost + pnl);
+    portfolio.availableBalance += (capitalCost + pnl - exitFee);
     portfolio.totalPnl += pnl;
 
     if (pnl >= 0) {
@@ -257,6 +266,7 @@ router.post('/manual-close', async (req, res, next) => {
         status: 'closed',
         exitPrice,
         pnl,
+        fees: totalPositionFees,
         closedAt: new Date(),
         metadata: { closeReason: 'Manually closed by user' },
       },
