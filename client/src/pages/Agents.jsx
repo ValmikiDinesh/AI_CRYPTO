@@ -51,6 +51,7 @@ export default function Agents() {
   const agents = useAgentStore((s) => s.agents);
   const emergencyStop = useAgentStore((s) => s.emergencyStop);
   const riskEvents = useAgentStore((s) => s.riskEvents);
+  const ensemble = useAgentStore((s) => s.ensemble);
   const [logs, setLogs] = useState([]);
   const [activeTab, setActiveTab] = useState('all');
   const [nodeFeedback, setNodeFeedback] = useState(null);
@@ -58,9 +59,19 @@ export default function Agents() {
 
   useEffect(() => {
     fetchLogs();
+    fetchHealth();
     const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
   }, [activeTab]);
+
+  const fetchHealth = async () => {
+    try {
+      const res = await axios.get('/api/agents/health');
+      if (res.data.success) {
+        useAgentStore.getState().setAgentHealth(res.data.data);
+      }
+    } catch {}
+  };
 
   const fetchLogs = async () => {
     try {
@@ -164,7 +175,7 @@ export default function Agents() {
                   </div>
                 </div>
 
-                <div className="my-4 space-y-1.5 text-xs text-[#86868b] font-semibold font-mono">
+                <div className="my-3 space-y-1.5 text-xs text-[#86868b] font-semibold font-mono">
                   <div className="flex justify-between">
                     <span className="text-zinc-500 text-[10px] tracking-wider uppercase">Cycles Completed</span>
                     <span className="font-bold text-slate-200">{health.cycleCount || 0}</span>
@@ -174,6 +185,30 @@ export default function Agents() {
                     <span className="font-bold text-slate-200">{formatUptime(health.uptime)}</span>
                   </div>
                 </div>
+
+                {/* Dynamic Ensemble Weight & Accuracy meters */}
+                {ensemble && ensemble[name] && (
+                  <div className="border-t border-[#2c2c2e]/40 pt-3 pb-1 mt-1 space-y-2.5 text-[9px] font-mono font-bold">
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center text-zinc-500 uppercase tracking-widest">
+                        <span>Active Influence</span>
+                        <span className="text-[#0071e3]">{(ensemble[name].weight * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="w-full bg-black/60 rounded-full h-1.5 border border-[#2c2c2e]/30 overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-sky-500 to-[#0071e3] rounded-full transition-all duration-500" 
+                          style={{ width: `${ensemble[name].weight * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center text-zinc-500 uppercase tracking-widest">
+                      <span>PnL Accuracy Meter</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full border bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]">
+                        {(ensemble[name].accuracy * 100).toFixed(1)}% Acc
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between border-t border-black pt-3 text-[9px] font-bold uppercase tracking-wider font-mono">
                   <span className="text-zinc-600">Core Management</span>

@@ -94,11 +94,13 @@ export const useAgentStore = create((set) => ({
   agents: {},
   emergencyStop: false,
   riskEvents: [],
+  ensemble: {},
 
   setAgentHealth: (data) =>
     set({
       agents: data.agents || {},
       emergencyStop: data.emergencyStop || false,
+      ensemble: data.ensemble || {},
     }),
 
   addRiskEvent: (event) =>

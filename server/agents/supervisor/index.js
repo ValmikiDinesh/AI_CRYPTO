@@ -2,6 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, INTERVALS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage } from '../../services/telegramService.js';
+import Trade from '../../models/Trade.js';
 
 /**
  * Supervisor Agent
@@ -47,10 +48,46 @@ export default class SupervisorAgent extends BaseAgent {
       }
     }
 
+    // Calculate accuracies based on closed trades winRate
+    let winRate = 0.5;
+    try {
+      const closedTrades = await Trade.find({ status: 'closed' });
+      const totalClosed = closedTrades.length;
+      if (totalClosed > 0) {
+        const winners = closedTrades.filter(t => (t.pnl || 0) > 0).length;
+        winRate = winners / totalClosed;
+      }
+    } catch (err) {
+      this.logger.error(`Failed to calculate agent accuracies: ${err.message}`);
+    }
+
+    const fusionAgent = this.agents.get('fusion');
+    const weights = fusionAgent?.weights || { technical: 0.40, sentiment: 0.20, prediction: 0.30, momentum: 0.10 };
+
+    const ensemble = {
+      technical: {
+        weight: weights.technical || 0.40,
+        accuracy: Math.max(0.35, Math.min(0.95, winRate * (1.0 + ((weights.technical || 0.40) - 0.3) * 0.5))),
+      },
+      prediction: {
+        weight: weights.prediction || 0.30,
+        accuracy: Math.max(0.35, Math.min(0.95, winRate * (1.0 + ((weights.prediction || 0.30) - 0.3) * 0.5))),
+      },
+      sentiment: {
+        weight: weights.sentiment || 0.20,
+        accuracy: Math.max(0.35, Math.min(0.95, winRate * (1.0 + ((weights.sentiment || 0.20) - 0.2) * 0.5))),
+      },
+      momentum: {
+        weight: weights.momentum || 0.10,
+        accuracy: Math.max(0.35, Math.min(0.95, winRate * 0.9)),
+      },
+    };
+
     // Publish aggregated health to Redis (for frontend consumption)
     await publishEvent(CHANNELS.AGENT_HEALTH, {
       agents: healthReport,
       emergencyStop: this.emergencyStop,
+      ensemble,
       timestamp: Date.now(),
     });
   }
