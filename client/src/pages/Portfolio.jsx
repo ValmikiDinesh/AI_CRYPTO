@@ -933,26 +933,8 @@ export default function Portfolio() {
                   </tbody>
                   <tfoot className="border-t border-[#2c2c2e] bg-black/45">
                     <tr className="align-middle">
-                      <td colSpan={4} className="px-6 py-4 text-[#86868b] font-mono text-[9px] font-extrabold uppercase tracking-widest">
+                      <td colSpan={8} className="px-6 py-4 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest">
                         Totals ({filteredClosedTrades.length} Trades)
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">—</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Total Profit</span>
-                        <span className="text-[#30d158] font-bold font-mono text-[11px] mt-0.5 block">
-                          +${totalProfit.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Total Loss</span>
-                        <span className="text-[#ff453a] font-bold font-mono text-[11px] mt-0.5 block">
-                          -${Math.abs(totalLoss).toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">—</span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
