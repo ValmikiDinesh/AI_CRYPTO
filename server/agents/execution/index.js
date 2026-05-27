@@ -155,6 +155,9 @@ export default class ExecutionAgent extends BaseAgent {
       }
     }
 
+    // Increment daily trade count in Risk Agent
+    this.riskAgent.incrementDailyTradeCount();
+
     // Update trade record
     trade.status = 'open';
     trade.exchangeOrderId = order?.id;

@@ -182,8 +182,12 @@ export default class RiskAgent extends BaseAgent {
     }
 
     // All checks passed
-    this.dailyTradeCount++;
     return { approved: true, reason: 'All risk checks passed' };
+  }
+
+  incrementDailyTradeCount() {
+    this.dailyTradeCount++;
+    this.logger.info(`Incremented daily trade count: ${this.dailyTradeCount}/${this.maxDailyTrades}`);
   }
 
   async reject(reason, type, signal) {
@@ -197,8 +201,9 @@ export default class RiskAgent extends BaseAgent {
       actionTaken: 'trade_blocked',
     });
 
-    // Notify Telegram (unless it is duplicate position to prevent spamming channel every cycle)
-    if (type !== 'duplicate_position') {
+    // Notify Telegram (unless it is duplicate position, overtrading, or position limit to prevent spamming channel every cycle)
+    const ignoredAlertTypes = ['duplicate_position', 'overtrading', 'position_limit'];
+    if (!ignoredAlertTypes.includes(type)) {
       await sendTelegramMessage(
         `⚠️ <b>Risk Alert [${signal.asset.replace('USDT', '')}]</b>\n` +
         `<b>Action Taken</b>: Trade Blocked\n` +
