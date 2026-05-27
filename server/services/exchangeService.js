@@ -21,7 +21,6 @@ export const getExchange = () => {
 
   if (process.env.BINANCE_PROXY) {
     exchangeConfig.httpProxy = process.env.BINANCE_PROXY;
-    exchangeConfig.httpsProxy = process.env.BINANCE_PROXY;
     logger.info(`Routing CCXT traffic through proxy: ${process.env.BINANCE_PROXY}`);
   }
 
