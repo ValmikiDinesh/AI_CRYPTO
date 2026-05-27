@@ -17,10 +17,10 @@ export const RISK = {
   MAX_DAILY_LOSS: parseFloat(process.env.MAX_DAILY_LOSS) || 0.05,           // 5%
   MAX_PORTFOLIO_DRAWDOWN: parseFloat(process.env.MAX_PORTFOLIO_DRAWDOWN) || 0.10, // 10%
   MAX_LEVERAGE: 5,
-  MAX_OPEN_POSITIONS: 150,
-  MAX_CORE_POSITIONS: 50,
-  MAX_MEME_POSITIONS: 50,
-  MAX_RECOMMENDED_POSITIONS: 50,
+  MAX_OPEN_POSITIONS: parseInt(process.env.MAX_OPEN_POSITIONS) || 150,
+  MAX_CORE_POSITIONS: parseInt(process.env.MAX_CORE_POSITIONS) || 50,
+  MAX_MEME_POSITIONS: parseInt(process.env.MAX_MEME_POSITIONS) || 50,
+  MAX_RECOMMENDED_POSITIONS: parseInt(process.env.MAX_RECOMMENDED_POSITIONS) || 50,
   MIN_CONFIDENCE_THRESHOLD: parseFloat(process.env.MIN_CONFIDENCE_THRESHOLD) || 0.30,
   EMERGENCY_VOLATILITY_THRESHOLD: 0.08, // 8% price swing triggers emergency
 };
@@ -28,7 +28,7 @@ export const RISK = {
 // ─── Trading Intervals ──────────────────────────────────────────
 export const INTERVALS = {
   CANDLE_INTERVAL: '5m',         // 5-minute candles
-  ANALYSIS_CYCLE_MS: 5_000,      // run analysis every 5s (high-frequency)
+  ANALYSIS_CYCLE_MS: parseInt(process.env.ANALYSIS_CYCLE_MS) || 5_000,      // run analysis every 5s (high-frequency)
   HEALTH_CHECK_MS: 15_000,       // agent health ping every 15s
   REBALANCE_INTERVAL_MS: 60_000, // rebalance every 60s
 };
