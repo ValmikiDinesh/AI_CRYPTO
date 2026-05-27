@@ -42,6 +42,7 @@ const portfolioSchema = new mongoose.Schema({
   peakBalance: { type: Number, default: 1000 },
   dailyLossToday: { type: Number, default: 0 },
   lastRebalancedAt: { type: Date },
+  lastDailyDigestDate: { type: String },
 }, {
   timestamps: true,
 });

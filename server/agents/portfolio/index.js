@@ -1,7 +1,7 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
-import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
+import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 
@@ -25,6 +25,7 @@ export default class PortfolioAgent extends BaseAgent {
         await this.updatePositions(portfolio);
         await this.checkExits(portfolio);
         await this.updateMetrics(portfolio);
+        await this.checkDailyDigest(portfolio);
         await this.publishUpdate(portfolio);
       } catch (err) {
         this.logger.error(`Portfolio update error: ${err.message}`);
@@ -164,7 +165,7 @@ export default class PortfolioAgent extends BaseAgent {
       `<b>Gross Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
       `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
       `<b>Net PnL (After Fees)</b>: ${(position.realizedPnl - totalPositionFees) >= 0 ? '+' : ''}$${(position.realizedPnl - totalPositionFees).toFixed(2)}\n` +
-      `<b>Reason</b>: ${reason}`
+      `<b>Reason</b>: ${escapeHtml(reason)}`
     );
 
     await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
@@ -193,6 +194,80 @@ export default class PortfolioAgent extends BaseAgent {
       : 0;
 
     await portfolio.save();
+  }
+
+  /** Check if it is a new day and we should send the daily digest report. */
+  async checkDailyDigest(portfolio) {
+    const todayStr = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+
+    if (!portfolio.lastDailyDigestDate) {
+      portfolio.lastDailyDigestDate = todayStr;
+      await portfolio.save();
+    } else if (portfolio.lastDailyDigestDate !== todayStr) {
+      const targetDateStr = portfolio.lastDailyDigestDate;
+      
+      try {
+        await this.sendDailyDigest(portfolio, targetDateStr);
+      } catch (err) {
+        this.logger.error(`Failed to send daily digest for ${targetDateStr}: ${err.message}`);
+      }
+
+      portfolio.lastDailyDigestDate = todayStr;
+      await portfolio.save();
+    }
+  }
+
+  /** Compute and send the detailed daily trading performance digest via Telegram. */
+  async sendDailyDigest(portfolio, dateStr) {
+    const startOfDay = new Date(dateStr);
+    const endOfDay = new Date(dateStr);
+    endOfDay.setDate(endOfDay.getDate() + 1);
+
+    const closedTradesToday = await Trade.find({
+      status: 'closed',
+      closedAt: { $gte: startOfDay, $lt: endOfDay },
+    });
+
+    const count = closedTradesToday.length;
+
+    if (count === 0) {
+      await sendTelegramMessage(
+        `📊 <b>Daily Trading Digest [${dateStr}]</b>\n` +
+        `--------------------------------\n` +
+        `No positions were closed today.\n\n` +
+        `🏦 <b>Net Balance</b>: $${formatPrice(portfolio.totalBalance)}\n` +
+        `💵 <b>Margin Available</b>: $${formatPrice(portfolio.availableBalance)}`
+      );
+      return;
+    }
+
+    const winningTrades = closedTradesToday.filter((t) => (t.pnl || 0) >= 0);
+    const losingTrades = closedTradesToday.filter((t) => (t.pnl || 0) < 0);
+
+    const totalCommissions = closedTradesToday.reduce((sum, t) => sum + (t.fees || 0), 0);
+    const grossProfit = winningTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const grossLoss = losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const netPnL = grossProfit + grossLoss - totalCommissions;
+
+    const winRate = (winningTrades.length / count) * 100;
+
+    const message = 
+      `📊 <b>Daily Trading Digest [${dateStr}]</b>\n` +
+      `--------------------------------\n` +
+      `<b>Total Closed Trades</b>: ${count}\n` +
+      `  📈 Winning Trades: ${winningTrades.length}\n` +
+      `  📉 Losing Trades: ${losingTrades.length}\n` +
+      `  🎯 Win Rate: ${winRate.toFixed(1)}%\n\n` +
+      `<b>Financial Breakdown</b>:\n` +
+      `  💰 Gross Profit: +$${grossProfit.toFixed(2)}\n` +
+      `  💸 Gross Loss: -$${Math.abs(grossLoss).toFixed(2)}\n` +
+      `  🏷️ Commissions Paid: -$${totalCommissions.toFixed(4)}\n` +
+      `  📊 <b>Net Daily PnL</b>: ${netPnL >= 0 ? '🟢 +' : '🔴 '}$${netPnL.toFixed(2)}\n\n` +
+      `<b>Portfolio State</b>:\n` +
+      `  🏦 Net Balance: $${formatPrice(portfolio.totalBalance)}\n` +
+      `  💵 Margin Available: $${formatPrice(portfolio.availableBalance)}`;
+
+    await sendTelegramMessage(message);
   }
 
   /** Publish portfolio update to frontend. */

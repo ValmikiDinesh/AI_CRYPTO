@@ -12,6 +12,17 @@ export const formatPrice = (priceVal) => {
 };
 
 /**
+ * Escapes HTML special characters to prevent Telegram API parse errors.
+ */
+export const escapeHtml = (text) => {
+  if (typeof text !== 'string') return text;
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+};
+
+/**
  * Sends a HTML message to the configured Telegram chat/group.
  */
 export const sendTelegramMessage = async (htmlText) => {
