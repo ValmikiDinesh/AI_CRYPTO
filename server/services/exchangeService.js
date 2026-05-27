@@ -9,7 +9,7 @@ let exchangeInstance = null;
 export const getExchange = () => {
   if (exchangeInstance) return exchangeInstance;
 
-  exchangeInstance = new ccxt.binance({
+  const exchangeConfig = {
     apiKey: process.env.BINANCE_TESTNET_API_KEY,
     secret: process.env.BINANCE_TESTNET_API_SECRET,
     enableRateLimit: true,
@@ -17,7 +17,15 @@ export const getExchange = () => {
       defaultType: 'future',  // futures trading
       adjustForTimeDifference: true,
     },
-  });
+  };
+
+  if (process.env.BINANCE_PROXY) {
+    exchangeConfig.httpProxy = process.env.BINANCE_PROXY;
+    exchangeConfig.httpsProxy = process.env.BINANCE_PROXY;
+    logger.info(`Routing CCXT traffic through proxy: ${process.env.BINANCE_PROXY}`);
+  }
+
+  exchangeInstance = new ccxt.binance(exchangeConfig);
 
   // Enable newer Binance Demo Trading mode since old testnet/sandbox is deprecated for futures
   exchangeInstance.enableDemoTrading(true);
