@@ -22,6 +22,7 @@ export const RISK = {
   MAX_MEME_POSITIONS: parseInt(process.env.MAX_MEME_POSITIONS) || 50,
   MAX_RECOMMENDED_POSITIONS: parseInt(process.env.MAX_RECOMMENDED_POSITIONS) || 50,
   MIN_CONFIDENCE_THRESHOLD: parseFloat(process.env.MIN_CONFIDENCE_THRESHOLD) || 0.30,
+  MAX_DAILY_TRADES: parseInt(process.env.MAX_DAILY_TRADES) || 1000,
   EMERGENCY_VOLATILITY_THRESHOLD: 0.08, // 8% price swing triggers emergency
 };
 

@@ -18,7 +18,7 @@ export default class RiskAgent extends BaseAgent {
     super(AGENT_NAMES.RISK);
     this.marketAgent = marketAgent;
     this.dailyTradeCount = 0;
-    this.maxDailyTrades = 20;
+    this.maxDailyTrades = RISK.MAX_DAILY_TRADES;
     this.lastResetDate = new Date().toDateString();
     this.emergencyActive = false;
   }
