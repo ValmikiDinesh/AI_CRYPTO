@@ -110,16 +110,16 @@ async function bootAgents() {
   setMarketAgentRef(marketAgent);
 
   // Start agents with staggered intervals
-  await marketAgent.start(30_000);                               // 30s — price refresh
-  await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 60s
-  await sentimentAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 10);  // 10min
-  await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 2);  // 2min
-  await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 60s
-  await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 60s
-  await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 60s
-  await portfolioAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 60s
-  await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);    // 5min
-  await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);        // 30s
+  await marketAgent.start(5_000);                                // 5s — price refresh
+  await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5s (high-frequency)
+  await sentimentAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 120); // 10min (120 * 5s)
+  await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 24);  // 2min (24 * 5s)
+  await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 5s
+  await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 5s
+  await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5s
+  await portfolioAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5s
+  await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);    // 60s
+  await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);        // 15s
 
   logger.info('Agent pipeline: Market → Technical → Sentiment → Prediction → Fusion → Risk → Execution → Portfolio → Learning');
 }

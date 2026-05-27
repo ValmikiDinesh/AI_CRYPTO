@@ -169,28 +169,28 @@ function computeConfidence({ rsi, macd, regime, volumeRatio, stochastic }) {
 export const generateTechnicalSignal = (indicators) => {
   if (indicators.error) return { action: 'HOLD', confidence: 0, reason: indicators.error };
 
-  const { confidence, regime, rsi, macd } = indicators;
+  const { confidence, rsi } = indicators;
 
-  if (confidence >= 0.65 && regime === 'trending_up') {
+  if (confidence >= 0.52) {
     return {
       action: 'BUY',
       confidence,
-      reason: `Trending up: RSI=${rsi?.toFixed(1)}, MACD histogram positive, confidence=${confidence.toFixed(2)}`,
+      reason: `Bullish setup detected: RSI=${rsi?.toFixed(1)}, confidence=${confidence.toFixed(2)}`,
     };
   }
 
-  if (confidence <= 0.35 && regime === 'trending_down') {
+  if (confidence <= 0.48) {
     return {
       action: 'SELL',
       confidence: 1 - confidence,
-      reason: `Trending down: RSI=${rsi?.toFixed(1)}, MACD histogram negative, confidence=${(1 - confidence).toFixed(2)}`,
+      reason: `Bearish setup detected: RSI=${rsi?.toFixed(1)}, confidence=${(1 - confidence).toFixed(2)}`,
     };
   }
 
   return {
     action: 'HOLD',
     confidence,
-    reason: `Market ${regime}: RSI=${rsi?.toFixed(1)}, insufficient conviction (confidence=${confidence.toFixed(2)})`,
+    reason: `Ranging market, neutral score (confidence=${confidence.toFixed(2)})`,
   };
 };
 
