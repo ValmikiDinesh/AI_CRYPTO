@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import connectDB from './config/db.js';
 import Portfolio from './models/Portfolio.js';
+import Trade from './models/Trade.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -19,14 +20,24 @@ async function run() {
   console.log(`totalPnl: $${portfolio.totalPnl.toFixed(4)}`);
 
   const openPositions = portfolio.positions.filter(p => p.status === 'open');
-  const closedPositions = portfolio.positions.filter(p => p.status === 'closed');
 
-  // 1. Calculate true closed PnL
+  // 1. Calculate true closed PnL and trade counters from Trade collection (the absolute source of truth)
+  const closedTrades = await Trade.find({ status: 'closed' });
   let trueTotalPnl = 0;
-  closedPositions.forEach(p => {
-    // Net realized PnL = realizedPnl - fees
-    trueTotalPnl += (p.realizedPnl - (p.fees || 0));
+  let winners = 0;
+  let losers = 0;
+
+  closedTrades.forEach(t => {
+    const netReturn = (t.pnl || 0) - (t.fees || 0);
+    trueTotalPnl += netReturn;
+    if (netReturn >= 0) {
+      winners++;
+    } else {
+      losers++;
+    }
   });
+
+  const totalClosed = closedTrades.length;
 
   // 2. Calculate true available balance
   // Start with $1000 starting capital + realized returns
@@ -36,7 +47,6 @@ async function run() {
   let openExposure = 0;
   let openUnrealized = 0;
   openPositions.forEach(p => {
-    // For automated trades that defaulted to 1, we will now assume 10x leverage as well since they are futures trades
     const leverage = p.leverage && p.leverage > 1 ? p.leverage : 10;
     
     // Exposure value = entryPrice * quantity
@@ -58,6 +68,7 @@ async function run() {
   console.log(`trueTotalPnl: $${trueTotalPnl.toFixed(4)}`);
   console.log(`trueAvailable: $${trueAvailable.toFixed(4)}`);
   console.log(`trueTotalBalance (Net Worth): $${trueTotalBalance.toFixed(4)}`);
+  console.log(`winners: ${winners}, losers: ${losers}, totalClosed: ${totalClosed}`);
 
   // Safely update portfolio in DB
   portfolio.totalPnl = trueTotalPnl;
@@ -65,10 +76,8 @@ async function run() {
   portfolio.totalBalance = trueTotalBalance;
   
   // Update win rate and trade counters
-  const totalClosed = closedPositions.length;
-  const winners = closedPositions.filter(p => p.realizedPnl >= 0).length;
   portfolio.winningTrades = winners;
-  portfolio.losingTrades = totalClosed - winners;
+  portfolio.losingTrades = losers;
   portfolio.totalTrades = totalClosed + openPositions.length;
   portfolio.winRate = totalClosed > 0 ? winners / totalClosed : 0;
   

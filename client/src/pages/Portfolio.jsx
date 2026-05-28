@@ -118,8 +118,14 @@ export default function Portfolio() {
 
   const fetchAllTrades = async () => {
     try {
-      const res = await axios.get('/api/trades?limit=100');
-      if (res.data.success) setAllTrades(res.data.data);
+      const [closedRes, openRes] = await Promise.all([
+        axios.get('/api/trades?status=closed&limit=1000'),
+        axios.get('/api/trades?status=open&limit=200')
+      ]);
+      let combined = [];
+      if (closedRes.data.success) combined = [...combined, ...closedRes.data.data];
+      if (openRes.data.success) combined = [...combined, ...openRes.data.data];
+      setAllTrades(combined);
     } catch {}
   };
 
@@ -511,19 +517,28 @@ export default function Portfolio() {
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 pt-0 text-xs">
                 {(() => {
-                  const totalClosedTrades = (portfolio.winningTrades || 0) + (portfolio.losingTrades || 0);
-                  const avgOutcomePnL = totalClosedTrades > 0 ? (portfolio.totalPnl / totalClosedTrades) : 0;
-                  const bestTradeProfit = stats?.bestTrade || 0;
-                  const worstTradeLoss = stats?.worstTrade || 0;
-                  const avgSignalConf = stats?.avgConfidence !== undefined ? stats.avgConfidence : 0.5;
+                  const totalClosedTrades = dateFilteredClosed.length;
+                  const winners = dateFilteredClosed.filter(t => (t.pnl || 0) - (t.fees || 0) >= 0).length;
+                  const losers = totalClosedTrades - winners;
+                  const winRate = totalClosedTrades > 0 ? (winners / totalClosedTrades) * 100 : 0;
+                  
+                  const netPnls = dateFilteredClosed.map(t => (t.pnl || 0) - (t.fees || 0));
+                  const totalNetPnl = netPnls.reduce((sum, p) => sum + p, 0);
+                  const avgOutcomePnL = totalClosedTrades > 0 ? totalNetPnl / totalClosedTrades : 0;
+                  
+                  const bestTradeProfit = dateFilteredClosed.length > 0 ? Math.max(...netPnls) : 0;
+                  const worstTradeLoss = dateFilteredClosed.length > 0 ? Math.min(...netPnls) : 0;
+                  
+                  const confidences = dateFilteredClosed.map(t => t.confidence !== undefined && t.confidence !== null ? t.confidence : 0.5);
+                  const avgSignalConf = totalClosedTrades > 0 ? confidences.reduce((sum, c) => sum + c, 0) / totalClosedTrades : 0.5;
 
                   return [
                     { label: 'Total Closed Trades', value: totalClosedTrades },
-                    { label: 'Winning Trades', value: portfolio.winningTrades || 0, color: '#30d158' },
-                    { label: 'Losing Trades', value: portfolio.losingTrades || 0, color: '#ff453a' },
-                    { label: 'Win Rate', value: `${((portfolio.winRate || 0) * 100).toFixed(1)}%`, color: '#30d158' },
-                    { label: 'Cumulative Net return', value: `$${portfolio.totalPnl?.toFixed(2)}`, color: portfolio.totalPnl >= 0 ? '#30d158' : '#ff453a' },
-                    { label: 'Average Outcome PnL', value: `$${avgOutcomePnL.toFixed(2)}` },
+                    { label: 'Winning Trades', value: winners, color: '#30d158' },
+                    { label: 'Losing Trades', value: losers, color: '#ff453a' },
+                    { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, color: '#30d158' },
+                    { label: 'Cumulative Net return', value: `${totalNetPnl >= 0 ? '+' : ''}$${totalNetPnl.toFixed(2)}`, color: totalNetPnl >= 0 ? '#30d158' : '#ff453a' },
+                    { label: 'Average Outcome PnL', value: `${avgOutcomePnL >= 0 ? '+' : ''}$${avgOutcomePnL.toFixed(2)}`, color: avgOutcomePnL >= 0 ? '#30d158' : '#ff453a' },
                     { label: 'Peak Trade Profit', value: `$${bestTradeProfit.toFixed(2)}`, color: '#30d158' },
                     { label: 'Max Drawdown Loss', value: `$${worstTradeLoss.toFixed(2)}`, color: '#ff453a' },
                     { label: 'Average Signal Conf', value: `${(avgSignalConf * 100).toFixed(1)}%` },
