@@ -855,8 +855,8 @@ export default function Portfolio() {
                               .filter((t) => (t.pnl || 0) < 0)
               .reduce((sum, t) => sum + (t.pnl || 0), 0);
 
-            // Gross totals (absolute) remain for reference
-            const totalGross = totalProfit - totalLoss; // totalLoss is negative, so subtract to add magnitude
+            // Gross totals (signed sum of all closed PnLs)
+            const totalGross = totalProfit + totalLoss; // totalLoss is negative, so adding it computes the correct gross return
             const totalCommission = filteredClosedTrades.reduce((sum, t) => sum + (t.fees || 0), 0);
             // Net return after all fees
             const totalNet = totalGross - totalCommission;
