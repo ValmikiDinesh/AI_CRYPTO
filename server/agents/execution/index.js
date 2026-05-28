@@ -72,8 +72,11 @@ export default class ExecutionAgent extends BaseAgent {
       positionValue = MIN_NOTIONAL;
     }
 
-    if (portfolio.availableBalance < positionValue) {
-      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than minimum notional ($${MIN_NOTIONAL}) — skipping`);
+    const leverage = 10;
+    const marginRequired = positionValue / leverage;
+
+    if (portfolio.availableBalance < marginRequired) {
+      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required margin ($${marginRequired.toFixed(2)}) for minimum notional ($${MIN_NOTIONAL}) — skipping`);
       return;
     }
 
@@ -105,8 +108,8 @@ export default class ExecutionAgent extends BaseAgent {
     const futuresFeeRate = 0.0005; // 0.05% Taker Fee
     const entryFee = positionValue * futuresFeeRate;
 
-    if (portfolio.availableBalance < (positionValue + entryFee)) {
-      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required ($${(positionValue + entryFee).toFixed(2)}) including 0.05% Taker fee — skipping`);
+    if (portfolio.availableBalance < (marginRequired + entryFee)) {
+      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required ($${(marginRequired + entryFee).toFixed(2)}) including margin and 0.05% Taker fee — skipping`);
       return;
     }
 
@@ -121,9 +124,10 @@ export default class ExecutionAgent extends BaseAgent {
       side: signal.action === ACTIONS.BUY ? 'long' : 'short',
       entryPrice: currentPrice,
       quantity,
-      positionSize: (positionValue / portfolio.availableBalance) * 100,
+      positionSize: (positionValue / portfolio.totalBalance) * 100,
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
+      leverage,
       confidence: signal.confidence,
       riskScore: signal.riskScore,
       reasoning: signal.reasoning,
@@ -166,7 +170,7 @@ export default class ExecutionAgent extends BaseAgent {
     await trade.save();
 
     // Update portfolio
-    portfolio.availableBalance -= (positionValue + entryFee);
+    portfolio.availableBalance -= (marginRequired + entryFee);
     portfolio.totalTrades += 1;
     portfolio.positions.push({
       asset: signal.asset,
@@ -174,6 +178,7 @@ export default class ExecutionAgent extends BaseAgent {
       entryPrice: currentPrice,
       currentPrice,
       quantity,
+      leverage,
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
       status: 'open',
