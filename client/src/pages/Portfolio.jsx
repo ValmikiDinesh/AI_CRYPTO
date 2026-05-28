@@ -287,7 +287,7 @@ export default function Portfolio() {
           { 
             label: 'Net Balances', 
             value: portfolio.totalBalance !== undefined && portfolio.totalBalance !== null 
-              ? `$${portfolio.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}` 
+              ? `$${portfolio.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
               : '$0.00', 
             icon: Wallet, 
             color: '#86868b' 
@@ -313,7 +313,7 @@ export default function Portfolio() {
           { 
             label: 'Margin Available', 
             value: portfolio.availableBalance !== undefined && portfolio.availableBalance !== null 
-              ? `$${portfolio.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}` 
+              ? `$${portfolio.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
               : '$0.00', 
             icon: Wallet, 
             color: '#86868b' 
