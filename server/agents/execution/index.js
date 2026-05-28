@@ -170,6 +170,48 @@ export default class ExecutionAgent extends BaseAgent {
     trade.fees = entryFee;
     await trade.save();
 
+    // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
+    if (order && order.id && !order.id.startsWith('mock_')) {
+      try {
+        const exchange = getExchange();
+        const exitSide = side === 'buy' ? 'sell' : 'buy';
+        
+        // 1. Native Stop-Loss trigger order
+        if (signal.stopLoss) {
+          await exchange.createOrder(
+            signal.asset,
+            'stop_market',
+            exitSide,
+            quantity,
+            undefined,
+            {
+              stopPrice: signal.stopLoss,
+              reduceOnly: true
+            }
+          );
+          this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${signal.stopLoss} on Binance Demo`);
+        }
+
+        // 2. Native Take-Profit trigger order
+        if (signal.takeProfit) {
+          await exchange.createOrder(
+            signal.asset,
+            'take_profit_market',
+            exitSide,
+            quantity,
+            undefined,
+            {
+              stopPrice: signal.takeProfit,
+              reduceOnly: true
+            }
+          );
+          this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${signal.takeProfit} on Binance Demo`);
+        }
+      } catch (triggerErr) {
+        this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
+      }
+    }
+
     // Update portfolio
     portfolio.availableBalance -= (marginRequired + entryFee);
     portfolio.totalTrades += 1;

@@ -44,6 +44,46 @@ export default class PortfolioAgent extends BaseAgent {
       const currentPrice = this.marketAgent.getPrice(position.asset);
       if (!currentPrice) continue;
 
+      // Check if position was natively closed on Binance (Reconciliation)
+      let isNativelyClosed = false;
+      let closePrice = currentPrice;
+      let closeReason = 'Exchange-side trigger';
+
+      try {
+        const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+        if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+          const { fetchPositions } = await import('../../services/exchangeService.js');
+          const exchangePositions = await fetchPositions(position.asset);
+          
+          // If no active positions return from Binance, it has been natively closed!
+          if (exchangePositions.length === 0) {
+            isNativelyClosed = true;
+            this.logger.warn(`🔄 [RECONCILIATION] Open position for ${position.asset} is no longer active on Binance. Syncing closure locally.`);
+            
+            // Try to fetch the last closed trade fill price from Binance history
+            try {
+              const { getExchange } = await import('../../services/exchangeService.js');
+              const exchange = getExchange();
+              const trades = await exchange.fetchMyTrades(position.asset, undefined, 5);
+              if (trades.length > 0) {
+                const lastTrade = trades[trades.length - 1];
+                closePrice = lastTrade.price;
+                closeReason = `Binance trigger executed (Exit price: $${lastTrade.price})`;
+              }
+            } catch (historyErr) {
+              this.logger.debug(`Could not retrieve trade fill price from Binance history: ${historyErr.message}`);
+            }
+          }
+        }
+      } catch (syncErr) {
+        this.logger.error(`Reconciliation sync failed for ${position.asset}: ${syncErr.message}`);
+      }
+
+      if (isNativelyClosed) {
+        await this.closePosition(portfolio, position, closePrice, closeReason);
+        continue;
+      }
+
       position.currentPrice = currentPrice;
 
       if (position.side === 'long') {
