@@ -61,7 +61,6 @@ export default function Portfolio() {
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
 
   const filteredOpenTrades = onlyOpenTrades.filter((trade) => {
-    if (!filterByDate(trade.createdAt)) return false;
     if (openLedgerTab === 'all') return true;
     if (openLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (openLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
@@ -240,9 +239,7 @@ export default function Portfolio() {
         ? (dateFilteredClosed.filter(t => (t.pnl || 0) > 0).length / dateFilteredClosed.length) * 100
         : 0);
 
-  const displayOpenExposure = dateFilter === 'all'
-    ? (portfolio.openPositions || 0)
-    : onlyOpenTrades.filter(t => filterByDate(t.createdAt)).length;
+  const displayOpenExposure = portfolio.openPositions || 0;
 
   return (
     <div className="page-layout">
