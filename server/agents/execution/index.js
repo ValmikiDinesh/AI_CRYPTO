@@ -73,7 +73,7 @@ export default class ExecutionAgent extends BaseAgent {
     }
 
     const leverage = 10;
-    const marginRequired = positionValue / leverage;
+    let marginRequired = positionValue / leverage;
 
     if (portfolio.availableBalance < marginRequired) {
       this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required margin ($${marginRequired.toFixed(2)}) for minimum notional ($${MIN_NOTIONAL}) — skipping`);
@@ -95,6 +95,7 @@ export default class ExecutionAgent extends BaseAgent {
         
         // Dynamically adjust positionValue to exactly match the rounded-up quantity
         positionValue = quantity * currentPrice;
+        marginRequired = positionValue / leverage;
       }
     } catch (err) {
       this.logger.warn(`Failed to dynamically retrieve lot step size for ${signal.asset}: ${err.message}`);
@@ -184,6 +185,17 @@ export default class ExecutionAgent extends BaseAgent {
       status: 'open',
       fees: entryFee,
     });
+
+    // Recalculate total balance using leverage-adjusted universal equity formula
+    const marginValue = portfolio.positions
+      .filter((p) => p.status === 'open')
+      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+    portfolio.totalBalance = portfolio.availableBalance + marginValue;
+
+    if (portfolio.totalBalance > portfolio.peakBalance) {
+      portfolio.peakBalance = portfolio.totalBalance;
+    }
+
     await portfolio.save();
 
     // Publish execution event

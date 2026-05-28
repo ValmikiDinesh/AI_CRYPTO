@@ -128,8 +128,20 @@ router.post('/manual', async (req, res, next) => {
       status: 'open',
       unrealizedPnl: 0,
       fees: entryFee,
+      leverage,
     };
     portfolio.positions.push(newPosition);
+
+    // Recalculate total balance using leverage-adjusted universal equity formula
+    const marginValue = portfolio.positions
+      .filter((p) => p.status === 'open')
+      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+    portfolio.totalBalance = portfolio.availableBalance + marginValue;
+
+    if (portfolio.totalBalance > portfolio.peakBalance) {
+      portfolio.peakBalance = portfolio.totalBalance;
+    }
+
     await portfolio.save();
 
     // Create trade record in DB
@@ -245,6 +257,7 @@ router.post('/manual-close', async (req, res, next) => {
     const capitalCost = (pos.entryPrice * pos.quantity) / (pos.leverage || 1);
     portfolio.availableBalance += (capitalCost + pnl - exitFee);
     portfolio.totalPnl += (pnl - totalPositionFees);
+    portfolio.dailyLossToday = (portfolio.dailyLossToday || 0) + pnl; // update daily loss with net PnL
 
     if (pnl >= 0) {
       portfolio.winningTrades += 1;
@@ -252,11 +265,21 @@ router.post('/manual-close', async (req, res, next) => {
       portfolio.losingTrades += 1;
     }
 
-    if (portfolio.totalTrades > 0) {
-      portfolio.winRate = portfolio.winningTrades / portfolio.totalTrades;
-    }
+    const totalClosed = (portfolio.winningTrades || 0) + (portfolio.losingTrades || 0);
+    portfolio.winRate = totalClosed > 0 ? portfolio.winningTrades / totalClosed : 0;
 
     portfolio.positions[positionIndex] = pos;
+
+    // Recalculate total balance using leverage-adjusted universal equity formula
+    const marginValue = portfolio.positions
+      .filter((p) => p.status === 'open')
+      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+    portfolio.totalBalance = portfolio.availableBalance + marginValue;
+
+    if (portfolio.totalBalance > portfolio.peakBalance) {
+      portfolio.peakBalance = portfolio.totalBalance;
+    }
+
     await portfolio.save();
 
     // Close in trade DB
