@@ -2,6 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
+import { placeMarketOrder } from '../../services/exchangeService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 
@@ -117,6 +118,18 @@ export default class PortfolioAgent extends BaseAgent {
 
   /** Close a position and update portfolio. */
   async closePosition(portfolio, position, closePrice, reason) {
+    // Check if there is an active automated trade on Binance to close
+    try {
+      const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+      if (activeTrade && activeTrade.exchangeOrderId && (activeTrade.exchange === 'binance_testnet' || activeTrade.exchange === 'binance')) {
+        const exitSide = position.side === 'long' ? 'sell' : 'buy';
+        this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} (${position.quantity} units)`);
+        await placeMarketOrder(position.asset, exitSide, position.quantity);
+      }
+    } catch (err) {
+      this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Binance Demo for ${position.asset}: ${err.message}`);
+    }
+
     position.status = 'closed';
     position.closedAt = new Date();
     position.realizedPnl = position.unrealizedPnl;
