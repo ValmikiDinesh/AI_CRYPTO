@@ -20,4 +20,7 @@ const predictionSchema = new mongoose.Schema({
 
 predictionSchema.index({ asset: 1, createdAt: -1 });
 
+// TTL: auto-delete predictions older than 24 hours to manage storage
+predictionSchema.index({ createdAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 });
+
 export default mongoose.model('Prediction', predictionSchema);
