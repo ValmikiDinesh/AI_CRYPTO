@@ -61,6 +61,7 @@ export default function Portfolio() {
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
 
   const filteredOpenTrades = onlyOpenTrades.filter((trade) => {
+    if (!filterByDate(trade.createdAt)) return false;
     if (openLedgerTab === 'all') return true;
     if (openLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (openLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
@@ -229,6 +230,20 @@ export default function Portfolio() {
     ];
   })();
 
+  const displayRealizedReturn = dateFilter === 'all' 
+    ? (portfolio.totalPnl || 0) 
+    : dateFilteredClosed.reduce((sum, t) => sum + (t.pnl || 0), 0);
+
+  const displayWinRate = dateFilter === 'all'
+    ? (portfolio.winRate || 0) * 100
+    : (dateFilteredClosed.length > 0
+        ? (dateFilteredClosed.filter(t => (t.pnl || 0) > 0).length / dateFilteredClosed.length) * 100
+        : 0);
+
+  const displayOpenExposure = dateFilter === 'all'
+    ? (portfolio.openPositions || 0)
+    : onlyOpenTrades.filter(t => filterByDate(t.createdAt)).length;
+
   return (
     <div className="page-layout">
       {/* Header */}
@@ -279,21 +294,19 @@ export default function Portfolio() {
           },
           { 
             label: 'Realized Return', 
-            value: portfolio.totalPnl !== undefined && portfolio.totalPnl !== null 
-              ? `${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl.toFixed(2)}` 
-              : '$0.00', 
-            icon: portfolio.totalPnl >= 0 ? TrendingUp : TrendingDown, 
-            color: portfolio.totalPnl >= 0 ? '#30d158' : '#ff453a' 
+            value: `${displayRealizedReturn >= 0 ? '+' : ''}$${displayRealizedReturn.toFixed(2)}`, 
+            icon: displayRealizedReturn >= 0 ? TrendingUp : TrendingDown, 
+            color: displayRealizedReturn >= 0 ? '#30d158' : '#ff453a' 
           },
           { 
             label: 'Win Rate', 
-            value: `${((portfolio.winRate || 0) * 100).toFixed(1)}%`, 
+            value: `${displayWinRate.toFixed(1)}%`, 
             icon: Target, 
             color: '#86868b' 
           },
           { 
             label: 'Open Exposure', 
-            value: portfolio.openPositions || 0, 
+            value: displayOpenExposure, 
             icon: Activity, 
             color: '#86868b' 
           },
