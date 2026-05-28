@@ -4,6 +4,7 @@ import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, escapeHtml } from '../../services/telegramService.js';
 import RiskEvent from '../../models/RiskEvent.js';
 import Portfolio from '../../models/Portfolio.js';
+import Trade from '../../models/Trade.js';
 
 /**
  * Risk Management Agent — MOST IMPORTANT COMPONENT
@@ -21,6 +22,25 @@ export default class RiskAgent extends BaseAgent {
     this.maxDailyTrades = RISK.MAX_DAILY_TRADES;
     this.lastResetDate = new Date().toDateString();
     this.emergencyActive = false;
+  }
+
+  async initialize() {
+    await super.initialize();
+    
+    try {
+      const today = new Date();
+      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const endOfToday = new Date(startOfToday);
+      endOfToday.setDate(endOfToday.getDate() + 1);
+      
+      const count = await Trade.countDocuments({
+        createdAt: { $gte: startOfToday, $lt: endOfToday }
+      });
+      this.dailyTradeCount = count;
+      this.logger.info(`Recovered daily trade count from database: ${count} trades placed today.`);
+    } catch (err) {
+      this.logger.error(`Failed to recover daily trade count on startup: ${err.message}`);
+    }
   }
 
   async execute() {
