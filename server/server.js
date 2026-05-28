@@ -62,6 +62,31 @@ async function boot() {
     await connectDB();
     logger.info('✅ MongoDB connected');
 
+    // Drop old TTL indexes to apply the new 6-hour TTL options without conflict
+    try {
+      const db = mongoose.connection.db;
+      const collections = await db.listCollections().toArray();
+      const colNames = collections.map(c => c.name);
+
+      if (colNames.includes('signals')) {
+        await db.collection('signals').dropIndex('createdAt_1');
+        logger.info('🔄 Dropped old signals TTL index');
+      }
+      if (colNames.includes('predictions')) {
+        await db.collection('predictions').dropIndex('createdAt_1');
+        logger.info('🔄 Dropped old predictions TTL index');
+      }
+
+      // Re-trigger index creation to ensure they exist with the new options
+      const { default: Signal } = await import('./models/Signal.js');
+      const { default: Prediction } = await import('./models/Prediction.js');
+      await Signal.ensureIndexes();
+      await Prediction.ensureIndexes();
+      logger.info('✅ Recreated TTL indexes with 6-hour retention policy');
+    } catch (indexErr) {
+      logger.warn(`TTL index sync notice: ${indexErr.message}`);
+    }
+
     // 2. Socket.io
     initializeSocketServer(server);
     logger.info('✅ Socket.io initialized');

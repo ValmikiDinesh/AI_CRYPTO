@@ -30,7 +30,7 @@ const signalSchema = new mongoose.Schema({
 signalSchema.index({ asset: 1, createdAt: -1 });
 signalSchema.index({ status: 1, source: 1 });
 
-// TTL: auto-delete signals older than 24 hours to manage storage
-signalSchema.index({ createdAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 });
+// TTL: auto-delete signals older than 6 hours to manage storage
+signalSchema.index({ createdAt: 1 }, { expireAfterSeconds: 6 * 60 * 60 });
 
 export default mongoose.model('Signal', signalSchema);
