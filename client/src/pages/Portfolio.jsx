@@ -852,20 +852,13 @@ export default function Portfolio() {
               .reduce((sum, t) => sum + (t.pnl || 0), 0);
 
             const totalLoss = filteredClosedTrades
-              .filter((t) => (t.pnl || 0) < 0)
+                              .filter((t) => (t.pnl || 0) < 0)
               .reduce((sum, t) => sum + (t.pnl || 0), 0);
 
             // Gross totals (absolute) remain for reference
             const totalGross = totalProfit - totalLoss; // totalLoss is negative, so subtract to add magnitude
-            const feeRate = 0.0010;
-            // Entry fees (from stored fees or estimated)
-            const totalCommission = filteredClosedTrades.reduce((sum, t) => {
-              const entryFee = t.fees !== undefined && t.fees !== null
-                ? t.fees
-                : t.entryPrice * t.quantity * feeRate;
-              return sum + entryFee;
-            }, 0);
-            // Net return after entry fees only
+            const totalCommission = filteredClosedTrades.reduce((sum, t) => sum + (t.fees || 0), 0);
+            // Net return after all fees
             const totalNet = totalGross - totalCommission;
 
             return (
