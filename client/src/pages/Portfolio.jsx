@@ -128,16 +128,22 @@ export default function Portfolio() {
     : [{ asset: 'USDT (Cash)', percentage: 100, value: portfolio.availableBalance }];
 
   const dateFilteredClosed = onlyClosedTrades.filter((t) => filterByDate(t.createdAt));
+  const dateFilteredFailed = allTrades.filter((t) => t.status === 'failed' && filterByDate(t.createdAt));
 
   const dynamicStats = (() => {
-    const totalTrades = dateFilteredClosed.length;
-    if (totalTrades === 0) {
+    const totalClosed = dateFilteredClosed.length;
+    const totalFailed = dateFilteredFailed.length;
+    const totalAttempts = totalClosed + totalFailed;
+
+    if (totalClosed === 0) {
       return {
-        totalTrades: 0,
+        totalTrades: totalAttempts,
+        totalClosed: 0,
         totalPnl: 0,
         avgPnl: 0,
         winners: 0,
         losers: 0,
+        failed: totalFailed,
         avgConfidence: 0,
         bestTrade: 0,
         worstTrade: 0,
@@ -145,20 +151,22 @@ export default function Portfolio() {
     }
     const pnls = dateFilteredClosed.map(t => t.pnl || 0);
     const totalPnl = pnls.reduce((sum, p) => sum + p, 0);
-    const avgPnl = totalPnl / totalTrades;
+    const avgPnl = totalPnl / totalClosed;
     const winners = dateFilteredClosed.filter(t => (t.pnl || 0) > 0).length;
     const losers = dateFilteredClosed.filter(t => (t.pnl || 0) < 0).length;
     const confidences = dateFilteredClosed.map(t => t.confidence !== undefined && t.confidence !== null ? t.confidence : 0);
-    const avgConfidence = confidences.reduce((sum, c) => sum + c, 0) / totalTrades;
+    const avgConfidence = confidences.reduce((sum, c) => sum + c, 0) / totalClosed;
     const bestTrade = Math.max(...pnls);
     const worstTrade = Math.min(...pnls);
 
     return {
-      totalTrades,
+      totalTrades: totalAttempts,
+      totalClosed,
       totalPnl,
       avgPnl,
       winners,
       losers,
+      failed: totalFailed,
       avgConfidence,
       bestTrade,
       worstTrade,
@@ -503,9 +511,10 @@ export default function Portfolio() {
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 pt-0 text-xs">
                 {[
-                  { label: 'Total Orders Executed', value: dynamicStats.totalTrades },
+                  { label: 'Total Trade Attempts', value: dynamicStats.totalTrades },
                   { label: 'Winning Trades', value: dynamicStats.winners, color: '#30d158' },
                   { label: 'Losing Trades', value: dynamicStats.losers, color: '#ff453a' },
+                  { label: 'Failed Trade Attempts', value: dynamicStats.failed, color: '#ff9f0a' },
                   { label: 'Cumulative Net return', value: `$${dynamicStats.totalPnl?.toFixed(2)}`, color: dynamicStats.totalPnl >= 0 ? '#30d158' : '#ff453a' },
                   { label: 'Average Outcome PnL', value: `$${dynamicStats.avgPnl?.toFixed(2)}` },
                   { label: 'Peak Trade Profit', value: `$${dynamicStats.bestTrade?.toFixed(2)}`, color: '#30d158' },
