@@ -267,7 +267,7 @@ export default function Portfolio() {
             label: 'Net Balances', 
             value: portfolio.totalBalance !== undefined && portfolio.totalBalance !== null 
               ? `$${portfolio.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}` 
-              : '$1,000.00', 
+              : '$0.00', 
             icon: Wallet, 
             color: '#86868b' 
           },
@@ -295,7 +295,7 @@ export default function Portfolio() {
             label: 'Margin Available', 
             value: portfolio.availableBalance !== undefined && portfolio.availableBalance !== null 
               ? `$${portfolio.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}` 
-              : '$1,000.00', 
+              : '$0.00', 
             icon: Wallet, 
             color: '#86868b' 
           },
@@ -504,31 +504,39 @@ export default function Portfolio() {
           </div>
 
           {/* Trade Stats Table */}
-          {dynamicStats && dynamicStats.totalTrades >= 0 && (
+          {portfolio && (
             <div className="glass-panel bg-[#1c1c1e] !p-0">
               <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest border-b border-[#2c2c2e]/60 p-6 pb-3 font-mono mb-4">
-                Session Performance Benchmarks
+                Historical Performance Benchmarks
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 pt-0 text-xs">
-                {[
-                  { label: 'Total Trade Attempts', value: dynamicStats.totalTrades },
-                  { label: 'Winning Trades', value: dynamicStats.winners, color: '#30d158' },
-                  { label: 'Losing Trades', value: dynamicStats.losers, color: '#ff453a' },
-                  { label: 'Failed Trade Attempts', value: dynamicStats.failed, color: '#ff9f0a' },
-                  { label: 'Cumulative Net return', value: `$${dynamicStats.totalPnl?.toFixed(2)}`, color: dynamicStats.totalPnl >= 0 ? '#30d158' : '#ff453a' },
-                  { label: 'Average Outcome PnL', value: `$${dynamicStats.avgPnl?.toFixed(2)}` },
-                  { label: 'Peak Trade Profit', value: `$${dynamicStats.bestTrade?.toFixed(2)}`, color: '#30d158' },
-                  { label: 'Max Drawdown Loss', value: `$${dynamicStats.worstTrade?.toFixed(2)}`, color: '#ff453a' },
-                  { label: 'Average Signal Conf', value: `${(dynamicStats.avgConfidence * 100).toFixed(1)}%` },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="bg-black p-4 rounded-2xl border border-[#2c2c2e]/55 relative overflow-hidden pl-5 group">
-                    <div className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: color || '#86868b' }} />
-                    <div className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono mb-1">{label}</div>
-                    <div className="text-lg font-bold font-mono" style={{ color: color || '#f5f5f7' }}>
-                      {value}
+                {(() => {
+                  const totalClosedTrades = (portfolio.winningTrades || 0) + (portfolio.losingTrades || 0);
+                  const avgOutcomePnL = totalClosedTrades > 0 ? (portfolio.totalPnl / totalClosedTrades) : 0;
+                  const bestTradeProfit = stats?.bestTrade || 0;
+                  const worstTradeLoss = stats?.worstTrade || 0;
+                  const avgSignalConf = stats?.avgConfidence !== undefined ? stats.avgConfidence : 0.5;
+
+                  return [
+                    { label: 'Total Closed Trades', value: totalClosedTrades },
+                    { label: 'Winning Trades', value: portfolio.winningTrades || 0, color: '#30d158' },
+                    { label: 'Losing Trades', value: portfolio.losingTrades || 0, color: '#ff453a' },
+                    { label: 'Win Rate', value: `${((portfolio.winRate || 0) * 100).toFixed(1)}%`, color: '#30d158' },
+                    { label: 'Cumulative Net return', value: `$${portfolio.totalPnl?.toFixed(2)}`, color: portfolio.totalPnl >= 0 ? '#30d158' : '#ff453a' },
+                    { label: 'Average Outcome PnL', value: `$${avgOutcomePnL.toFixed(2)}` },
+                    { label: 'Peak Trade Profit', value: `$${bestTradeProfit.toFixed(2)}`, color: '#30d158' },
+                    { label: 'Max Drawdown Loss', value: `$${worstTradeLoss.toFixed(2)}`, color: '#ff453a' },
+                    { label: 'Average Signal Conf', value: `${(avgSignalConf * 100).toFixed(1)}%` },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="bg-black p-4 rounded-2xl border border-[#2c2c2e]/55 relative overflow-hidden pl-5 group">
+                      <div className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: color || '#86868b' }} />
+                      <div className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono mb-1">{label}</div>
+                      <div className="text-lg font-bold font-mono" style={{ color: color || '#f5f5f7' }}>
+                        {value}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ));
+                })()}
               </div>
             </div>
           )}
@@ -847,15 +855,24 @@ export default function Portfolio() {
               .filter((t) => (t.pnl || 0) < 0)
               .reduce((sum, t) => sum + (t.pnl || 0), 0);
 
+            // Compute net by subtracting both entry and exit fees per trade
+            const feeRate = 0.0010;
+            const totalNet = filteredClosedTrades.reduce((sum, t) => {
+              const entryFee = t.fees !== undefined && t.fees !== null
+                ? t.fees
+                : t.entryPrice * t.quantity * feeRate;
+              const exitFee = t.entryPrice * t.quantity * feeRate;
+              return sum + ((t.pnl || 0) - entryFee - exitFee);
+            }, 0);
+
+            // Gross totals remain for reference
+            const totalGross = totalProfit + totalLoss;
             const totalCommission = filteredClosedTrades.reduce((sum, t) => {
               const fees = t.fees !== undefined && t.fees !== null 
                 ? t.fees 
                 : (t.entryPrice * t.quantity * 0.0010);
               return sum + fees;
             }, 0);
-
-            const totalGross = totalProfit + totalLoss;
-            const totalNet = totalGross - totalCommission;
 
             return (
               <div className="overflow-x-auto">

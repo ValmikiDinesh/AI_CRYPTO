@@ -69,11 +69,20 @@ export default class PortfolioAgent extends BaseAgent {
     await portfolio.save();
   }
 
-  /** Check if any positions should be closed (stop-loss or take-profit). */
   async checkExits(portfolio) {
+    const processedAssets = new Set();
+
     for (const position of portfolio.positions) {
       if (position.status !== 'open') continue;
 
+      if (processedAssets.has(position.asset)) {
+        this.logger.warn(`Duplicate open position found for ${position.asset} in exit loop — self-healing by marking it closed.`);
+        position.status = 'closed';
+        position.closedAt = new Date();
+        continue;
+      }
+
+      processedAssets.add(position.asset);
       const currentPrice = this.marketAgent.getPrice(position.asset);
       if (!currentPrice) continue;
 
@@ -123,7 +132,7 @@ export default class PortfolioAgent extends BaseAgent {
     const returnValue = ((position.entryPrice * position.quantity) / (position.leverage || 1)) + position.realizedPnl - exitFee;
     portfolio.availableBalance += returnValue;
     portfolio.totalPnl += (position.realizedPnl - totalPositionFees);
-    portfolio.dailyLossToday += Math.min(0, position.realizedPnl); // track losses
+    portfolio.dailyLossToday += position.realizedPnl; // track net daily PnL
 
     if (position.realizedPnl >= 0) {
       portfolio.winningTrades += 1;
@@ -213,6 +222,7 @@ export default class PortfolioAgent extends BaseAgent {
       }
 
       portfolio.lastDailyDigestDate = todayStr;
+      portfolio.dailyLossToday = 0; // Reset daily PnL for the new day
       await portfolio.save();
     }
   }

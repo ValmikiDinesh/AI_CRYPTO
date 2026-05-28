@@ -75,13 +75,15 @@ export default class RiskAgent extends BaseAgent {
 
     // 4. Daily loss limit
     if (portfolio) {
-      const dailyLossPct = Math.abs(portfolio.dailyLossToday) / portfolio.totalBalance;
-      if (dailyLossPct >= RISK.MAX_DAILY_LOSS) {
-        return this.reject(
-          `Daily loss ${(dailyLossPct * 100).toFixed(1)}% exceeds limit ${RISK.MAX_DAILY_LOSS * 100}%`,
-          'daily_loss_limit',
-          signal
-        );
+      if (portfolio.dailyLossToday < 0) {
+        const dailyLossPct = Math.abs(portfolio.dailyLossToday) / portfolio.totalBalance;
+        if (dailyLossPct >= RISK.MAX_DAILY_LOSS) {
+          return this.reject(
+            `Daily loss ${(dailyLossPct * 100).toFixed(1)}% exceeds limit ${RISK.MAX_DAILY_LOSS * 100}%`,
+            'daily_loss_limit',
+            signal
+          );
+        }
       }
 
       // 5. Max drawdown

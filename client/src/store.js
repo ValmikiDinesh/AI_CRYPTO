@@ -76,8 +76,8 @@ export const useSignalStore = create((set) => ({
 // ─── Portfolio Store ─────────────────────────────────────────────
 export const usePortfolioStore = create((set) => ({
   portfolio: {
-    totalBalance: 1000,
-    availableBalance: 1000,
+    totalBalance: 0,
+    availableBalance: 0,
     totalPnl: 0,
     totalPnlPercent: 0,
     dailyPnl: 0,
