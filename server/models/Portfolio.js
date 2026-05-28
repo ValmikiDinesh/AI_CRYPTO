@@ -45,6 +45,7 @@ const portfolioSchema = new mongoose.Schema({
   lastDailyDigestDate: { type: String },
 }, {
   timestamps: true,
+  versionKey: false,
 });
 
 // Virtual: current drawdown %
