@@ -161,13 +161,26 @@ export default class PortfolioAgent extends BaseAgent {
     // Check if there is an active automated trade on Binance to close
     try {
       const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-      if (activeTrade && activeTrade.exchangeOrderId && (activeTrade.exchange === 'binance_testnet' || activeTrade.exchange === 'binance')) {
+      if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
         const exitSide = position.side === 'long' ? 'sell' : 'buy';
         this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} (${position.quantity} units)`);
         await placeMarketOrder(position.asset, exitSide, position.quantity);
       }
     } catch (err) {
       this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Binance Demo for ${position.asset}: ${err.message}`);
+    }
+
+    // Exchange order cleanup: cancel any remaining Stop-Loss or Take-Profit orders for this asset
+    try {
+      const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+      if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+        const { getExchange } = await import('../../services/exchangeService.js');
+        const exchange = getExchange();
+        await exchange.cancelAllOrders(position.asset);
+        this.logger.info(`🧹 [ORDER CLEANUP] Successfully cancelled all remaining pending trigger orders for ${position.asset} on Binance`);
+      }
+    } catch (cleanErr) {
+      this.logger.debug(`Failed to clean up remaining triggers for ${position.asset}: ${cleanErr.message}`);
     }
 
     position.status = 'closed';
