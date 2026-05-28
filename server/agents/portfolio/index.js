@@ -54,12 +54,12 @@ export default class PortfolioAgent extends BaseAgent {
       totalUnrealizedPnl += position.unrealizedPnl;
     }
 
-    // Recalculate total balance using universal equity formula: entryPrice * quantity + unrealizedPnl
-    const positionValue = portfolio.positions
+    // Recalculate total balance using leverage-adjusted universal equity formula
+    const marginValue = portfolio.positions
       .filter((p) => p.status === 'open')
-      .reduce((sum, p) => sum + (p.entryPrice * p.quantity + p.unrealizedPnl), 0);
+      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
 
-    portfolio.totalBalance = portfolio.availableBalance + positionValue;
+    portfolio.totalBalance = portfolio.availableBalance + marginValue;
 
     // Update peak balance for drawdown tracking
     if (portfolio.totalBalance > portfolio.peakBalance) {
