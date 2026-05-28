@@ -255,7 +255,8 @@ export default class PortfolioAgent extends BaseAgent {
         `--------------------------------\n` +
         `No positions were closed today.\n\n` +
         `🏦 <b>Net Balance</b>: $${formatPrice(portfolio.totalBalance)}\n` +
-        `💵 <b>Margin Available</b>: $${formatPrice(portfolio.availableBalance)}`
+        `💵 <b>Margin Available</b>: $${formatPrice(portfolio.availableBalance)}`,
+        { pin: true }
       );
       return;
     }
@@ -286,7 +287,7 @@ export default class PortfolioAgent extends BaseAgent {
       `  🏦 Net Balance: $${formatPrice(portfolio.totalBalance)}\n` +
       `  💵 Margin Available: $${formatPrice(portfolio.availableBalance)}`;
 
-    await sendTelegramMessage(message);
+    await sendTelegramMessage(message, { pin: true });
   }
 
   /** Publish portfolio update to frontend. */
