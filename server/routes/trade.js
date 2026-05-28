@@ -12,7 +12,11 @@ router.get('/', async (req, res, next) => {
   try {
     const { status, asset, limit = 50, page = 1 } = req.query;
     const filter = {};
-    if (status) filter.status = status;
+    if (status) {
+      filter.status = status;
+    } else {
+      filter.status = { $nin: ['failed', 'cancelled'] };
+    }
     if (asset) filter.asset = asset;
 
     const trades = await Trade.find(filter)
