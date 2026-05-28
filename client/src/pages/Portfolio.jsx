@@ -616,7 +616,7 @@ export default function Portfolio() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
-                    <th className="px-6 py-4">Execution Date</th>
+                    <th className="px-6 py-4">Timeline (Open / Exit)</th>
                     <th className="px-6 py-4">Asset</th>
                     <th className="px-6 py-4">Action</th>
                     <th className="px-6 py-4">Status</th>
@@ -636,8 +636,17 @@ export default function Portfolio() {
                     const exit = trade.exitPrice;
                     return (
                       <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                        <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
-                          {new Date(trade.createdAt).toLocaleString()}
+                        <td className="px-6 py-4 text-zinc-500 font-mono text-[10px] leading-relaxed">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Open</span>
+                            <span>{new Date(trade.createdAt).toLocaleString()}</span>
+                          </div>
+                          {trade.status === 'closed' && (
+                            <div className="flex items-center gap-1.5 mt-1 text-[#ff9f0a]">
+                              <span className="text-[8px] bg-amber-950/40 text-amber-500 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Exit</span>
+                              <span>{trade.closedAt ? new Date(trade.closedAt).toLocaleString() : new Date(trade.updatedAt).toLocaleString()}</span>
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
                           {trade.asset?.replace('1000', '').replace('USDT', '')}
@@ -894,7 +903,7 @@ export default function Portfolio() {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
-                      <th className="px-6 py-4">Execution Date</th>
+                      <th className="px-6 py-4">Timeline (Open / Exit)</th>
                       <th className="px-6 py-4">Asset</th>
                       <th className="px-6 py-4">Action</th>
                       <th className="px-6 py-4 text-right">Entry Price</th>
@@ -913,8 +922,15 @@ export default function Portfolio() {
                       const exit = trade.exitPrice;
                       return (
                         <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                          <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
-                            {new Date(trade.createdAt).toLocaleString()}
+                          <td className="px-6 py-4 text-zinc-500 font-mono text-[10px] leading-relaxed">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Open</span>
+                              <span>{new Date(trade.createdAt).toLocaleString()}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1 text-[#ff9f0a]">
+                              <span className="text-[8px] bg-amber-950/40 text-amber-500 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Exit</span>
+                              <span>{trade.closedAt ? new Date(trade.closedAt).toLocaleString() : new Date(trade.updatedAt).toLocaleString()}</span>
+                            </div>
                           </td>
                           <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
                             {trade.asset?.replace('1000', '').replace('USDT', '')}
