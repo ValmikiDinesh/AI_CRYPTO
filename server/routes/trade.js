@@ -207,6 +207,9 @@ router.post('/manual', async (req, res, next) => {
       winRate: portfolio.winRate,
       openPositions: openPositions.length,
       allocation: portfolio.allocationBreakdown,
+      winningTrades: portfolio.winningTrades,
+      losingTrades: portfolio.losingTrades,
+      totalTrades: portfolio.totalTrades,
     });
 
     res.json({ success: true, data: trade, portfolio });
@@ -337,6 +340,9 @@ router.post('/manual-close', async (req, res, next) => {
       winRate: portfolio.winRate,
       openPositions: openPositions.length,
       allocation: portfolio.allocationBreakdown,
+      winningTrades: portfolio.winningTrades,
+      losingTrades: portfolio.losingTrades,
+      totalTrades: portfolio.totalTrades,
     });
 
     res.json({ success: true, data: trade, portfolio });

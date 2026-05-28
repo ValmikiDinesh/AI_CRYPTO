@@ -84,9 +84,12 @@ export const usePortfolioStore = create((set) => ({
     winRate: 0,
     openPositions: 0,
     allocation: [],
+    winningTrades: 0,
+    losingTrades: 0,
+    totalTrades: 0,
   },
 
-  setPortfolio: (data) => set({ portfolio: data }),
+  setPortfolio: (data) => set((state) => ({ portfolio: { ...state.portfolio, ...data } })),
 }));
 
 // ─── Agent Store ─────────────────────────────────────────────────

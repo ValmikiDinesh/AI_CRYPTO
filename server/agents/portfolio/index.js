@@ -300,6 +300,9 @@ export default class PortfolioAgent extends BaseAgent {
       winRate: portfolio.winRate,
       openPositions: portfolio.positions.filter((p) => p.status === 'open').length,
       allocation: portfolio.allocationBreakdown,
+      winningTrades: portfolio.winningTrades,
+      losingTrades: portfolio.losingTrades,
+      totalTrades: portfolio.totalTrades,
     });
   }
 }
