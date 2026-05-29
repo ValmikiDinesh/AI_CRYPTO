@@ -23,6 +23,7 @@ export default class ExecutionAgent extends BaseAgent {
     this.maxRetries = 3;
     this.inFlightAssets = new Set();
     this.processedSignalIds = new Set();
+    this.lastExecutedAction = {};
   }
 
   async execute() {
@@ -35,10 +36,21 @@ export default class ExecutionAgent extends BaseAgent {
       try {
         const signal = this.fusionAgent.getLastSignal(asset);
 
-        if (!signal || signal.action === ACTIONS.HOLD) continue;
+        if (!signal) continue;
+
+        // If the signal is HOLD, reset lastExecutedAction to allow future trades when it transitions back to BUY/SELL
+        if (signal.action === ACTIONS.HOLD) {
+          this.lastExecutedAction[asset] = ACTIONS.HOLD;
+          continue;
+        }
 
         // Skip if signal is already processed
         if (signal._id && this.processedSignalIds.has(signal._id.toString())) {
+          continue;
+        }
+
+        // Prevent immediate re-entry on the same action (e.g. BUY -> close -> BUY immediately)
+        if (this.lastExecutedAction[asset] === signal.action) {
           continue;
         }
 
@@ -63,11 +75,17 @@ export default class ExecutionAgent extends BaseAgent {
         const riskResult = await this.riskAgent.validateTrade(signal, portfolio);
         if (!riskResult.approved) {
           this.logger.info(`${asset}: Trade rejected — ${riskResult.reason}`);
+          
+          // If rejected because position is already open, sync our lastExecutedAction state
+          if (riskResult.reason.includes('already open') || riskResult.reason.includes('duplicate')) {
+            this.lastExecutedAction[asset] = signal.action;
+          }
           continue;
         }
 
         // Mark asset as in-flight and signal as processed
         this.inFlightAssets.add(asset);
+        this.lastExecutedAction[asset] = signal.action;
         if (signal._id) {
           this.processedSignalIds.add(signal._id.toString());
           if (this.processedSignalIds.size > 2000) {

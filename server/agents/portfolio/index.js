@@ -185,7 +185,15 @@ export default class PortfolioAgent extends BaseAgent {
 
     position.status = 'closed';
     position.closedAt = new Date();
-    position.realizedPnl = position.unrealizedPnl;
+
+    // Calculate final realized PnL using actual exit price instead of stale unrealized value
+    let realizedPnl = 0;
+    if (position.side === 'long') {
+      realizedPnl = (closePrice - position.entryPrice) * position.quantity;
+    } else {
+      realizedPnl = (position.entryPrice - closePrice) * position.quantity;
+    }
+    position.realizedPnl = realizedPnl;
     position.unrealizedPnl = 0;
 
     const futuresFeeRate = 0.0005; // 0.05% Taker Fee
