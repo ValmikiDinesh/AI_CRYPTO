@@ -42,11 +42,11 @@ export default class FusionAgent extends BaseAgent {
         }
 
         const fusedSignal = this.fuseSignals(asset, currentPrice, technical, sentiment, prediction);
-
-        this.lastSignals[asset] = fusedSignal;
+        fusedSignal.timestamp = Date.now();
 
         // Persist all fused signals (including HOLD) to maintain a complete history for all assets
-        await Signal.create(fusedSignal);
+        const createdSignal = await Signal.create(fusedSignal);
+        this.lastSignals[asset] = createdSignal;
 
         await publishEvent(CHANNELS.FUSED_SIGNALS, fusedSignal);
 

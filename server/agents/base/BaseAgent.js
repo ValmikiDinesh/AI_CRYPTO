@@ -17,6 +17,7 @@ export default class BaseAgent {
     this.cycleCount = 0;
     this.errors = [];
     this._interval = null;
+    this.isExecuting = false;
   }
 
   /** Override in subclass — one-time initialization */
@@ -49,6 +50,11 @@ export default class BaseAgent {
 
   /** Single execution cycle with error handling and logging. */
   async runCycle() {
+    if (this.isExecuting) {
+      this.logger.debug(`${this.name} cycle skipped — previous cycle still executing`);
+      return;
+    }
+    this.isExecuting = true;
     const start = Date.now();
     try {
       this.lastHeartbeat = Date.now();
@@ -61,6 +67,8 @@ export default class BaseAgent {
       this.errors.push(err.message);
       this.logger.error(`${this.name} cycle error: ${err.message}`);
       await this.log('error', 'cycle_error', err.message);
+    } finally {
+      this.isExecuting = false;
     }
   }
 

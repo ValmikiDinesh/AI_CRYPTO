@@ -21,14 +21,33 @@ export default class ExecutionAgent extends BaseAgent {
     this.marketAgent = marketAgent;
     this.pendingOrders = [];
     this.maxRetries = 3;
+    this.inFlightAssets = new Set();
+    this.processedSignalIds = new Set();
   }
 
   async execute() {
     for (const asset of SUPPORTED_ASSETS) {
+      if (this.inFlightAssets.has(asset)) {
+        this.logger.debug(`${asset}: Order already in-flight — skipping cycle execution`);
+        continue;
+      }
+
       try {
         const signal = this.fusionAgent.getLastSignal(asset);
 
         if (!signal || signal.action === ACTIONS.HOLD) continue;
+
+        // Skip if signal is already processed
+        if (signal._id && this.processedSignalIds.has(signal._id.toString())) {
+          continue;
+        }
+
+        // Freshness check: skip if signal is older than 15s
+        const signalTime = signal.timestamp || (signal.createdAt ? new Date(signal.createdAt).getTime() : null);
+        if (signalTime && Date.now() - signalTime > 15000) {
+          this.logger.debug(`${asset}: Signal is stale (${Date.now() - signalTime}ms old) — skipping execution`);
+          continue;
+        }
 
         // Get portfolio for the default user (paper trading)
         let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
@@ -47,8 +66,21 @@ export default class ExecutionAgent extends BaseAgent {
           continue;
         }
 
-        // Execute trade
-        await this.executeTrade(signal, portfolio);
+        // Mark asset as in-flight and signal as processed
+        this.inFlightAssets.add(asset);
+        if (signal._id) {
+          this.processedSignalIds.add(signal._id.toString());
+          if (this.processedSignalIds.size > 2000) {
+            this.processedSignalIds.clear();
+          }
+        }
+
+        try {
+          // Execute trade
+          await this.executeTrade(signal, portfolio);
+        } finally {
+          this.inFlightAssets.delete(asset);
+        }
       } catch (err) {
         this.logger.error(`Execution error for ${asset}: ${err.message}`);
       }
