@@ -210,14 +210,29 @@ export default class ExecutionAgent extends BaseAgent {
       }
     }
 
+    // Confirm execution parameters from CCXT order response
+    const executionPrice = order.average || order.price || currentPrice;
+    const executionQuantity = order.filled || order.amount || quantity;
+
+    let actualFee = entryFee;
+    if (order.fee && order.fee.cost) {
+      actualFee = order.fee.cost;
+    } else {
+      actualFee = (executionPrice * executionQuantity) * futuresFeeRate;
+    }
+
+    const finalMarginRequired = (executionPrice * executionQuantity) / leverage;
+
     // Increment daily trade count in Risk Agent
     this.riskAgent.incrementDailyTradeCount();
 
     // Update trade record
     trade.status = 'open';
+    trade.entryPrice = executionPrice;
+    trade.quantity = executionQuantity;
     trade.exchangeOrderId = order?.id;
-    trade.executedAt = new Date();
-    trade.fees = entryFee;
+    trade.executedAt = new Date(order.timestamp || Date.now());
+    trade.fees = actualFee;
     await trade.save();
 
     // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
@@ -263,19 +278,19 @@ export default class ExecutionAgent extends BaseAgent {
     }
 
     // Update portfolio
-    portfolio.availableBalance -= (marginRequired + entryFee);
+    portfolio.availableBalance -= (finalMarginRequired + actualFee);
     portfolio.totalTrades += 1;
     portfolio.positions.push({
       asset: signal.asset,
       side: signal.action === ACTIONS.BUY ? 'long' : 'short',
-      entryPrice: currentPrice,
-      currentPrice,
-      quantity,
+      entryPrice: executionPrice,
+      currentPrice: executionPrice,
+      quantity: executionQuantity,
       leverage,
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
       status: 'open',
-      fees: entryFee,
+      fees: actualFee,
     });
 
     // Recalculate total balance using leverage-adjusted universal equity formula
@@ -295,8 +310,8 @@ export default class ExecutionAgent extends BaseAgent {
       tradeId: trade._id,
       asset: signal.asset,
       action: signal.action,
-      price: currentPrice,
-      quantity,
+      price: executionPrice,
+      quantity: executionQuantity,
       confidence: signal.confidence,
       status: 'executed',
     });
@@ -306,15 +321,15 @@ export default class ExecutionAgent extends BaseAgent {
       `🔔 <b>Trade Executed! [Auto]</b>\n` +
       `<b>Asset</b>: ${signal.asset.replace('USDT', '')}/USDT\n` +
       `<b>Action</b>: ${signal.action} (${signal.action === 'BUY' ? 'LONG' : 'SHORT'})\n` +
-      `<b>Entry Price</b>: $${formatPrice(currentPrice)}\n` +
-      `<b>Quantity</b>: ${quantity.toFixed(5)}\n` +
+      `<b>Entry Price</b>: $${formatPrice(executionPrice)}\n` +
+      `<b>Quantity</b>: ${executionQuantity.toFixed(5)}\n` +
       `<b>Stop Loss</b>: ${signal.stopLoss ? '$' + formatPrice(signal.stopLoss) : '—'}\n` +
       `<b>Target</b>: ${signal.takeProfit ? '$' + formatPrice(signal.takeProfit) : '—'}\n` +
       `<b>Confidence</b>: ${(signal.confidence * 100).toFixed(0)}%`
     );
 
     this.logger.info(
-      `✅ ${signal.action} ${quantity.toFixed(6)} ${signal.asset} @ ${currentPrice} (confidence=${signal.confidence.toFixed(2)})`
+      `✅ ${signal.action} ${executionQuantity.toFixed(6)} ${signal.asset} @ ${executionPrice} (confidence=${signal.confidence.toFixed(2)})`
     );
   }
 }

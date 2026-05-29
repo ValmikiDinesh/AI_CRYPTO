@@ -80,7 +80,7 @@ export default class PortfolioAgent extends BaseAgent {
       }
 
       if (isNativelyClosed) {
-        await this.closePosition(portfolio, position, closePrice, closeReason);
+        await this.closePosition(portfolio, position, closePrice, closeReason, true);
         continue;
       }
 
@@ -151,23 +151,37 @@ export default class PortfolioAgent extends BaseAgent {
       }
 
       if (shouldClose) {
-        await this.closePosition(portfolio, position, currentPrice, reason);
+        await this.closePosition(portfolio, position, currentPrice, reason, false);
       }
     }
   }
 
   /** Close a position and update portfolio. */
-  async closePosition(portfolio, position, closePrice, reason) {
-    // Check if there is an active automated trade on Binance to close
-    try {
-      const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-      if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
-        const exitSide = position.side === 'long' ? 'sell' : 'buy';
-        this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} (${position.quantity} units)`);
-        await placeMarketOrder(position.asset, exitSide, position.quantity);
+  async closePosition(portfolio, position, closePrice, reason, isReconciliation = false) {
+    let actualClosePrice = closePrice;
+    let actualFees = 0;
+
+    // Only place an offsetting close order on the exchange if this is NOT a reconciliation sync
+    if (!isReconciliation) {
+      try {
+        const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+        if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+          const exitSide = position.side === 'long' ? 'sell' : 'buy';
+          this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} (${position.quantity} units)`);
+          
+          // Await close order and retrieve actual executed parameters from response
+          const closeOrder = await placeMarketOrder(position.asset, exitSide, position.quantity);
+          
+          actualClosePrice = closeOrder.average || closeOrder.price || closePrice;
+          if (closeOrder.fee && closeOrder.fee.cost) {
+            actualFees = closeOrder.fee.cost;
+          }
+        }
+      } catch (err) {
+        this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Binance Demo for ${position.asset}: ${err.message}. Aborting position closure.`);
+        // Abort local closure so that the position stays open and we retry in the next cycle
+        return;
       }
-    } catch (err) {
-      this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Binance Demo for ${position.asset}: ${err.message}`);
     }
 
     // Exchange order cleanup: cancel any remaining Stop-Loss or Take-Profit orders for this asset
@@ -189,16 +203,16 @@ export default class PortfolioAgent extends BaseAgent {
     // Calculate final realized PnL using actual exit price instead of stale unrealized value
     let realizedPnl = 0;
     if (position.side === 'long') {
-      realizedPnl = (closePrice - position.entryPrice) * position.quantity;
+      realizedPnl = (actualClosePrice - position.entryPrice) * position.quantity;
     } else {
-      realizedPnl = (position.entryPrice - closePrice) * position.quantity;
+      realizedPnl = (position.entryPrice - actualClosePrice) * position.quantity;
     }
     position.realizedPnl = realizedPnl;
     position.unrealizedPnl = 0;
 
     const futuresFeeRate = 0.0005; // 0.05% Taker Fee
-    const exitValue = closePrice * position.quantity;
-    const exitFee = exitValue * futuresFeeRate;
+    const exitValue = actualClosePrice * position.quantity;
+    const exitFee = actualFees > 0 ? actualFees : (exitValue * futuresFeeRate);
     const totalPositionFees = (position.fees || 0) + exitFee;
     position.fees = totalPositionFees;
 
@@ -234,7 +248,7 @@ export default class PortfolioAgent extends BaseAgent {
       { asset: position.asset, status: 'open' },
       {
         status: 'closed',
-        exitPrice: closePrice,
+        exitPrice: actualClosePrice,
         pnl: position.realizedPnl,
         fees: totalPositionFees,
         closedAt: new Date(),
@@ -252,7 +266,7 @@ export default class PortfolioAgent extends BaseAgent {
       `<b>Asset</b>: ${position.asset.replace('USDT', '')}/USDT\n` +
       `<b>Side</b>: ${position.side.toUpperCase()}\n` +
       `<b>Entry Price</b>: $${formatPrice(position.entryPrice)}\n` +
-      `<b>Exit Price</b>: $${formatPrice(closePrice)}\n` +
+      `<b>Exit Price</b>: $${formatPrice(actualClosePrice)}\n` +
       `<b>Quantity</b>: ${position.quantity.toFixed(5)}\n` +
       `<b>Gross Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
       `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
@@ -263,7 +277,7 @@ export default class PortfolioAgent extends BaseAgent {
     await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
       asset: position.asset,
       action: 'CLOSE',
-      price: closePrice,
+      price: actualClosePrice,
       pnl: position.realizedPnl,
       reason,
     });
