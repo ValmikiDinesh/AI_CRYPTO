@@ -34,10 +34,11 @@ export default class RiskAgent extends BaseAgent {
       endOfToday.setDate(endOfToday.getDate() + 1);
       
       const count = await Trade.countDocuments({
-        createdAt: { $gte: startOfToday, $lt: endOfToday }
+        createdAt: { $gte: startOfToday, $lt: endOfToday },
+        status: { $in: ['open', 'closed'] }
       });
       this.dailyTradeCount = count;
-      this.logger.info(`Recovered daily trade count from database: ${count} trades placed today.`);
+      this.logger.info(`Recovered daily trade count from database: ${count} successful trades placed today.`);
     } catch (err) {
       this.logger.error(`Failed to recover daily trade count on startup: ${err.message}`);
     }
