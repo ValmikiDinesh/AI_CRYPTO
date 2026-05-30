@@ -93,14 +93,13 @@ export default class FusionAgent extends BaseAgent {
     // Dynamic position sizing based on confidence
     const positionPercent = Math.min(5, Math.max(0.5, confidence * 5));
 
-    // ATR-based stop-loss / take-profit
     const atr = technical.indicators?.atr || currentPrice * 0.02;
     const stopLoss = action === ACTIONS.BUY
-      ? currentPrice - atr * 2
-      : currentPrice + atr * 2;
+      ? currentPrice - atr * 3.5
+      : currentPrice + atr * 3.5;
     const takeProfit = action === ACTIONS.BUY
-      ? currentPrice + atr * 3
-      : currentPrice - atr * 3;
+      ? currentPrice + atr * 7.0
+      : currentPrice - atr * 7.0;
 
     // Compute risk score (lower = safer)
     const riskScore = this.computeRiskScore(confidence, technical, sentiment);

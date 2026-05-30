@@ -122,7 +122,7 @@ export default class ExecutionAgent extends BaseAgent {
       positionValue = MIN_NOTIONAL;
     }
 
-    const leverage = 10;
+    const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 3;
     let marginRequired = positionValue / leverage;
 
     if (portfolio.availableBalance < marginRequired) {
