@@ -22,6 +22,7 @@ export default class RiskAgent extends BaseAgent {
     this.maxDailyTrades = RISK.MAX_DAILY_TRADES;
     this.lastResetDate = new Date().toDateString();
     this.emergencyActive = false;
+    this.lastAlertTimes = {};
   }
 
   async initialize() {
@@ -225,14 +226,22 @@ export default class RiskAgent extends BaseAgent {
     });
 
     // Notify Telegram (unless it is duplicate position, overtrading, or position limit to prevent spamming channel every cycle)
+    // We also rate-limit alerts for drawdown_limit and daily_loss_limit to prevent spamming Telegram every cycle.
     const ignoredAlertTypes = ['duplicate_position', 'overtrading', 'position_limit'];
+    const now = Date.now();
+    const COOL_DOWN_MS = 15 * 60 * 1000; // 15-minute cooldown per alert type
+
     if (!ignoredAlertTypes.includes(type)) {
-      await sendTelegramMessage(
-        `⚠️ <b>Risk Alert [${signal.asset.replace('USDT', '')}]</b>\n` +
-        `<b>Action Taken</b>: Trade Blocked\n` +
-        `<b>Violation</b>: ${type.toUpperCase().replace(/_/g, ' ')}\n` +
-        `<b>Reason</b>: ${escapeHtml(reason)}`
-      );
+      const lastAlertTime = this.lastAlertTimes[type] || 0;
+      if (now - lastAlertTime >= COOL_DOWN_MS) {
+        this.lastAlertTimes[type] = now;
+        await sendTelegramMessage(
+          `⚠️ <b>Risk Alert [${signal.asset.replace('USDT', '')}]</b>\n` +
+          `<b>Action Taken</b>: Trade Blocked\n` +
+          `<b>Violation</b>: ${type.toUpperCase().replace(/_/g, ' ')}\n` +
+          `<b>Reason</b>: ${escapeHtml(reason)}`
+        );
+      }
     }
 
     await publishEvent(CHANNELS.RISK_EVENTS, {
