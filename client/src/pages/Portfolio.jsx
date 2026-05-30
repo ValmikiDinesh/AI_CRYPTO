@@ -69,7 +69,7 @@ export default function Portfolio() {
   });
 
   const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
-    if (!filterByDate(trade.createdAt)) return false;
+    if (!filterByDate(trade.closedAt || trade.updatedAt || trade.createdAt)) return false;
     if (closedLedgerTab === 'all') return true;
     if (closedLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (closedLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
@@ -78,7 +78,10 @@ export default function Portfolio() {
   });
 
   const filteredTrades = allTrades.filter((trade) => {
-    if (!filterByDate(trade.createdAt)) return false;
+    const filterDate = trade.status === 'closed' 
+      ? (trade.closedAt || trade.updatedAt || trade.createdAt)
+      : trade.createdAt;
+    if (!filterByDate(filterDate)) return false;
     if (ledgerTab === 'all') return true;
     if (ledgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (ledgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
@@ -133,8 +136,8 @@ export default function Portfolio() {
     ? portfolio.allocation
     : [{ asset: 'USDT (Cash)', percentage: 100, value: portfolio.availableBalance }];
 
-  const dateFilteredClosed = onlyClosedTrades.filter((t) => filterByDate(t.createdAt));
-  const dateFilteredFailed = allTrades.filter((t) => t.status === 'failed' && filterByDate(t.createdAt));
+  const dateFilteredClosed = onlyClosedTrades.filter((t) => filterByDate(t.closedAt || t.updatedAt || t.createdAt));
+  const dateFilteredFailed = allTrades.filter((t) => t.status === 'failed' && filterByDate(t.updatedAt || t.createdAt));
 
   const dynamicStats = (() => {
     const totalClosed = dateFilteredClosed.length;

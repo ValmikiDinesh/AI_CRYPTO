@@ -51,7 +51,10 @@ export default class PortfolioAgent extends BaseAgent {
 
       try {
         const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-        if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+        const positionAgeMs = Date.now() - new Date(position.openedAt).getTime();
+        const MIN_RECONCILIATION_AGE_MS = 30000; // 30 seconds
+
+        if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_') && positionAgeMs >= MIN_RECONCILIATION_AGE_MS) {
           const { fetchPositions } = await import('../../services/exchangeService.js');
           const exchangePositions = await fetchPositions(position.asset);
           
@@ -220,7 +223,7 @@ export default class PortfolioAgent extends BaseAgent {
     const returnValue = ((position.entryPrice * position.quantity) / (position.leverage || 1)) + position.realizedPnl - exitFee;
     portfolio.availableBalance += returnValue;
     portfolio.totalPnl += (position.realizedPnl - totalPositionFees);
-    portfolio.dailyLossToday += position.realizedPnl; // track net daily PnL
+    portfolio.dailyLossToday += (position.realizedPnl - totalPositionFees); // track net daily PnL (after fees)
 
     if (position.realizedPnl >= 0) {
       portfolio.winningTrades += 1;

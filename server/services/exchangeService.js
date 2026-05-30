@@ -176,6 +176,13 @@ export const fetchBalance = async () => {
 export const fetchPositions = async (symbol) => {
   try {
     const exchange = getExchange();
+    
+    // Ensure markets are loaded successfully to prevent false empty positions on proxy/network failures
+    const markets = await exchange.loadMarkets();
+    if (!markets || Object.keys(markets).length === 0) {
+      throw new Error('Exchange markets failed to load (possible network issue)');
+    }
+    
     const positions = await exchange.fetchPositions(symbol ? [symbol] : undefined);
     return positions.filter((p) => parseFloat(p.contracts) > 0);
   } catch (err) {
