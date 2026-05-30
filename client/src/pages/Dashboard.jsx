@@ -236,9 +236,9 @@ export default function Dashboard() {
         />
         <StatCard
           icon={Activity}
-          label="Daily PnL"
+          label="Daily Net PnL"
           value={`${portfolio.dailyPnl >= 0 ? '+' : ''}$${portfolio.dailyPnl?.toFixed(2) || '0.00'}`}
-          subValue="Websocket feed synced"
+          subValue="Net value (After Fees)"
           iconColor="#86868b"
         />
       </div>
