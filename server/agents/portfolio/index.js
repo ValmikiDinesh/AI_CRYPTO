@@ -298,16 +298,88 @@ export default class PortfolioAgent extends BaseAgent {
       value: p.currentPrice * p.quantity,
     }));
 
+    try {
+      // 1. Calculate true closed PnL and trade counters from Trade collection (source of truth)
+      const closedTrades = await Trade.find({ status: 'closed' });
+      let trueTotalPnl = 0;
+      let winners = 0;
+      let losers = 0;
+
+      closedTrades.forEach(t => {
+        const netReturn = (t.pnl || 0) - (t.fees || 0);
+        trueTotalPnl += netReturn;
+        if (netReturn >= 0) {
+          winners++;
+        } else {
+          losers++;
+        }
+      });
+
+      const totalClosed = closedTrades.length;
+
+      // 2. Calculate true available balance
+      let trueAvailable = 1000 + trueTotalPnl;
+      let openExposure = 0;
+      let openUnrealized = 0;
+
+      openPositions.forEach(p => {
+        const leverage = p.leverage && p.leverage > 1 ? p.leverage : 10;
+        const exposure = p.entryPrice * p.quantity;
+        const margin = exposure / leverage;
+        const entryFee = p.fees || 0;
+
+        trueAvailable -= (margin + entryFee);
+        openExposure += margin;
+        openUnrealized += p.unrealizedPnl;
+      });
+
+      // 3. Calculate true total balance (Net Worth)
+      const trueTotalBalance = trueAvailable + openExposure + openUnrealized;
+
+      portfolio.totalPnl = trueTotalPnl;
+      portfolio.availableBalance = trueAvailable;
+      portfolio.totalBalance = trueTotalBalance;
+
+      portfolio.winningTrades = winners;
+      portfolio.losingTrades = losers;
+      portfolio.totalTrades = totalClosed + openPositions.length;
+      portfolio.winRate = totalClosed > 0 ? winners / totalClosed : 0;
+
+      if (trueTotalBalance > portfolio.peakBalance) {
+        portfolio.peakBalance = trueTotalBalance;
+      }
+    } catch (dbErr) {
+      this.logger.error(`Error during self-healing portfolio metrics recalculation: ${dbErr.message}`);
+    }
+
     portfolio.totalPnlPercent = portfolio.totalBalance > 0
       ? ((portfolio.totalBalance - 1000) / 1000) * 100  // vs initial capital
       : 0;
+
+    // Recalculate dailyLossToday dynamically from Trade collection (source of truth for today's closed trades in IST)
+    try {
+      const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0]; // "YYYY-MM-DD" in IST
+      const startOfToday = new Date(`${todayStr}T00:00:00.000+05:30`);
+      const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+
+      const closedTradesToday = await Trade.find({
+        status: 'closed',
+        closedAt: { $gte: startOfToday, $lt: endOfToday },
+      });
+
+      const totalCommissions = closedTradesToday.reduce((sum, t) => sum + (t.fees || 0), 0);
+      const grossProfit = closedTradesToday.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      portfolio.dailyLossToday = grossProfit - totalCommissions;
+    } catch (err) {
+      this.logger.error(`Failed to dynamically recalculate dailyLossToday: ${err.message}`);
+    }
 
     await portfolio.save();
   }
 
   /** Check if it is a new day and we should send the daily digest report. */
   async checkDailyDigest(portfolio) {
-    const todayStr = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0]; // "YYYY-MM-DD" in IST
 
     if (!portfolio.lastDailyDigestDate) {
       portfolio.lastDailyDigestDate = todayStr;
@@ -329,9 +401,8 @@ export default class PortfolioAgent extends BaseAgent {
 
   /** Compute and send the detailed daily trading performance digest via Telegram. */
   async sendDailyDigest(portfolio, dateStr) {
-    const startOfDay = new Date(dateStr);
-    const endOfDay = new Date(dateStr);
-    endOfDay.setDate(endOfDay.getDate() + 1);
+    const startOfDay = new Date(`${dateStr}T00:00:00.000+05:30`);
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
 
     const closedTradesToday = await Trade.find({
       status: 'closed',
@@ -342,7 +413,7 @@ export default class PortfolioAgent extends BaseAgent {
 
     if (count === 0) {
       await sendTelegramMessage(
-        `📊 <b>Daily Trading Digest [${dateStr}]</b>\n` +
+        `📊 <b>Daily Trading Digest [${dateStr}] (IST)</b>\n` +
         `--------------------------------\n` +
         `No positions were closed today.\n\n` +
         `🏦 <b>Net Balance</b>: $${formatPrice(portfolio.totalBalance)}\n` +
@@ -352,18 +423,17 @@ export default class PortfolioAgent extends BaseAgent {
       return;
     }
 
-    const winningTrades = closedTradesToday.filter((t) => (t.pnl || 0) >= 0);
-    const losingTrades = closedTradesToday.filter((t) => (t.pnl || 0) < 0);
+    const winningTrades = closedTradesToday.filter((t) => (t.pnl || 0) - (t.fees || 0) >= 0);
+    const losingTrades = closedTradesToday.filter((t) => (t.pnl || 0) - (t.fees || 0) < 0);
 
     const totalCommissions = closedTradesToday.reduce((sum, t) => sum + (t.fees || 0), 0);
-    const grossProfit = winningTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-    const grossLoss = losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-    const netPnL = grossProfit + grossLoss - totalCommissions;
+    const grossProfit = closedTradesToday.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const netPnL = grossProfit - totalCommissions;
 
     const winRate = (winningTrades.length / count) * 100;
 
     const message = 
-      `📊 <b>Daily Trading Digest [${dateStr}]</b>\n` +
+      `📊 <b>Daily Trading Digest [${dateStr}] (IST)</b>\n` +
       `--------------------------------\n` +
       `<b>Total Closed Trades</b>: ${count}\n` +
       `  📈 Winning Trades: ${winningTrades.length}\n` +
@@ -371,7 +441,6 @@ export default class PortfolioAgent extends BaseAgent {
       `  🎯 Win Rate: ${winRate.toFixed(1)}%\n\n` +
       `<b>Financial Breakdown</b>:\n` +
       `  💰 Gross Profit: +$${grossProfit.toFixed(2)}\n` +
-      `  💸 Gross Loss: -$${Math.abs(grossLoss).toFixed(2)}\n` +
       `  🏷️ Commissions Paid: -$${totalCommissions.toFixed(4)}\n` +
       `  📊 <b>Net Daily PnL</b>: ${netPnL >= 0 ? '🟢 +' : '🔴 '}$${netPnL.toFixed(2)}\n\n` +
       `<b>Portfolio State</b>:\n` +

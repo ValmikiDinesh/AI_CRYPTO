@@ -23,36 +23,44 @@ export default function Portfolio() {
 
   const filterByDate = (createdAt) => {
     if (dateFilter === 'all') return true;
-    const tradeDate = new Date(createdAt);
-    const now = new Date();
     
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfYesterday = new Date(startOfToday);
-    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-    const startOfTomorrow = new Date(startOfToday);
-    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+    const tradeTime = new Date(createdAt).getTime();
+    
+    // Indian Standard Time (IST) offset in milliseconds (UTC + 5.5 hours)
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(Date.now() + IST_OFFSET);
+    
+    const startOfTodayIST = new Date(
+      nowIST.getUTCFullYear(),
+      nowIST.getUTCMonth(),
+      nowIST.getUTCDate()
+    );
+    
+    const startOfToday = startOfTodayIST.getTime() - IST_OFFSET;
+    const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+    const startOfTomorrow = startOfToday + 24 * 60 * 60 * 1000;
 
     if (dateFilter === 'today') {
-      return tradeDate >= startOfToday && tradeDate < startOfTomorrow;
+      return tradeTime >= startOfToday && tradeTime < startOfTomorrow;
     }
     if (dateFilter === 'yesterday') {
-      return tradeDate >= startOfYesterday && tradeDate < startOfToday;
+      return tradeTime >= startOfYesterday && tradeTime < startOfToday;
     }
     if (dateFilter === 'weekly') {
-      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return tradeDate >= oneWeekAgo;
+      const oneWeekAgo = startOfToday - 7 * 24 * 60 * 60 * 1000;
+      return tradeTime >= oneWeekAgo;
     }
     if (dateFilter === 'monthly') {
-      const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      return tradeDate >= oneMonthAgo;
+      const oneMonthAgo = startOfToday - 30 * 24 * 60 * 60 * 1000;
+      return tradeTime >= oneMonthAgo;
     }
     if (dateFilter === 'quarterly') {
-      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-      return tradeDate >= ninetyDaysAgo;
+      const ninetyDaysAgo = startOfToday - 90 * 24 * 60 * 60 * 1000;
+      return tradeTime >= ninetyDaysAgo;
     }
     if (dateFilter === 'yearly') {
-      const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-      return tradeDate >= oneYearAgo;
+      const oneYearAgo = startOfToday - 365 * 24 * 60 * 60 * 1000;
+      return tradeTime >= oneYearAgo;
     }
     return true;
   };
@@ -158,11 +166,11 @@ export default function Portfolio() {
         worstTrade: 0,
       };
     }
-    const pnls = dateFilteredClosed.map(t => t.pnl || 0);
+    const pnls = dateFilteredClosed.map(t => (t.pnl || 0) - (t.fees || 0));
     const totalPnl = pnls.reduce((sum, p) => sum + p, 0);
     const avgPnl = totalPnl / totalClosed;
-    const winners = dateFilteredClosed.filter(t => (t.pnl || 0) > 0).length;
-    const losers = dateFilteredClosed.filter(t => (t.pnl || 0) < 0).length;
+    const winners = dateFilteredClosed.filter(t => (t.pnl || 0) - (t.fees || 0) >= 0).length;
+    const losers = dateFilteredClosed.filter(t => (t.pnl || 0) - (t.fees || 0) < 0).length;
     const confidences = dateFilteredClosed.map(t => t.confidence !== undefined && t.confidence !== null ? t.confidence : 0);
     const avgConfidence = confidences.reduce((sum, c) => sum + c, 0) / totalClosed;
     const bestTrade = Math.max(...pnls);
@@ -200,7 +208,7 @@ export default function Portfolio() {
     };
     
     dateFilteredClosed.forEach(t => {
-      const pnl = t.pnl || 0;
+      const pnl = (t.pnl || 0) - (t.fees || 0);
       let cat = null;
       if (CORE_ASSETS.includes(t.asset)) cat = cats.core;
       else if (MEME_ASSETS.includes(t.asset)) cat = cats.meme;
@@ -234,12 +242,12 @@ export default function Portfolio() {
 
   const displayRealizedReturn = dateFilter === 'all' 
     ? (portfolio.totalPnl || 0) 
-    : dateFilteredClosed.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    : dateFilteredClosed.reduce((sum, t) => sum + ((t.pnl || 0) - (t.fees || 0)), 0);
 
   const displayWinRate = dateFilter === 'all'
     ? (portfolio.winRate || 0) * 100
     : (dateFilteredClosed.length > 0
-        ? (dateFilteredClosed.filter(t => (t.pnl || 0) > 0).length / dateFilteredClosed.length) * 100
+        ? (dateFilteredClosed.filter(t => (t.pnl || 0) - (t.fees || 0) >= 0).length / dateFilteredClosed.length) * 100
         : 0);
 
   const displayOpenExposure = portfolio.openPositions || 0;
