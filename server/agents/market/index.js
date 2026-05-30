@@ -29,6 +29,10 @@ export default class MarketAgent extends BaseAgent {
       try {
         const candles = await fetchCandles(asset, '5m', 100);
         this.candles[asset] = candles;
+        if (candles && candles.length > 0) {
+          const lastCandle = candles[candles.length - 1];
+          this.prices[asset] = lastCandle.close || lastCandle.price || 0;
+        }
         this.logger.info(`Loaded ${candles.length} historical candles for ${asset}`);
       } catch (err) {
         this.logger.warn(`Failed to load candles for ${asset}: ${err.message}`);

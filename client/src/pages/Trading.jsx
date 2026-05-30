@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useMarketStore, useSignalStore, usePortfolioStore } from '../store.js';
+import { useMarketStore, useSignalStore, usePortfolioStore, socket } from '../store.js';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { CandlestickChart, TrendingUp, Shield, Info, ShoppingBag, XCircle, ChevronRight, Gauge } from 'lucide-react';
 import axios from 'axios';
@@ -76,6 +76,10 @@ export default function Trading() {
 
   useEffect(() => {
     fetchCandles(selectedAsset);
+    socket.emit('subscribe:asset', selectedAsset);
+    return () => {
+      socket.emit('unsubscribe:asset', selectedAsset);
+    };
   }, [selectedAsset]);
 
   useEffect(() => {
