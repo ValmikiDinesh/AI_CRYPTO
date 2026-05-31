@@ -86,12 +86,16 @@ export default class SentimentAgent extends BaseAgent {
       const categories = (article.categories || '').toLowerCase().split('|');
       const tags = (article.tags || '').toLowerCase().split('|');
 
-      return searchTerms.some((term) => 
-        title.includes(term) || 
-        body.includes(term) ||
-        categories.includes(term) ||
-        tags.includes(term)
-      );
+      return searchTerms.some((term) => {
+        // Match search term as a whole word to prevent substring leakage bugs (e.g., 'id' matching 'liquidity')
+        const regex = new RegExp(`\\b${term}\\b`, 'i');
+        return (
+          regex.test(title) ||
+          regex.test(body) ||
+          categories.includes(term) ||
+          tags.includes(term)
+        );
+      });
     });
   }
 

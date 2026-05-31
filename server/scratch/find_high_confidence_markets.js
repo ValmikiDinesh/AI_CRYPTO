@@ -58,12 +58,15 @@ function analyzeSentimentForAsset(articles, baseAsset) {
     const categories = (article.categories || '').toLowerCase().split('|');
     const tags = (article.tags || '').toLowerCase().split('|');
 
-    return searchTerms.some((term) => 
-      title.includes(term) || 
-      body.includes(term) ||
-      categories.includes(term) ||
-      tags.includes(term)
-    );
+    return searchTerms.some((term) => {
+      const regex = new RegExp(`\\b${term}\\b`, 'i');
+      return (
+        regex.test(title) ||
+        regex.test(body) ||
+        categories.includes(term) ||
+        tags.includes(term)
+      );
+    });
   });
 
   if (!relevant.length) {
