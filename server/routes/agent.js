@@ -136,13 +136,14 @@ router.post('/restart/:name', async (req, res) => {
 
   try {
     agent.stop();
-    // Restart with 30-second default cycle
-    await agent.start(30000);
+    // Restart with original interval or fall back to 30-second default
+    const restartInterval = agent.intervalMs || 30000;
+    await agent.start(restartInterval);
     
     // Log restart event
-    await supervisorAgent.log('info', `${name}_restart`, `User manually triggered restart of agent node [${name}]`);
+    await supervisorAgent.log('info', `${name}_restart`, `User manually triggered restart of agent node [${name}] with interval ${restartInterval}ms`);
 
-    res.json({ success: true, message: `Agent node [${name}] restarted successfully` });
+    res.json({ success: true, message: `Agent node [${name}] restarted successfully (interval: ${restartInterval}ms)` });
   } catch (err) {
     res.status(500).json({ success: false, message: `Failed to restart agent node [${name}]: ${err.message}` });
   }

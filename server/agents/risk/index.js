@@ -20,7 +20,7 @@ export default class RiskAgent extends BaseAgent {
     this.marketAgent = marketAgent;
     this.dailyTradeCount = 0;
     this.maxDailyTrades = RISK.MAX_DAILY_TRADES;
-    this.lastResetDate = new Date().toDateString();
+    this.lastResetDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
     this.emergencyActive = false;
     this.lastAlertTimes = {};
   }
@@ -29,29 +29,28 @@ export default class RiskAgent extends BaseAgent {
     await super.initialize();
     
     try {
-      const today = new Date();
-      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfToday = new Date(startOfToday);
-      endOfToday.setDate(endOfToday.getDate() + 1);
+      const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const startOfToday = new Date(`${todayStr}T00:00:00.000+05:30`);
+      const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
       
       const count = await Trade.countDocuments({
         createdAt: { $gte: startOfToday, $lt: endOfToday },
         status: { $in: ['open', 'closed'] }
       });
       this.dailyTradeCount = count;
-      this.logger.info(`Recovered daily trade count from database: ${count} successful trades placed today.`);
+      this.logger.info(`Recovered daily trade count from database: ${count} successful trades placed today (IST).`);
     } catch (err) {
       this.logger.error(`Failed to recover daily trade count on startup: ${err.message}`);
     }
   }
 
   async execute() {
-    // Reset daily counters at midnight
-    const today = new Date().toDateString();
+    // Reset daily counters at midnight in IST timezone
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
     if (today !== this.lastResetDate) {
       this.dailyTradeCount = 0;
       this.lastResetDate = today;
-      this.logger.info('Daily trade counter reset');
+      this.logger.info('Daily trade counter reset (IST)');
 
       // Also reset daily loss on portfolios
       await Portfolio.updateMany({}, { $set: { dailyLossToday: 0 } });

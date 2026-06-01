@@ -194,7 +194,11 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
 process.on('unhandledRejection', (err) => {
-  logger.error(`Unhandled rejection: ${err.message}`);
+  logger.error(`Unhandled rejection: ${err.stack || err.message}`);
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error(`Unhandled exception: ${err.stack || err.message}`);
 });
 
 boot();

@@ -285,6 +285,10 @@ router.post('/manual-close', async (req, res, next) => {
 
     await portfolio.save();
 
+    // Calculate trade performance percentage (ROE)
+    const initialMargin = (pos.entryPrice * pos.quantity) / (pos.leverage || 1);
+    const pnlPercent = initialMargin > 0 ? (pnl / initialMargin) * 100 : 0;
+
     // Close in trade DB
     const trade = await Trade.findOneAndUpdate(
       { asset, status: 'open' },
@@ -292,6 +296,7 @@ router.post('/manual-close', async (req, res, next) => {
         status: 'closed',
         exitPrice,
         pnl,
+        pnlPercent,
         fees: totalPositionFees,
         closedAt: new Date(),
         metadata: { closeReason: 'Manually closed by user' },

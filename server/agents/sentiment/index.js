@@ -23,7 +23,7 @@ export default class SentimentAgent extends BaseAgent {
 
       for (const asset of SUPPORTED_ASSETS) {
         try {
-          const baseAsset = asset.replace('USDT', '').toLowerCase();
+          const baseAsset = asset.replace('USDT', '').replace(/^\d+/, '').toLowerCase();
 
           // 2. Filter articles relevant to this specific asset locally
           const relevantArticles = this.filterArticlesForAsset(allArticles, baseAsset);

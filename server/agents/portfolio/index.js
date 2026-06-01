@@ -246,6 +246,10 @@ export default class PortfolioAgent extends BaseAgent {
 
     await portfolio.save();
 
+    // Calculate trade performance percentage (ROE)
+    const initialMargin = (position.entryPrice * position.quantity) / (position.leverage || 1);
+    const pnlPercent = initialMargin > 0 ? (position.realizedPnl / initialMargin) * 100 : 0;
+
     // Update corresponding trade record
     await Trade.findOneAndUpdate(
       { asset: position.asset, status: 'open' },
@@ -253,6 +257,7 @@ export default class PortfolioAgent extends BaseAgent {
         status: 'closed',
         exitPrice: actualClosePrice,
         pnl: position.realizedPnl,
+        pnlPercent,
         fees: totalPositionFees,
         closedAt: new Date(),
         metadata: { closeReason: reason },

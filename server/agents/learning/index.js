@@ -57,7 +57,9 @@ export default class LearningAgent extends BaseAgent {
       : 0;
 
     const winRate = winners.length / trades.length;
-    const profitFactor = avgLoss > 0 ? (avgWin * winners.length) / (avgLoss * losers.length) : 0;
+    const profitFactor = losers.length === 0
+      ? (winners.length > 0 ? 99.0 : 0)
+      : (avgWin * winners.length) / (avgLoss * losers.length);
 
     // Analyze by confidence buckets
     const highConfTrades = trades.filter((t) => t.confidence >= 0.75);

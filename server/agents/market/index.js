@@ -45,38 +45,43 @@ export default class MarketAgent extends BaseAgent {
   }
 
   connectWebSocket() {
-    const streams = SUPPORTED_ASSETS
-      .map((s) => `${s.toLowerCase()}@kline_5m`)
-      .join('/');
+    try {
+      const streams = SUPPORTED_ASSETS
+        .map((s) => `${s.toLowerCase()}@kline_5m`)
+        .join('/');
 
-    const wsUrl = `${process.env.BINANCE_TESTNET_WS_URL || 'wss://stream.binancefuture.com'}/stream?streams=${streams}`;
+      const wsUrl = `${process.env.BINANCE_TESTNET_WS_URL || 'wss://stream.binancefuture.com'}/stream?streams=${streams}`;
 
-    this.ws = new WebSocket(wsUrl);
+      this.ws = new WebSocket(wsUrl);
 
-    this.ws.on('open', () => {
-      this.logger.info('Binance WebSocket connected');
-      this.reconnectAttempts = 0;
-    });
+      this.ws.on('open', () => {
+        this.logger.info('Binance WebSocket connected');
+        this.reconnectAttempts = 0;
+      });
 
-    this.ws.on('message', (data) => {
-      try {
-        const parsed = JSON.parse(data.toString());
-        if (parsed.data && parsed.data.e === 'kline') {
-          this.handleKline(parsed.data);
+      this.ws.on('message', (data) => {
+        try {
+          const parsed = JSON.parse(data.toString());
+          if (parsed.data && parsed.data.e === 'kline') {
+            this.handleKline(parsed.data);
+          }
+        } catch (err) {
+          this.logger.error(`WS message parse error: ${err.message}`);
         }
-      } catch (err) {
-        this.logger.error(`WS message parse error: ${err.message}`);
-      }
-    });
+      });
 
-    this.ws.on('error', (err) => {
-      this.logger.error(`WebSocket error: ${err.message}`);
-    });
+      this.ws.on('error', (err) => {
+        this.logger.error(`WebSocket error: ${err.message}`);
+      });
 
-    this.ws.on('close', () => {
-      this.logger.warn('WebSocket closed');
+      this.ws.on('close', () => {
+        this.logger.warn('WebSocket closed');
+        this.attemptReconnect();
+      });
+    } catch (err) {
+      this.logger.error(`WebSocket connection setup failed: ${err.message}`);
       this.attemptReconnect();
-    });
+    }
   }
 
   attemptReconnect() {

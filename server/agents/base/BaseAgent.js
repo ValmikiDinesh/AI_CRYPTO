@@ -33,6 +33,7 @@ export default class BaseAgent {
   /** Start the agent on a recurring interval. */
   async start(intervalMs) {
     try {
+      this.intervalMs = intervalMs;
       this.status = 'running';
       this.startedAt = Date.now();
       await this.initialize();
@@ -60,10 +61,12 @@ export default class BaseAgent {
       this.lastHeartbeat = Date.now();
       this.cycleCount++;
       await this.execute();
+      this.status = 'running'; // Reset to running on success
       const duration = Date.now() - start;
 
       await this.log('info', 'cycle_complete', `Cycle ${this.cycleCount} completed`, { duration });
     } catch (err) {
+      this.status = 'error'; // Set status to error on cycle failure
       this.errors.push(err.message);
       this.logger.error(`${this.name} cycle error: ${err.message}`);
       await this.log('error', 'cycle_error', err.message);
