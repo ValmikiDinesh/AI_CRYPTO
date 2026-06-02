@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePortfolioStore } from '../store.js';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
+import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity, Search, Medal, Skull, AlertCircle, ArrowUpDown } from 'lucide-react';
 import axios from 'axios';
 
 const COLORS = ['#0071e3', '#ff9f0a', '#30d158', '#ff453a', '#bf5af2'];
@@ -15,11 +15,14 @@ export default function Portfolio() {
   const [trades, setTrades] = useState([]);
   const [allTrades, setAllTrades] = useState([]);
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'history' | 'open' | 'closed'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'analytics' | 'history' | 'open' | 'closed'
   const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [openLedgerTab, setOpenLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [closedLedgerTab, setClosedLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [dateFilter, setDateFilter] = useState('all'); // 'all' | 'today' | 'yesterday' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState('netPnl'); // 'asset' | 'totalClosed' | 'winRate' | 'netPnl'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' | 'desc'
 
   const filterByDate = (createdAt) => {
     if (dateFilter === 'all') return true;
@@ -240,6 +243,157 @@ export default function Portfolio() {
     ];
   })();
 
+  const marketPerformance = (() => {
+    const markets = {};
+
+    // 1. Process closed trades (realized returns)
+    dateFilteredClosed.forEach(t => {
+      const symbol = t.asset;
+      if (!markets[symbol]) {
+        markets[symbol] = {
+          asset: symbol,
+          totalClosed: 0,
+          wins: 0,
+          losses: 0,
+          grossProfit: 0,
+          grossLoss: 0,
+          netPnl: 0,
+          longTrades: 0,
+          shortTrades: 0,
+          openCount: 0,
+          unrealizedPnl: 0,
+        };
+      }
+      
+      const m = markets[symbol];
+      m.totalClosed += 1;
+      
+      const net = (t.pnl || 0) - (t.fees || 0);
+      m.netPnl += net;
+      if (net >= 0) {
+        m.wins += 1;
+        m.grossProfit += net;
+      } else {
+        m.losses += 1;
+        m.grossLoss += Math.abs(net);
+      }
+      
+      if (t.side === 'long') m.longTrades += 1;
+      else m.shortTrades += 1;
+    });
+
+    // 2. Process open trades (active positions)
+    onlyOpenTrades.forEach(p => {
+      const symbol = p.asset;
+      if (!filterByDate(p.openedAt || p.createdAt)) return;
+      
+      if (!markets[symbol]) {
+        markets[symbol] = {
+          asset: symbol,
+          totalClosed: 0,
+          wins: 0,
+          losses: 0,
+          grossProfit: 0,
+          grossLoss: 0,
+          netPnl: 0,
+          longTrades: 0,
+          shortTrades: 0,
+          openCount: 0,
+          unrealizedPnl: 0,
+        };
+      }
+      
+      const m = markets[symbol];
+      m.openCount += 1;
+      m.unrealizedPnl += (p.unrealizedPnl || 0);
+      
+      if (p.side === 'long') m.longTrades += 1;
+      else m.shortTrades += 1;
+    });
+
+    return Object.values(markets);
+  })();
+
+  const allPerformanceMetrics = marketPerformance.map(m => {
+    const totalPnl = m.netPnl + m.unrealizedPnl;
+    const winRate = m.totalClosed > 0 ? (m.wins / m.totalClosed) * 100 : 0;
+    return {
+      ...m,
+      totalPnl,
+      winRate
+    };
+  });
+
+  const sortedPerformance = [...allPerformanceMetrics].sort((a, b) => {
+    let valA = a[sortField];
+    let valB = b[sortField];
+    
+    if (sortField === 'asset') {
+      return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+    }
+    return sortOrder === 'asc' ? valA - valB : valB - valA;
+  });
+
+  const searchedPerformance = searchQuery.trim() === ''
+    ? sortedPerformance
+    : sortedPerformance.filter(m => m.asset.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const topPerformers = [...allPerformanceMetrics]
+    .filter(m => m.totalPnl > 0)
+    .sort((a, b) => b.totalPnl - a.totalPnl)
+    .slice(0, 3);
+
+  const worstPerformers = [...allPerformanceMetrics]
+    .filter(m => m.totalPnl < 0)
+    .sort((a, b) => a.totalPnl - b.totalPnl)
+    .slice(0, 3);
+
+  const dailyTimelineData = (() => {
+    const daily = {};
+    
+    dateFilteredClosed.forEach(t => {
+      const dObj = new Date(t.closedAt || t.updatedAt || t.createdAt);
+      const dateStr = dObj.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric'
+      });
+      
+      if (!daily[dateStr]) {
+        daily[dateStr] = {
+          date: dateStr,
+          timestamp: dObj.getTime(),
+          profit: 0,
+          loss: 0,
+          net: 0,
+          wins: 0,
+          losses: 0,
+        };
+      }
+      
+      const day = daily[dateStr];
+      const net = (t.pnl || 0) - (t.fees || 0);
+      day.net += net;
+      if (net >= 0) {
+        day.profit += net;
+        day.wins += 1;
+      } else {
+        day.loss += Math.abs(net);
+        day.losses += 1;
+      }
+    });
+
+    return Object.values(daily)
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map(({ date, profit, loss, net, wins, losses }) => ({
+        date,
+        Profit: parseFloat(profit.toFixed(2)),
+        Loss: parseFloat(loss.toFixed(2)),
+        Net: parseFloat(net.toFixed(2)),
+        wins,
+        losses
+      }));
+  })();
+
   const displayRealizedReturn = dateFilter === 'all' 
     ? (portfolio.totalPnl || 0) 
     : dateFilteredClosed.reduce((sum, t) => sum + ((t.pnl || 0) - (t.fees || 0)), 0);
@@ -357,6 +511,16 @@ export default function Portfolio() {
           }`}
         >
           PERFORMANCE OVERVIEW
+        </button>
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className={`pb-2 border-b-2 transition-all duration-300 cursor-pointer ${
+            activeTab === 'analytics'
+              ? 'border-[#0071e3] text-[#f5f5f7]'
+              : 'border-transparent text-[#86868b] hover:text-[#f5f5f7]'
+          }`}
+        >
+          ANALYTICS & PERFORMANCE
         </button>
         <button
           onClick={() => setActiveTab('history')}
@@ -849,7 +1013,7 @@ export default function Portfolio() {
             </div>
           )}
         </div>
-      ) : (
+      ) : activeTab === 'closed' ? (
         /* Closed Trades Ledger */
         <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
           <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
@@ -1026,7 +1190,300 @@ export default function Portfolio() {
             );
           })()}
         </div>
-      )}
+      ) : activeTab === 'analytics' ? (
+        <div className="space-y-6">
+          {/* Top Leaderboard: Best & Worst Performing Markets */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top Performers Card */}
+            <div className="glass-panel bg-[#1c1c1e] relative overflow-hidden pl-6 border border-[#30d158]/15 shadow-[0_0_20px_rgba(48,209,88,0.03)] group transition-all duration-350 hover:border-[#30d158]/35">
+              <div className="absolute left-0 top-0 bottom-0 w-[4px] bg-[#30d158] shadow-[0_0_10px_#30d158]" />
+              <div className="absolute inset-0 bg-gradient-to-br from-[#30d158]/[0.015] to-transparent pointer-events-none" />
+              
+              <h3 className="text-xs font-black text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3.5 font-mono mb-4">
+                <Medal size={14} className="text-[#30d158] animate-bounce" />
+                🏆 TOP PERFORMING MARKETS
+              </h3>
+              
+              {topPerformers.length > 0 ? (
+                <div className="space-y-3.5">
+                  {topPerformers.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between bg-black/35 border border-[#2c2c2e]/60 rounded-xl p-3 px-4 font-semibold text-zinc-300 transition-all duration-200 hover:bg-zinc-800/10">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-extrabold font-mono text-zinc-500 bg-zinc-800/50 px-2 py-0.5 rounded">
+                          #{i + 1}
+                        </span>
+                        <div className="flex flex-col">
+                          <span className="font-bold text-sm text-[#f5f5f7] font-mono leading-tight">
+                            {m.asset?.replace('1000', '').replace('USDT', '')}/USDT
+                          </span>
+                          <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                            {m.wins} Wins / {m.losses} Losses ({m.winRate.toFixed(0)}% WR)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[#30d158] font-bold font-mono text-sm block">
+                          +${m.totalPnl.toFixed(2)}
+                        </span>
+                        {m.openCount > 0 && (
+                          <span className="text-[9px] text-sky-400 font-mono font-bold uppercase mt-0.5 block">
+                            {m.openCount} Active
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-32 flex flex-col items-center justify-center text-center text-zinc-500 font-mono text-[10px] uppercase font-bold tracking-widest animate-pulse">
+                  No profitable markets in this timeframe
+                </div>
+              )}
+            </div>
+
+            {/* Worst Performers Card */}
+            <div className="glass-panel bg-[#1c1c1e] relative overflow-hidden pl-6 border border-[#ff453a]/15 shadow-[0_0_20px_rgba(255,69,58,0.03)] group transition-all duration-350 hover:border-[#ff453a]/35">
+              <div className="absolute left-0 top-0 bottom-0 w-[4px] bg-[#ff453a] shadow-[0_0_10px_#ff453a]" />
+              <div className="absolute inset-0 bg-gradient-to-br from-[#ff453a]/[0.015] to-transparent pointer-events-none" />
+              
+              <h3 className="text-xs font-black text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3.5 font-mono mb-4">
+                <Skull size={14} className="text-[#ff453a]" />
+                ⚠️ WORST PERFORMING MARKETS
+              </h3>
+              
+              {worstPerformers.length > 0 ? (
+                <div className="space-y-3.5">
+                  {worstPerformers.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between bg-black/35 border border-[#2c2c2e]/60 rounded-xl p-3 px-4 font-semibold text-zinc-300 transition-all duration-200 hover:bg-zinc-800/10">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-extrabold font-mono text-zinc-500 bg-zinc-800/50 px-2 py-0.5 rounded">
+                          #{i + 1}
+                        </span>
+                        <div className="flex flex-col">
+                          <span className="font-bold text-sm text-[#f5f5f7] font-mono leading-tight">
+                            {m.asset?.replace('1000', '').replace('USDT', '')}/USDT
+                          </span>
+                          <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                            {m.wins} Wins / {m.losses} Losses ({m.winRate.toFixed(0)}% WR)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[#ff453a] font-bold font-mono text-sm block">
+                          -${Math.abs(m.totalPnl).toFixed(2)}
+                        </span>
+                        {m.openCount > 0 && (
+                          <span className="text-[9px] text-sky-400 font-mono font-bold uppercase mt-0.5 block">
+                            {m.openCount} Active
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-32 flex flex-col items-center justify-center text-center text-zinc-500 font-mono text-[10px] uppercase font-bold tracking-widest animate-pulse">
+                  No unprofitable markets in this timeframe
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Daily Win/Loss Performance Trend Line/Area Chart */}
+          <div className="glass-panel bg-[#1c1c1e]">
+            <h3 className="text-xs font-black text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+              <Activity size={14} className="text-sky-400" />
+              Daily Win/Loss History Trend (Realized net returns)
+            </h3>
+            
+            {dailyTimelineData.length > 0 ? (
+              <div className="w-full">
+                <ResponsiveContainer width="100%" height={260}>
+                  <AreaChart data={dailyTimelineData} margin={{ top: 10, right: 5, left: -25, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorNet" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0071e3" stopOpacity={0.25}/>
+                        <stop offset="95%" stopColor="#0071e3" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.015)" vertical={false} />
+                    <XAxis dataKey="date" stroke="#86868b" fontSize={9} tickLine={false} className="font-mono font-bold" />
+                    <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
+                    <Tooltip
+                      contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '14px', color: '#f5f5f7', fontSize: 10, fontFamily: 'monospace' }}
+                      itemStyle={{ color: '#f5f5f7' }}
+                      formatter={(v, name) => [`$${parseFloat(v).toFixed(2)}`, name]}
+                    />
+                    <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 'bold' }} />
+                    <Area type="monotone" dataKey="Net" stroke="#0071e3" strokeWidth={2} fillOpacity={1} fill="url(#colorNet)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-44 flex items-center justify-center text-xs text-zinc-500 font-extrabold uppercase tracking-widest font-mono animate-pulse">
+                No daily timeline history logged in this timeframe
+              </div>
+            )}
+          </div>
+
+          {/* Market Performance Matrix Table */}
+          <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
+            {/* Search & Sort Controls */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
+              <div>
+                <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
+                  Market Performance Matrix
+                </h3>
+                <p className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                  Showing performance statistics for {searchedPerformance.length} traded markets.
+                </p>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-4 self-start md:self-auto">
+                {/* Search Bar */}
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-zinc-500">
+                    <Search size={12} />
+                  </span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="SEARCH ASSET..."
+                    className="bg-black/40 hover:bg-black/60 focus:bg-black focus:outline-none border border-[#2c2c2e]/70 rounded-xl py-1.5 pl-9 pr-4 text-[10px] font-bold font-mono tracking-widest text-[#f5f5f7] placeholder-zinc-500 transition-all duration-300 w-44 focus:ring-1 focus:ring-[#0071e3]/40 focus:border-[#0071e3]"
+                  />
+                </div>
+
+                {/* Sort dropdown */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest font-mono">Sort By:</span>
+                  <div className="relative">
+                    <select
+                      value={sortField}
+                      onChange={(e) => setSortField(e.target.value)}
+                      className="appearance-none bg-[#1c1c1e] hover:bg-[#2c2c2e] text-[#f5f5f7] font-mono font-bold text-[9px] uppercase tracking-wider py-1.5 pl-3 pr-8 rounded-xl border border-[#2c2c2e]/80 transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[#0071e3]/50 focus:border-[#0071e3] shadow-md cursor-pointer"
+                    >
+                      <option value="netPnl">Net Return</option>
+                      <option value="winRate">Win Rate</option>
+                      <option value="totalClosed">Closed Trades</option>
+                      <option value="asset">Symbol Name</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-zinc-500">
+                      <ArrowUpDown size={10} />
+                    </div>
+                  </div>
+                  
+                  {/* Sort Order Toggle */}
+                  <button
+                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                    className="p-2 rounded-xl bg-[#1c1c1e] border border-[#2c2c2e]/80 hover:bg-[#2c2c2e] transition-all duration-300 cursor-pointer text-zinc-400 hover:text-white"
+                  >
+                    <ArrowUpDown size={10} className={`transform transition-transform duration-300 ${sortOrder === 'desc' ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {searchedPerformance.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+                <AlertCircle size={20} className="text-zinc-600 mb-2" />
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono animate-pulse">
+                  NO PERFORMANCE DATA RECORDED FOR ASSET
+                </span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
+                      <th className="px-6 py-4">Market Asset</th>
+                      <th className="px-6 py-4 text-center">Open Positions</th>
+                      <th className="px-6 py-4 text-center">Wins / Losses Ratio</th>
+                      <th className="px-6 py-4 pl-6">Win Rate Percentage</th>
+                      <th className="px-6 py-4 text-right">Gross Profit</th>
+                      <th className="px-6 py-4 text-right">Gross Loss</th>
+                      <th className="px-6 py-4 text-right">Realized Net</th>
+                      <th className="px-6 py-4 text-right">Active Unrealized</th>
+                      <th className="px-6 py-4 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60">Total Cumulative Return</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2c2c2e]/40">
+                    {searchedPerformance.map((m, i) => {
+                      const totalPnl = m.totalPnl;
+                      
+                      // Progress bar color based on win rate
+                      const wr = m.winRate;
+                      const wrBarColor = wr >= 65 ? '#30d158' : wr >= 45 ? '#ff9f0a' : '#ff453a';
+                      
+                      return (
+                        <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+                          <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono text-sm">
+                            {m.asset?.replace('1000', '').replace('USDT', '')}/USDT
+                            <span className="block text-[8px] text-zinc-500 font-mono mt-0.5 font-bold uppercase tracking-wider">
+                              Bias: {m.longTrades >= m.shortTrades ? 'LONG' : 'SHORT'} ({Math.max(m.longTrades, m.shortTrades)}/{m.longTrades + m.shortTrades})
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center font-mono">
+                            {m.openCount > 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black font-mono tracking-widest bg-sky-500/15 border border-sky-500/30 text-sky-400 uppercase">
+                                {m.openCount} ACTIVE
+                              </span>
+                            ) : (
+                              <span className="text-zinc-600 font-mono font-bold text-[10px]">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center font-mono font-bold text-xs text-zinc-400">
+                            <span className="text-[#30d158]">{m.wins}W</span>
+                            <span className="text-zinc-500"> / </span>
+                            <span className="text-[#ff453a]">{m.losses}L</span>
+                            <span className="block text-[8px] text-zinc-500 font-mono mt-0.5 font-bold">
+                              {m.totalClosed} CLOSED
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 pl-6 align-middle min-w-[140px]">
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs font-bold font-mono min-w-[28px] text-right" style={{ color: wrBarColor }}>
+                                {wr.toFixed(0)}%
+                              </span>
+                              <div className="w-20 bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${wr}%`, background: wrBarColor }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
+                            {m.grossProfit > 0 ? `+$${m.grossProfit.toFixed(2)}` : '$0.00'}
+                          </td>
+                          <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
+                            {m.grossLoss > 0 ? `-$${m.grossLoss.toFixed(2)}` : '$0.00'}
+                          </td>
+                          <td 
+                            className="px-6 py-4 text-right font-bold font-mono"
+                            style={{ color: m.netPnl >= 0 ? '#30d158' : '#ff453a' }}
+                          >
+                            {m.netPnl >= 0 ? '+' : ''}${m.netPnl.toFixed(2)}
+                          </td>
+                          <td 
+                            className="px-6 py-4 text-right font-bold font-mono"
+                            style={{ color: m.unrealizedPnl > 0 ? '#30d158' : m.unrealizedPnl < 0 ? '#ff453a' : '#86868b' }}
+                          >
+                            {m.unrealizedPnl > 0 ? '+' : m.unrealizedPnl < 0 ? '-' : ''}{m.unrealizedPnl !== 0 ? `$${Math.abs(m.unrealizedPnl).toFixed(2)}` : '—'}
+                          </td>
+                          <td 
+                            className="px-6 py-4 text-right font-black font-mono text-sm bg-[#0071e3]/5 border-l border-[#2c2c2e]/60"
+                            style={{ color: totalPnl >= 0 ? '#30d158' : '#ff453a' }}
+                          >
+                            {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
