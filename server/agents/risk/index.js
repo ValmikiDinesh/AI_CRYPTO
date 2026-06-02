@@ -5,6 +5,8 @@ import { sendTelegramMessage, escapeHtml } from '../../services/telegramService.
 import RiskEvent from '../../models/RiskEvent.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
+import { EMA } from 'technicalindicators';
+import { fetchCandles } from '../../services/exchangeService.js';
 
 /**
  * Risk Management Agent — MOST IMPORTANT COMPONENT
@@ -107,6 +109,40 @@ export default class RiskAgent extends BaseAgent {
           );
         }
       }
+    }
+
+    // 2c. Multi-Timeframe Macro Trend check (1-Hour EMA 50)
+    try {
+      this.logger.info(`Fetching 1-Hour candles for ${signal.asset} macro trend verification...`);
+      const hourCandles = await fetchCandles(signal.asset, '1h', 80);
+      if (hourCandles && hourCandles.length >= 50) {
+        const closes = hourCandles.map((c) => c.close);
+        const ema50Values = EMA.calculate({ values: closes, period: 50 });
+        const latestEma50 = ema50Values[ema50Values.length - 1];
+        const latestPrice = closes[closes.length - 1];
+
+        if (latestEma50 && latestPrice) {
+          if (signal.action === ACTIONS.BUY && latestPrice < latestEma50) {
+            return this.reject(
+              `Macro Trend Blocked: ${signal.asset} price ($${latestPrice.toFixed(4)}) is below 1-Hour EMA 50 ($${latestEma50.toFixed(4)}). Bullish bias required.`,
+              'macro_trend_blocked',
+              signal
+            );
+          }
+          if (signal.action === ACTIONS.SELL && latestPrice > latestEma50) {
+            return this.reject(
+              `Macro Trend Blocked: ${signal.asset} price ($${latestPrice.toFixed(4)}) is above 1-Hour EMA 50 ($${latestEma50.toFixed(4)}). Bearish bias required.`,
+              'macro_trend_blocked',
+              signal
+            );
+          }
+          this.logger.info(`✅ Macro trend confirmed for ${signal.asset}: Price ($${latestPrice.toFixed(4)}) aligns with 1h EMA 50 ($${latestEma50.toFixed(4)})`);
+        }
+      } else {
+        this.logger.warn(`Insufficient 1-Hour candles for ${signal.asset} macro trend verification (${hourCandles?.length || 0}/80) — allowing trade`);
+      }
+    } catch (err) {
+      this.logger.error(`Error verifying macro trend confirmation for ${signal.asset}: ${err.message} — allowing trade as fallback`);
     }
 
     // 3. Max risk per trade
