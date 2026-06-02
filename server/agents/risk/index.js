@@ -84,6 +84,31 @@ export default class RiskAgent extends BaseAgent {
       );
     }
 
+    // 2b. Anti-Whipsaw Cooldown check
+    const COOLDOWN_DURATION_MS = 2 * 60 * 60 * 1000; // 2-hour cooldown
+    if (portfolio) {
+      const lastClosedTrade = await Trade.findOne({
+        userId: portfolio.userId,
+        asset: signal.asset,
+        status: 'closed',
+      }).sort({ closedAt: -1 });
+
+      if (lastClosedTrade) {
+        const timeSinceClose = Date.now() - new Date(lastClosedTrade.closedAt).getTime();
+        const netReturn = lastClosedTrade.pnl - lastClosedTrade.fees;
+        
+        // If the last trade on this asset ended in a loss and happened within 2 hours
+        if (netReturn < 0 && timeSinceClose < COOLDOWN_DURATION_MS) {
+          const minutesRemaining = Math.ceil((COOLDOWN_DURATION_MS - timeSinceClose) / 60000);
+          return this.reject(
+            `Anti-Whipsaw Cooldown active for ${signal.asset}: stopped out in a loss recently. Paused for ${minutesRemaining} more minutes.`,
+            'whipsaw_cooldown',
+            signal
+          );
+        }
+      }
+    }
+
     // 3. Max risk per trade
     const positionPct = parseFloat(signal.positionSize) / 100;
     if (positionPct > RISK.MAX_RISK_PER_TRADE * 10) { // position size check
