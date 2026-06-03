@@ -15,6 +15,8 @@ const riskEventSchema = new mongoose.Schema({
       'low_confidence',
       'high_risk_score',
       'duplicate_position',
+      'macro_trend_blocked',
+      'whipsaw_cooldown',
     ],
     required: true,
   },
