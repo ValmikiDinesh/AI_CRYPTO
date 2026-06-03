@@ -14,7 +14,7 @@ export const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 
 // ─── Risk Management Defaults ────────────────────────────────────
 export const RISK = {
   MAX_RISK_PER_TRADE: parseFloat(process.env.MAX_RISK_PER_TRADE) || 0.01,   // 1%
-  MAX_DAILY_LOSS: parseFloat(process.env.MAX_DAILY_LOSS) || 0.05,           // 5%
+  MAX_DAILY_LOSS: parseFloat(process.env.MAX_DAILY_LOSS) || 0.20,           // 20%
   MAX_PORTFOLIO_DRAWDOWN: parseFloat(process.env.MAX_PORTFOLIO_DRAWDOWN) || 0.10, // 10%
   MAX_LEVERAGE: 5,
   MAX_OPEN_POSITIONS: parseInt(process.env.MAX_OPEN_POSITIONS) || 150,

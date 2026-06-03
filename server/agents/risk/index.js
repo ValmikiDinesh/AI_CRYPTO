@@ -158,24 +158,17 @@ export default class RiskAgent extends BaseAgent {
     // 4. Daily loss limit
     if (portfolio) {
       if (portfolio.dailyLossToday < 0) {
-        const dailyLossPct = Math.abs(portfolio.dailyLossToday) / portfolio.totalBalance;
-        if (dailyLossPct >= RISK.MAX_DAILY_LOSS) {
-          return this.reject(
-            `Daily loss ${(dailyLossPct * 100).toFixed(1)}% exceeds limit ${RISK.MAX_DAILY_LOSS * 100}%`,
-            'daily_loss_limit',
-            signal
-          );
+        const startingCapital = portfolio.totalBalance - portfolio.dailyLossToday;
+        if (startingCapital > 0) {
+          const dailyLossPct = Math.abs(portfolio.dailyLossToday) / startingCapital;
+          if (dailyLossPct >= RISK.MAX_DAILY_LOSS) {
+            return this.reject(
+              `Daily loss ${(dailyLossPct * 100).toFixed(1)}% exceeds limit ${(RISK.MAX_DAILY_LOSS * 100).toFixed(1)}% of start-of-day capital ($${startingCapital.toFixed(2)})`,
+              'daily_loss_limit',
+              signal
+            );
+          }
         }
-      }
-
-      // 5. Max drawdown
-      const drawdown = portfolio.currentDrawdown || 0;
-      if (drawdown >= RISK.MAX_PORTFOLIO_DRAWDOWN) {
-        return this.reject(
-          `Portfolio drawdown ${(drawdown * 100).toFixed(1)}% exceeds limit ${RISK.MAX_PORTFOLIO_DRAWDOWN * 100}%`,
-          'drawdown_limit',
-          signal
-        );
       }
 
       // 5.5. Duplicate position check
@@ -315,17 +308,20 @@ export default class RiskAgent extends BaseAgent {
   }
 
   async checkPortfolioRisk(portfolio) {
-    const drawdown = portfolio.currentDrawdown || 0;
-
-    // Critical drawdown warning
-    if (drawdown >= RISK.MAX_PORTFOLIO_DRAWDOWN * 0.8) {
-      await RiskEvent.create({
-        type: 'drawdown_limit',
-        severity: drawdown >= RISK.MAX_PORTFOLIO_DRAWDOWN ? 'critical' : 'warning',
-        message: `Portfolio drawdown at ${(drawdown * 100).toFixed(1)}%`,
-        currentValue: drawdown,
-        threshold: RISK.MAX_PORTFOLIO_DRAWDOWN,
-      });
+    if (portfolio && portfolio.dailyLossToday < 0) {
+      const startingCapital = portfolio.totalBalance - portfolio.dailyLossToday;
+      if (startingCapital > 0) {
+        const dailyLossPct = Math.abs(portfolio.dailyLossToday) / startingCapital;
+        if (dailyLossPct >= RISK.MAX_DAILY_LOSS * 0.8) {
+          await RiskEvent.create({
+            type: 'daily_loss_limit',
+            severity: dailyLossPct >= RISK.MAX_DAILY_LOSS ? 'critical' : 'warning',
+            message: `Daily loss at ${(dailyLossPct * 100).toFixed(1)}% of start-of-day capital ($${startingCapital.toFixed(2)})`,
+            currentValue: dailyLossPct,
+            threshold: RISK.MAX_DAILY_LOSS,
+          });
+        }
+      }
     }
   }
 
