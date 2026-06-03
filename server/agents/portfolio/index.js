@@ -37,32 +37,53 @@ export default class PortfolioAgent extends BaseAgent {
   /** Update current prices and unrealized PnL for all open positions. */
   async updatePositions(portfolio) {
     let totalUnrealizedPnl = 0;
+    let activeExchangePositions = [];
+    let fetchedExchangeSuccessfully = false;
 
+    // 1. Fetch all active positions from Binance in a single call to prevent timeouts and rate-limiting
+    try {
+      const { fetchPositions } = await import('../../services/exchangeService.js');
+      activeExchangePositions = await fetchPositions();
+      fetchedExchangeSuccessfully = true;
+    } catch (err) {
+      this.logger.warn(`🔄 [RECONCILIATION] Failed to fetch active positions from Binance: ${err.message}. Falling back to local price updates.`);
+    }
+
+    // Create a map of active exchange positions for fast lookup (asset -> CCXT position)
+    const exchangePositionMap = new Map();
+    if (fetchedExchangeSuccessfully) {
+      activeExchangePositions.forEach((p) => {
+        // Map CCXT symbol (e.g. "BOME/USDT:USDT") to asset name (e.g. "BOMEUSDT")
+        const asset = p.symbol.split(':')[0].replace('/', '');
+        exchangePositionMap.set(asset, p);
+      });
+    }
+
+    // 2. Loop through all database open positions and reconcile them
     for (const position of portfolio.positions) {
       if (position.status !== 'open') continue;
 
       const currentPrice = this.marketAgent.getPrice(position.asset);
       if (!currentPrice) continue;
 
-      // Check if position was natively closed on Binance (Reconciliation)
       let isNativelyClosed = false;
       let closePrice = currentPrice;
       let closeReason = 'Exchange-side trigger';
 
-      try {
-        const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-        const positionAgeMs = Date.now() - new Date(position.openedAt).getTime();
-        const MIN_RECONCILIATION_AGE_MS = 30000; // 30 seconds
+      if (fetchedExchangeSuccessfully) {
+        const exchangePos = exchangePositionMap.get(position.asset);
+        
+        // If the position is open in DB but does not exist on Binance, it has been natively closed!
+        if (!exchangePos) {
+          const positionAgeMs = Date.now() - new Date(position.openedAt).getTime();
+          const MIN_RECONCILIATION_AGE_MS = 30000; // 30 seconds
 
-        if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_') && positionAgeMs >= MIN_RECONCILIATION_AGE_MS) {
-          const { fetchPositions } = await import('../../services/exchangeService.js');
-          const exchangePositions = await fetchPositions(position.asset);
-          
-          // If no active positions return from Binance, it has been natively closed!
-          if (exchangePositions.length === 0) {
+          // Check if this is a real exchange trade (not mock/simulated) and is old enough to reconcile
+          const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+          if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_') && positionAgeMs >= MIN_RECONCILIATION_AGE_MS) {
             isNativelyClosed = true;
             this.logger.warn(`🔄 [RECONCILIATION] Open position for ${position.asset} is no longer active on Binance. Syncing closure locally.`);
-            
+
             // Try to fetch the last closed trade fill price from Binance history
             try {
               const { getExchange } = await import('../../services/exchangeService.js');
@@ -74,12 +95,15 @@ export default class PortfolioAgent extends BaseAgent {
                 closeReason = `Binance trigger executed (Exit price: $${lastTrade.price})`;
               }
             } catch (historyErr) {
-              this.logger.debug(`Could not retrieve trade fill price from Binance history: ${historyErr.message}`);
+              this.logger.debug(`Could not retrieve trade fill price from Binance history for ${position.asset}: ${historyErr.message}`);
             }
           }
+        } else {
+          // Position exists in both DB and Binance. Sync entry price and contracts just in case of slight drift.
+          position.entryPrice = exchangePos.entryPrice || position.entryPrice;
+          position.quantity = exchangePos.contracts || position.quantity;
+          position.currentPrice = exchangePos.markPrice || currentPrice;
         }
-      } catch (syncErr) {
-        this.logger.error(`Reconciliation sync failed for ${position.asset}: ${syncErr.message}`);
       }
 
       if (isNativelyClosed) {
@@ -87,6 +111,7 @@ export default class PortfolioAgent extends BaseAgent {
         continue;
       }
 
+      // Local PnL update (fallback/default behavior)
       position.currentPrice = currentPrice;
 
       if (position.side === 'long') {
@@ -96,6 +121,62 @@ export default class PortfolioAgent extends BaseAgent {
       }
 
       totalUnrealizedPnl += position.unrealizedPnl;
+    }
+
+    // 3. Binance-to-Database Sync (Import active positions found on Binance but missing in DB)
+    if (fetchedExchangeSuccessfully) {
+      for (const exchangePos of activeExchangePositions) {
+        const asset = exchangePos.symbol.split(':')[0].replace('/', '');
+        const dbPosition = portfolio.positions.find((p) => p.asset === asset && p.status === 'open');
+
+        if (!dbPosition) {
+          this.logger.info(`🔄 [RECONCILIATION] Active position for ${asset} found on Binance but not in DB. Importing...`);
+
+          const side = exchangePos.side; // 'long' or 'short'
+          const entryPrice = exchangePos.entryPrice;
+          const quantity = exchangePos.contracts;
+          const leverage = exchangePos.initialMarginPercentage > 0 ? Math.round(1 / exchangePos.initialMarginPercentage) : 3;
+          const currentPrice = exchangePos.markPrice || entryPrice;
+          const unrealizedPnl = exchangePos.unrealizedPnl || 0;
+
+          // Add to portfolio positions array
+          portfolio.positions.push({
+            asset,
+            side,
+            entryPrice,
+            currentPrice,
+            quantity,
+            leverage,
+            unrealizedPnl,
+            status: 'open',
+            openedAt: new Date(exchangePos.timestamp || Date.now()),
+            fees: 0,
+          });
+
+          // Find or create a corresponding open Trade document in the DB
+          const activeTrade = await Trade.findOne({ asset, status: 'open' });
+          if (!activeTrade) {
+            await Trade.create({
+              userId: portfolio.userId || null,
+              asset,
+              action: side === 'long' ? 'BUY' : 'SELL',
+              type: 'paper',
+              side,
+              entryPrice,
+              quantity,
+              positionSize: ((entryPrice * quantity) / portfolio.totalBalance) * 100,
+              leverage,
+              confidence: 1.0,
+              riskScore: 0.5,
+              reasoning: 'Imported via Binance reconciliation sync',
+              status: 'open',
+              executedAt: new Date(exchangePos.timestamp || Date.now()),
+              exchange: 'binance_testnet',
+            });
+            this.logger.info(`✅ [RECONCILIATION] Created matching Trade record for ${asset} (${side.toUpperCase()})`);
+          }
+        }
+      }
     }
 
     // Recalculate total balance using leverage-adjusted universal equity formula
