@@ -5,8 +5,7 @@ import { sendTelegramMessage, escapeHtml } from '../../services/telegramService.
 import RiskEvent from '../../models/RiskEvent.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
-import { EMA } from 'technicalindicators';
-import { fetchCandles } from '../../services/exchangeService.js';
+
 
 /**
  * Risk Management Agent — MOST IMPORTANT COMPONENT
@@ -86,64 +85,6 @@ export default class RiskAgent extends BaseAgent {
       );
     }
 
-    // 2b. Anti-Whipsaw Cooldown check
-    const COOLDOWN_DURATION_MS = 2 * 60 * 60 * 1000; // 2-hour cooldown
-    if (portfolio) {
-      const lastClosedTrade = await Trade.findOne({
-        userId: portfolio.userId,
-        asset: signal.asset,
-        status: 'closed',
-      }).sort({ closedAt: -1 });
-
-      if (lastClosedTrade) {
-        const timeSinceClose = Date.now() - new Date(lastClosedTrade.closedAt).getTime();
-        const netReturn = lastClosedTrade.pnl - lastClosedTrade.fees;
-        
-        // If the last trade on this asset ended in a loss and happened within 2 hours
-        if (netReturn < 0 && timeSinceClose < COOLDOWN_DURATION_MS) {
-          const minutesRemaining = Math.ceil((COOLDOWN_DURATION_MS - timeSinceClose) / 60000);
-          return this.reject(
-            `Anti-Whipsaw Cooldown active for ${signal.asset}: stopped out in a loss recently. Paused for ${minutesRemaining} more minutes.`,
-            'whipsaw_cooldown',
-            signal
-          );
-        }
-      }
-    }
-
-    // 2c. Multi-Timeframe Macro Trend check (1-Hour EMA 200)
-    try {
-      this.logger.info(`Fetching 1-Hour candles for ${signal.asset} macro trend verification...`);
-      const hourCandles = await fetchCandles(signal.asset, '1h', 250);
-      if (hourCandles && hourCandles.length >= 200) {
-        const closes = hourCandles.map((c) => c.close);
-        const ema200Values = EMA.calculate({ values: closes, period: 200 });
-        const latestEma200 = ema200Values[ema200Values.length - 1];
-        const latestPrice = closes[closes.length - 1];
-
-        if (latestEma200 && latestPrice) {
-          if (signal.action === ACTIONS.BUY && latestPrice < latestEma200) {
-            return this.reject(
-              `Macro Trend Blocked: ${signal.asset} price ($${latestPrice.toFixed(4)}) is below 1-Hour EMA 200 ($${latestEma200.toFixed(4)}). Bullish bias required.`,
-              'macro_trend_blocked',
-              signal
-            );
-          }
-          if (signal.action === ACTIONS.SELL && latestPrice > latestEma200) {
-            return this.reject(
-              `Macro Trend Blocked: ${signal.asset} price ($${latestPrice.toFixed(4)}) is above 1-Hour EMA 200 ($${latestEma200.toFixed(4)}). Bearish bias required.`,
-              'macro_trend_blocked',
-              signal
-            );
-          }
-          this.logger.info(`✅ Macro trend confirmed for ${signal.asset}: Price ($${latestPrice.toFixed(4)}) aligns with 1h EMA 200 ($${latestEma200.toFixed(4)})`);
-        }
-      } else {
-        this.logger.warn(`Insufficient 1-Hour candles for ${signal.asset} macro trend verification (${hourCandles?.length || 0}/250) — allowing trade`);
-      }
-    } catch (err) {
-      this.logger.error(`Error verifying macro trend confirmation for ${signal.asset}: ${err.message} — allowing trade as fallback`);
-    }
 
     // 3. Max risk per trade
     const positionPct = parseFloat(signal.positionSize) / 100;
