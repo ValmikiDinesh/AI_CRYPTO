@@ -113,52 +113,32 @@ function buildPrompt(assetsData) {
     const ind = data.indicators || {};
     const sent = data.sentiment || {};
     
-    // Technical summaries
-    const rsiStr = ind.rsi ? ind.rsi.toFixed(2) : 'N/A';
-    const macdStr = ind.macd ? `Value: ${ind.macd.value?.toFixed(6) || '0'}, Signal: ${ind.macd.signal?.toFixed(6) || '0'}, Hist: ${ind.macd.histogram?.toFixed(6) || '0'}` : 'N/A';
-    const emaStr = ind.ema ? `EMA9: ${ind.ema.ema9?.toFixed(6) || '0'}, EMA21: ${ind.ema.ema21?.toFixed(6) || '0'}, EMA50: ${ind.ema.ema50?.toFixed(6) || '0'}` : 'N/A';
-    const bbStr = ind.bollingerBands ? `Upper: ${ind.bollingerBands.upper?.toFixed(6) || '0'}, Middle: ${ind.bollingerBands.middle?.toFixed(6) || '0'}, Lower: ${ind.bollingerBands.lower?.toFixed(6) || '0'}` : 'N/A';
-    const atrStr = ind.atr ? ind.atr.toFixed(6) : 'N/A';
-    const volumeStr = ind.volume ? `Current: ${ind.volume.current?.toFixed(1) || '0'}, Avg: ${ind.volume.average?.toFixed(1) || '0'}, Ratio: ${ind.volume.ratio?.toFixed(2) || '1'}` : 'N/A';
-    const momStr = ind.momentum ? `1h: ${ind.momentum.priceChange1h?.toFixed(2) || '0'}%, 4h: ${ind.momentum.priceChange4h?.toFixed(2) || '0'}%` : 'N/A';
+    // Technical summaries (compressed representation)
+    const rsiStr = ind.rsi ? ind.rsi.toFixed(1) : 'N/A';
+    const macdStr = ind.macd ? `${ind.macd.value?.toFixed(5) || '0'}/${ind.macd.signal?.toFixed(5) || '0'}/${ind.macd.histogram?.toFixed(5) || '0'}` : 'N/A';
+    const emaStr = ind.ema ? `9:${ind.ema.ema9?.toFixed(2) || '0'},21:${ind.ema.ema21?.toFixed(2) || '0'},50:${ind.ema.ema50?.toFixed(2) || '0'}` : 'N/A';
+    const bbStr = ind.bollingerBands ? `U:${ind.bollingerBands.upper?.toFixed(2) || '0'},M:${ind.bollingerBands.middle?.toFixed(2) || '0'},L:${ind.bollingerBands.lower?.toFixed(2) || '0'}` : 'N/A';
+    const atrStr = ind.atr ? ind.atr.toFixed(4) : 'N/A';
+    const volRatio = ind.volume?.ratio ? ind.volume.ratio.toFixed(2) : '1.0';
+    const momStr = ind.momentum ? `1h:${ind.momentum.priceChange1h?.toFixed(1) || '0'}%,4h:${ind.momentum.priceChange4h?.toFixed(1) || '0'}%` : 'N/A';
     const regime = ind.regime || 'ranging';
 
-    // Sentiment summaries
-    const sentimentLabel = sent.label || 'neutral';
-    const sentimentScore = sent.sentiment !== undefined ? sent.sentiment.toFixed(2) : '0.00';
-    const sentimentSummary = sent.summary || 'No recent news news details';
-    const articles = Array.isArray(sent.sources) 
-      ? sent.sources.slice(0, 3).map(s => `- [${s.sentiment}] ${s.title} (Source: ${s.source})`).join('\n')
-      : 'No source articles available.';
+    // Sentiment summaries (compressed representation)
+    const sentLabel = sent.label || 'neutral';
+    const sentScore = sent.sentiment !== undefined ? sent.sentiment.toFixed(2) : '0.00';
+    const sentSummary = sent.summary ? sent.summary.substring(0, 80).replace(/\n/g, ' ') : 'No recent news';
 
-    return `
-### Asset: ${data.asset}
-- **Current Price**: $${data.currentPrice}
-- **Technical Indicators**:
-  - Regime: ${regime}
-  - RSI (14): ${rsiStr}
-  - MACD (12, 26, 9): ${macdStr}
-  - EMAs: ${emaStr}
-  - Bollinger Bands: ${bbStr}
-  - ATR (14): ${atrStr}
-  - Volume details: ${volumeStr}
-  - Price Momentum: ${momStr}
-- **News Sentiment Details**:
-  - Label: ${sentimentLabel} (Score: ${sentimentScore})
-  - Summary: ${sentimentSummary}
-  - Latest Headlines:
-${articles}
-`;
-  }).join('\n---\n');
+    return `${data.asset} | Price: $${data.currentPrice} | Regime: ${regime} | RSI: ${rsiStr} | MACD: ${macdStr} | EMA: ${emaStr} | BB: ${bbStr} | ATR: ${atrStr} | VolRatio: ${volRatio} | Mom: ${momStr} | Sent: ${sentLabel}(${sentScore}) - ${sentSummary}`;
+  }).join('\n');
 
-  return `You are an expert quantitative cryptocurrency trading agent. Analyze the following real-time technical and news sentiment data for a batch of assets, then provide buying/selling predictions.
+  return `You are an expert quantitative cryptocurrency trading agent. Analyze the following real-time technical and news sentiment summaries, then provide buying/selling predictions.
 
 To make the response extremely fast and save generation time:
 - ONLY include assets in the "predictions" array if you predict the market direction is "up" (BUY setup) or "down" (SELL setup).
 - Do NOT include any assets with "neutral" (HOLD) direction in the array. Omit them entirely.
 - Keep the "reasoning" string very short, under 15 words.
 
-For each matched asset, determine the direction ('up' or 'down'), confidence probability (between 0.0 and 1.0), reasoning, and recommended 'takeProfit' and 'stopLoss' prices. 
+For each matched asset, output: direction ('up' or 'down'), confidence probability (0.0 to 1.0), reasoning, and recommended 'takeProfit' and 'stopLoss' prices. 
 The recommended price targets must be highly realistic:
 - For 'up' (BUY) direction: 'takeProfit' must be higher than currentPrice, and 'stopLoss' must be lower than currentPrice.
 - For 'down' (SELL) direction: 'takeProfit' must be lower than currentPrice, and 'stopLoss' must be higher than currentPrice.
