@@ -37,7 +37,7 @@ export async function generateBatchPredictions(assetsData) {
         },
         {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 15_000 // 15s timeout
+          timeout: 30_000 // 30s timeout
         }
       );
 
@@ -82,7 +82,7 @@ export async function generateBatchPredictions(assetsData) {
             'Authorization': `Bearer ${openaiKey}`,
             'Content-Type': 'application/json'
           },
-          timeout: 15_000 // 15s timeout
+          timeout: 30_000 // 30s timeout
         }
       );
 
@@ -153,11 +153,15 @@ ${articles}
 
   return `You are an expert quantitative cryptocurrency trading agent. Analyze the following real-time technical and news sentiment data for a batch of assets, then provide buying/selling predictions.
 
-For each asset, determine the market direction ('up', 'down', 'neutral'), confidence probability (between 0.0 and 1.0), reasoning, and recommended 'takeProfit' and 'stopLoss' prices. 
+To make the response extremely fast and save generation time:
+- ONLY include assets in the "predictions" array if you predict the market direction is "up" (BUY setup) or "down" (SELL setup).
+- Do NOT include any assets with "neutral" (HOLD) direction in the array. Omit them entirely.
+- Keep the "reasoning" string very short, under 15 words.
+
+For each matched asset, determine the direction ('up' or 'down'), confidence probability (between 0.0 and 1.0), reasoning, and recommended 'takeProfit' and 'stopLoss' prices. 
 The recommended price targets must be highly realistic:
 - For 'up' (BUY) direction: 'takeProfit' must be higher than currentPrice, and 'stopLoss' must be lower than currentPrice.
 - For 'down' (SELL) direction: 'takeProfit' must be lower than currentPrice, and 'stopLoss' must be higher than currentPrice.
-- For 'neutral' (HOLD) direction: 'takeProfit' and 'stopLoss' can be null.
 - Base your targets on technical indicators like Bollinger Bands boundaries, ATR (volatility index), and support/resistance lines.
 
 Return EXACTLY a JSON object with a "predictions" property containing an array of objects structured exactly as shown below:
@@ -169,7 +173,7 @@ Return EXACTLY a JSON object with a "predictions" property containing an array o
       "probability": 0.85,
       "takeProfit": 69200.00,
       "stopLoss": 66500.00,
-      "reasoning": "Asset is in a strong uptrend regime with high volume confirmation and supportive news headlines."
+      "reasoning": "EMA crossover and positive news sentiment."
     }
   ]
 }
