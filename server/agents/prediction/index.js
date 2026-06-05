@@ -2,107 +2,268 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import Prediction from '../../models/Prediction.js';
+import { generateBatchPredictions } from '../../services/aiService.js';
+import { computeIndicators } from '../../services/indicatorService.js';
 
 /**
  * Prediction Agent
- * - Uses simple statistical models as a baseline.
- * - Outputs directional probability predictions.
- * - Designed to be upgraded with TensorFlow.js LSTM/Transformer models.
+ * - Gathers indicators and sentiment across all assets.
+ * - Queries Gemini/OpenAI API using the cost-efficient Batching Strategy.
+ * - Falls back to a robust Adaptive Crossover & Regime Matrix local model when keys are absent/fail.
  */
 export default class PredictionAgent extends BaseAgent {
-  constructor(marketAgent) {
+  constructor(marketAgent, sentimentAgent, technicalAgent) {
     super(AGENT_NAMES.PREDICTION);
     this.marketAgent = marketAgent;
+    this.sentimentAgent = sentimentAgent;
+    this.technicalAgent = technicalAgent;
     this.predictions = {};        // asset → latest prediction
   }
 
   async execute() {
+    const assetsData = [];
+    const candleMap = {};
+
+    // 1. Gather technical and sentiment indicators for all assets
     for (const asset of SUPPORTED_ASSETS) {
       try {
         const candles = this.marketAgent.getCandles(asset);
-
         if (!candles || candles.length < 20) {
           continue;
         }
+        candleMap[asset] = candles;
 
-        const prediction = this.predict(asset, candles);
+        // Retrieve pre-computed indicators from TechnicalAgent or compute them
+        const lastTechnicalSignal = this.technicalAgent ? this.technicalAgent.getLastSignal(asset) : null;
+        let indicators = lastTechnicalSignal?.indicators;
+        if (!indicators && candles.length >= 30) {
+          indicators = computeIndicators(candles);
+        }
 
-        this.predictions[asset] = prediction;
+        const sentiment = this.sentimentAgent ? this.sentimentAgent.getSentiment(asset) : null;
+        const currentPrice = this.marketAgent.getPrice(asset) || candles[candles.length - 1].close;
 
+        assetsData.push({
+          asset,
+          currentPrice,
+          indicators: indicators && !indicators.error ? indicators : null,
+          sentiment
+        });
+      } catch (err) {
+        this.logger.error(`Error gathering data for ${asset}: ${err.message}`);
+      }
+    }
+
+    if (assetsData.length === 0) {
+      this.logger.warn('No assets had sufficient data for prediction');
+      return;
+    }
+
+    // 2. Call AI Service for batched predictions
+    let aiPredictions = null;
+    try {
+      aiPredictions = await generateBatchPredictions(assetsData);
+    } catch (err) {
+      this.logger.warn(`AI Service batched call failed: ${err.message}`);
+    }
+
+    // 3. Process results, fallback if needed
+    for (const data of assetsData) {
+      const { asset, currentPrice } = data;
+      const candles = candleMap[asset];
+      let prediction = null;
+
+      if (aiPredictions) {
+        const aiPred = aiPredictions.find(p => p.asset === asset);
+        if (aiPred && ['up', 'down', 'neutral'].includes(aiPred.direction)) {
+          const isGemini = !!process.env.GEMINI_API_KEY;
+          prediction = {
+            asset,
+            model: isGemini ? 'ai_gemini' : 'ai_openai',
+            horizon: '1h',
+            direction: aiPred.direction,
+            probability: aiPred.probability || 0.5,
+            predictedPrice: aiPred.takeProfit || currentPrice,
+            currentPrice,
+            priceChangePercent: aiPred.direction === 'up' ? (aiPred.probability || 0.5) * 5 : aiPred.direction === 'down' ? -(aiPred.probability || 0.5) * 5 : 0,
+            features: {
+              indicators: data.indicators,
+              sentiment: data.sentiment ? { label: data.sentiment.label, score: data.sentiment.sentiment } : null
+            },
+            metadata: {
+              takeProfit: aiPred.takeProfit,
+              stopLoss: aiPred.stopLoss,
+              reasoning: aiPred.reasoning
+            }
+          };
+        }
+      }
+
+      // Fallback if AI prediction is unavailable
+      if (!prediction) {
+        prediction = this.predictLocalFallback(asset, candles, data.indicators);
+      }
+
+      this.predictions[asset] = prediction;
+
+      try {
         // Persist
         await Prediction.create(prediction);
 
         // Publish
         await publishEvent(CHANNELS.PREDICTIONS, prediction);
 
+        const reasoningSnippet = prediction.metadata?.reasoning || 'No details';
         this.logger.info(
-          `${asset}: predicted ${prediction.direction} (prob=${prediction.probability.toFixed(2)})`
+          `${asset} (${prediction.model}): predicted ${prediction.direction} (prob=${prediction.probability.toFixed(2)}) — ${reasoningSnippet.substring(0, 80)}`
         );
       } catch (err) {
-        this.logger.error(`Prediction error for ${asset}: ${err.message}`);
+        this.logger.error(`Error saving prediction for ${asset}: ${err.message}`);
       }
     }
   }
 
   /**
-   * Baseline statistical prediction using momentum, mean-reversion, and volatility.
-   * This is a placeholder — replace with TensorFlow.js LSTM in Phase 4.
+   * High-performing Adaptive local fallback model.
+   * Uses EMA Crossovers, RSI Boundaries, Bollinger Band breakouts, and Volume Confirmation.
    */
-  predict(asset, candles) {
-    const closes = candles.map((c) => c.close);
-    const current = closes[closes.length - 1];
+  predictLocalFallback(asset, candles, indicators) {
+    const currentPrice = candles[candles.length - 1].close;
 
-    // Short-term momentum (5-period)
-    const shortMomentum = (current - closes[closes.length - 6]) / closes[closes.length - 6];
-
-    // Medium-term momentum (20-period)
-    const medMomentum = closes.length >= 21
-      ? (current - closes[closes.length - 21]) / closes[closes.length - 21]
-      : 0;
-
-    // Volatility (std dev of 20-period returns)
-    const returns = [];
-    for (let i = Math.max(1, closes.length - 20); i < closes.length; i++) {
-      returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+    // If indicators are not pre-computed, compute them on the fly
+    let ind = indicators;
+    if (!ind || ind.error) {
+      if (candles.length >= 30) {
+        ind = computeIndicators(candles);
+      }
     }
-    const meanReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const variance = returns.reduce((a, b) => a + Math.pow(b - meanReturn, 2), 0) / returns.length;
-    const volatility = Math.sqrt(variance);
 
-    // Mean reversion signal
-    const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    const deviation = (current - sma20) / sma20;
+    if (!ind || ind.error) {
+      return {
+        asset,
+        model: 'statistical_baseline',
+        horizon: '1h',
+        direction: 'neutral',
+        probability: 0.5,
+        predictedPrice: currentPrice,
+        currentPrice,
+        priceChangePercent: 0,
+        features: {},
+        metadata: { reasoning: 'Insufficient indicator data, defaulting to neutral.' }
+      };
+    }
 
-    // Composite score
-    let score = 0;
-    score += shortMomentum * 0.3;           // momentum
-    score += medMomentum * 0.2;             // trend
-    score -= deviation * 0.3;               // mean reversion
-    score -= volatility * 0.2;              // high vol → bearish bias
+    const regime = ind.regime || 'ranging';
+    const rsi = ind.rsi;
+    const volRatio = ind.volume?.ratio || 1.0;
+    const ema9 = ind.ema?.ema9;
+    const ema21 = ind.ema?.ema21;
+    const ema50 = ind.ema?.ema50;
+    const macdHist = ind.macd?.histogram || 0;
 
-    // Convert to probability
-    const probability = 1 / (1 + Math.exp(-score * 50)); // sigmoid
+    let score = 0.5; // Starts neutral
+    let reasoning = '';
+
+    if (regime === 'trending_up') {
+      score = 0.55;
+      reasoning = 'Uptrend regime detected.';
+      if (ema9 > ema21) {
+        score += 0.08;
+        reasoning += ' EMA9 > EMA21 crossover.';
+      }
+      if (currentPrice > ema50) {
+        score += 0.05;
+        reasoning += ' Price above EMA50.';
+      }
+      if (rsi > 50 && rsi < 70) {
+        score += 0.05;
+        reasoning += ' RSI in healthy bullish zone.';
+      }
+      if (volRatio > 1.3) {
+        score += 0.05;
+        reasoning += ' Bullish volume confirmation.';
+      }
+    } else if (regime === 'trending_down') {
+      score = 0.45;
+      reasoning = 'Downtrend regime detected.';
+      if (ema9 < ema21) {
+        score -= 0.08;
+        reasoning += ' EMA9 < EMA21 cross.';
+      }
+      if (currentPrice < ema50) {
+        score -= 0.05;
+        reasoning += ' Price below EMA50.';
+      }
+      if (rsi < 50 && rsi > 30) {
+        score -= 0.05;
+        reasoning += ' RSI in healthy bearish zone.';
+      }
+      if (volRatio > 1.3) {
+        score -= 0.05;
+        reasoning += ' Bearish volume pressure.';
+      }
+    } else if (regime === 'ranging') {
+      reasoning = 'Ranging regime (mean reversion):';
+      if (rsi < 35) {
+        const overshoot = 35 - rsi;
+        score = 0.55 + Math.min(0.15, overshoot * 0.015);
+        reasoning += ` Oversold RSI (${rsi.toFixed(1)}) triggers BUY rebound.`;
+      } else if (rsi > 65) {
+        const overshoot = rsi - 65;
+        score = 0.45 - Math.min(0.15, overshoot * 0.015);
+        reasoning += ` Overbought RSI (${rsi.toFixed(1)}) triggers SELL pullback.`;
+      } else {
+        score = 0.5;
+        reasoning += ' RSI neutral.';
+      }
+    } else if (regime === 'volatile') {
+      reasoning = 'Volatile regime (momentum):';
+      const change1h = ind.momentum?.priceChange1h || 0;
+      if (change1h > 1.5) {
+        score = 0.60;
+        reasoning += ` Strong 1h momentum (${change1h.toFixed(2)}%) breakout BUY.`;
+      } else if (change1h < -1.5) {
+        score = 0.40;
+        reasoning += ` Strong 1h momentum (${change1h.toFixed(2)}%) breakout SELL.`;
+      } else {
+        score = 0.5;
+        reasoning += ' No clear momentum breakout.';
+      }
+    }
 
     let direction = 'neutral';
-    if (probability > 0.55) direction = 'up';
-    else if (probability < 0.45) direction = 'down';
+    let probability = 0.5;
+
+    if (score > 0.55) {
+      direction = 'up';
+      probability = Math.min(0.95, score);
+    } else if (score < 0.45) {
+      direction = 'down';
+      probability = Math.min(0.95, 1 - score);
+    } else {
+      direction = 'neutral';
+      probability = 0.5;
+    }
 
     return {
       asset,
-      model: 'statistical_baseline',
+      model: 'adaptive_statistical_fallback',
       horizon: '1h',
       direction,
-      probability: direction === 'down' ? 1 - probability : probability,
-      predictedPrice: current * (1 + score),
-      currentPrice: current,
-      priceChangePercent: score * 100,
+      probability,
+      predictedPrice: currentPrice * (1 + (score - 0.5) * 0.1),
+      currentPrice,
+      priceChangePercent: (score - 0.5) * 10,
       features: {
-        shortMomentum,
-        medMomentum,
-        volatility,
-        deviation,
-        sma20,
+        regime,
+        rsi,
+        volRatio,
+        macdHist,
+        ema9_21_cross: ema9 && ema21 ? (ema9 - ema21) / ema21 : 0
       },
+      metadata: {
+        reasoning
+      }
     };
   }
 
@@ -110,3 +271,4 @@ export default class PredictionAgent extends BaseAgent {
     return this.predictions[asset] || null;
   }
 }
+

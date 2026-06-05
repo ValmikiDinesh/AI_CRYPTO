@@ -111,7 +111,7 @@ async function bootAgents() {
   const marketAgent = new MarketAgent();
   const technicalAgent = new TechnicalAgent(marketAgent);
   const sentimentAgent = new SentimentAgent();
-  const predictionAgent = new PredictionAgent(marketAgent);
+  const predictionAgent = new PredictionAgent(marketAgent, sentimentAgent, technicalAgent);
   const fusionAgent = new FusionAgent(technicalAgent, sentimentAgent, predictionAgent, marketAgent);
   const riskAgent = new RiskAgent(marketAgent);
   const executionAgent = new ExecutionAgent(fusionAgent, riskAgent, marketAgent);

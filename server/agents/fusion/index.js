@@ -93,13 +93,51 @@ export default class FusionAgent extends BaseAgent {
     // Dynamic position sizing based on confidence
     const positionPercent = Math.min(5, Math.max(0.5, confidence * 5));
 
-    const atr = technical.indicators?.atr || currentPrice * 0.02;
-    const stopLoss = action === ACTIONS.BUY
-      ? currentPrice - atr * 3.5
-      : currentPrice + atr * 3.5;
-    const takeProfit = action === ACTIONS.BUY
-      ? currentPrice + atr * 7.0
-      : currentPrice - atr * 7.0;
+    let stopLoss;
+    let takeProfit;
+    let usedAiTargets = false;
+
+    if (prediction && prediction.metadata && prediction.metadata.takeProfit && prediction.metadata.stopLoss) {
+      const aiSl = Number(prediction.metadata.stopLoss);
+      const aiTp = Number(prediction.metadata.takeProfit);
+
+      if (!isNaN(aiSl) && !isNaN(aiTp)) {
+        if (action === ACTIONS.BUY && aiSl < currentPrice && aiTp > currentPrice) {
+          stopLoss = aiSl;
+          takeProfit = aiTp;
+          usedAiTargets = true;
+        } else if (action === ACTIONS.SELL && aiSl > currentPrice && aiTp < currentPrice) {
+          stopLoss = aiSl;
+          takeProfit = aiTp;
+          usedAiTargets = true;
+        }
+      }
+    }
+
+    if (!usedAiTargets) {
+      const regime = technical.indicators?.regime || 'ranging';
+      const atr = technical.indicators?.atr || currentPrice * 0.02;
+      let slMultiplier = 3.5;
+      let tpMultiplier = 7.0;
+
+      if (regime === 'volatile') {
+        slMultiplier = 4.5;
+        tpMultiplier = 9.0;
+      } else if (regime === 'trending_up' || regime === 'trending_down') {
+        slMultiplier = 3.0;
+        tpMultiplier = 6.0;
+      } else if (regime === 'ranging') {
+        slMultiplier = 2.0;
+        tpMultiplier = 4.0;
+      }
+
+      stopLoss = action === ACTIONS.BUY
+        ? currentPrice - atr * slMultiplier
+        : currentPrice + atr * slMultiplier;
+      takeProfit = action === ACTIONS.BUY
+        ? currentPrice + atr * tpMultiplier
+        : currentPrice - atr * tpMultiplier;
+    }
 
     // Compute risk score (lower = safer)
     const riskScore = this.computeRiskScore(confidence, technical, sentiment);
