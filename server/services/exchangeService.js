@@ -93,22 +93,6 @@ export const placeMarketOrder = async (symbol, side, amount) => {
     return order;
   } catch (err) {
     logger.error(`placeMarketOrder(${symbol}, ${side}) error: ${err.message}`);
-    
-    // Check for Invalid Account / API key error to trigger local paper-trading simulation fallback
-    if (err.message.includes('Invalid account') || err.message.includes('-1109') || err.message.includes('API-key') || err.message.includes('Authentication')) {
-      const mockId = 'mock_' + Math.random().toString(36).substring(2, 11);
-      logger.warn(`⚠️ [PAPER-TRADING FALLBACK] Live exchange connection failed with invalid keys — simulating trade locally with order ID ${mockId}`);
-      return {
-        id: mockId,
-        symbol: symbol,
-        type: 'market',
-        side: side,
-        amount: amount,
-        status: 'closed',
-        info: { message: 'Local paper-trading simulation fallback' }
-      };
-    }
-    
     throw err;
   }
 };
@@ -124,22 +108,6 @@ export const placeLimitOrder = async (symbol, side, amount, price) => {
     return order;
   } catch (err) {
     logger.error(`placeLimitOrder error: ${err.message}`);
-    
-    if (err.message.includes('Invalid account') || err.message.includes('-1109') || err.message.includes('API-key') || err.message.includes('Authentication')) {
-      const mockId = 'mock_limit_' + Math.random().toString(36).substring(2, 11);
-      logger.warn(`⚠️ [PAPER-TRADING FALLBACK] Live exchange connection failed with invalid keys — simulating limit trade locally with order ID ${mockId}`);
-      return {
-        id: mockId,
-        symbol: symbol,
-        type: 'limit',
-        side: side,
-        amount: amount,
-        price: price,
-        status: 'closed',
-        info: { message: 'Local paper-trading simulation fallback' }
-      };
-    }
-    
     throw err;
   }
 };
