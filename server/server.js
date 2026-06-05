@@ -1,4 +1,4 @@
-import './config/env.js';
+import './config/env.js'; // Trigger watch reload
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -142,7 +142,7 @@ async function bootAgents() {
   await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 5s
   await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 5s
   await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5s
-  await portfolioAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5s
+  await portfolioAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 6);   // 30s — reduce API load
   await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);    // 60s
   await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);        // 15s
 

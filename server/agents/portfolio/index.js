@@ -335,7 +335,7 @@ export default class PortfolioAgent extends BaseAgent {
     const pnlPercent = initialMargin > 0 ? (position.realizedPnl / initialMargin) * 100 : 0;
 
     // Update corresponding trade record
-    await Trade.findOneAndUpdate(
+    const activeTrade = await Trade.findOneAndUpdate(
       { asset: position.asset, status: 'open' },
       {
         status: 'closed',
@@ -344,9 +344,12 @@ export default class PortfolioAgent extends BaseAgent {
         pnlPercent,
         fees: totalPositionFees,
         closedAt: new Date(),
-        metadata: { closeReason: reason },
+        metadata: { ...position.metadata, closeReason: reason },
       }
     );
+
+    const model = activeTrade?.metadata?.sourceModel || 'none';
+    const strategy = model.includes('ai_') ? 'Google Gemini (AI)' : (model.includes('fallback') || model.includes('statistical')) ? 'Local Statistical (Fallback)' : 'Ensemble';
 
     this.logger.info(
       `Position closed: ${position.asset} ${position.side} — PnL: ${position.realizedPnl.toFixed(2)} — ${reason}`
@@ -357,6 +360,7 @@ export default class PortfolioAgent extends BaseAgent {
       `✅ <b>Position Closed! [Auto]</b>\n` +
       `<b>Asset</b>: ${position.asset.replace('USDT', '')}/USDT\n` +
       `<b>Side</b>: ${position.side.toUpperCase()}\n` +
+      `<b>Strategy</b>: ${strategy}\n` +
       `<b>Entry Price</b>: $${formatPrice(position.entryPrice)}\n` +
       `<b>Exit Price</b>: $${formatPrice(actualClosePrice)}\n` +
       `<b>Quantity</b>: ${position.quantity.toFixed(5)}\n` +

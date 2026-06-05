@@ -4,6 +4,21 @@ import { logger } from '../utils/logger.js';
 let exchangeInstance = null;
 
 /**
+ * Helper to retry asynchronous operations when Binance Demo server glitches.
+ */
+const retry = async (fn, retries = 8, delayMs = 2000) => {
+  for (let i = 1; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i === retries) throw err;
+      logger.warn(`Binance API temporary failure (attempt ${i}/${retries}): ${err.message}. Retrying in ${delayMs}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+};
+
+/**
  * Get or create Binance Futures Testnet exchange instance via CCXT.
  */
 export const getExchange = () => {
@@ -23,6 +38,8 @@ export const getExchange = () => {
     exchangeConfig.httpProxy = process.env.BINANCE_PROXY;
     logger.info(`Routing CCXT traffic through proxy: ${process.env.BINANCE_PROXY}`);
   }
+
+  logger.info(`Initializing CCXT Binance exchange with API Key: ${process.env.BINANCE_TESTNET_API_KEY ? process.env.BINANCE_TESTNET_API_KEY.substring(0, 6) + '...' : 'undefined'}`);
 
   exchangeInstance = new ccxt.binance(exchangeConfig);
 
@@ -62,7 +79,7 @@ export const fetchCandles = async (symbol, timeframe = '5m', limit = 100) => {
 export const fetchTicker = async (symbol) => {
   try {
     const exchange = getExchange();
-    return await exchange.fetchTicker(symbol);
+    return await retry(() => exchange.fetchTicker(symbol));
   } catch (err) {
     logger.error(`fetchTicker(${symbol}) error: ${err.message}`);
     throw err;
@@ -131,7 +148,7 @@ export const cancelOrder = async (symbol, orderId) => {
 export const fetchBalance = async () => {
   try {
     const exchange = getExchange();
-    return await exchange.fetchBalance();
+    return await retry(() => exchange.fetchBalance());
   } catch (err) {
     logger.error(`fetchBalance error: ${err.message}`);
     throw err;
@@ -143,16 +160,18 @@ export const fetchBalance = async () => {
  */
 export const fetchPositions = async (symbol) => {
   try {
-    const exchange = getExchange();
-    
-    // Ensure markets are loaded successfully to prevent false empty positions on proxy/network failures
-    const markets = await exchange.loadMarkets();
-    if (!markets || Object.keys(markets).length === 0) {
-      throw new Error('Exchange markets failed to load (possible network issue)');
-    }
-    
-    const positions = await exchange.fetchPositions(symbol ? [symbol] : undefined);
-    return positions.filter((p) => parseFloat(p.contracts) > 0);
+    return await retry(async () => {
+      const exchange = getExchange();
+      
+      // Ensure markets are loaded successfully to prevent false empty positions on proxy/network failures
+      const markets = await exchange.loadMarkets();
+      if (!markets || Object.keys(markets).length === 0) {
+        throw new Error('Exchange markets failed to load (possible network issue)');
+      }
+      
+      const positions = await exchange.fetchPositions(symbol ? [symbol] : undefined);
+      return positions.filter((p) => parseFloat(p.contracts) > 0);
+    });
   } catch (err) {
     logger.error(`fetchPositions error: ${err.message}`);
     throw err;

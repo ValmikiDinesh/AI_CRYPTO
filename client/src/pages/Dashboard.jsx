@@ -147,6 +147,7 @@ export default function Dashboard() {
   const portfolio = usePortfolioStore((s) => s.portfolio);
   const recentTrades = useTradeStore((s) => s.recentTrades);
   const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme' | 'recommended'
+  const [comparisonData, setComparisonData] = useState(null);
 
   const displayedAssets = activeTab === 'core' 
     ? CORE_ASSETS 
@@ -189,10 +190,19 @@ export default function Dashboard() {
         }
       } catch {}
     };
+    const fetchComparison = async () => {
+      try {
+        const res = await axios.get('/api/trades/performance-comparison');
+        if (res.data.success) {
+          setComparisonData(res.data.data);
+        }
+      } catch {}
+    };
     fetchPortfolio();
     fetchSignals();
     fetchPrices();
     fetchTrades();
+    fetchComparison();
   }, []);
 
   return (
@@ -242,6 +252,101 @@ export default function Dashboard() {
           iconColor="#86868b"
         />
       </div>
+
+      {/* Strategy Performance Comparison */}
+      {comparisonData && (
+        <div className="space-y-3 mt-6">
+          <h3 className="text-xs font-bold text-[#86868b] uppercase tracking-widest flex items-center gap-1.5 font-mono">
+            <Bot size={13} className="text-purple-400" />
+            Strategy Performance Comparison
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* AI System Card */}
+            <div className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[120px] gap-3 relative overflow-hidden transition-all duration-300 hover:shadow-lg group">
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/[0.03] to-transparent pointer-events-none" />
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500 h-[30%] group-hover:h-full transition-all duration-300" />
+              <div className="flex items-start justify-between">
+                <span className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">AI System (Gemini)</span>
+                <Bot size={14} className="text-purple-400" />
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Trades</div>
+                  <div className="text-base font-semibold text-zinc-200 mt-1 font-mono">{comparisonData.ai?.count || 0}</div>
+                </div>
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Win Rate</div>
+                  <div className="text-base font-semibold text-zinc-200 mt-1 font-mono">
+                    {comparisonData.ai?.count > 0 ? `${((comparisonData.ai.wins / comparisonData.ai.count) * 100).toFixed(1)}%` : '0.0%'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Net PnL</div>
+                  <div className={`text-base font-bold mt-1 font-mono ${comparisonData.ai?.totalPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                    {comparisonData.ai?.totalPnl >= 0 ? '+' : ''}${comparisonData.ai?.totalPnl.toFixed(2) || '0.00'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Local Fallback Card */}
+            <div className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[120px] gap-3 relative overflow-hidden transition-all duration-300 hover:shadow-lg group">
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.03] to-transparent pointer-events-none" />
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500 h-[30%] group-hover:h-full transition-all duration-300" />
+              <div className="flex items-start justify-between">
+                <span className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">Local Fallback</span>
+                <Zap size={14} className="text-amber-400" />
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Trades</div>
+                  <div className="text-base font-semibold text-zinc-200 mt-1 font-mono">{comparisonData.fallback?.count || 0}</div>
+                </div>
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Win Rate</div>
+                  <div className="text-base font-semibold text-zinc-200 mt-1 font-mono">
+                    {comparisonData.fallback?.count > 0 ? `${((comparisonData.fallback.wins / comparisonData.fallback.count) * 100).toFixed(1)}%` : '0.0%'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Net PnL</div>
+                  <div className={`text-base font-bold mt-1 font-mono ${comparisonData.fallback?.totalPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                    {comparisonData.fallback?.totalPnl >= 0 ? '+' : ''}${comparisonData.fallback?.totalPnl.toFixed(2) || '0.00'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Unknown / Historical Card */}
+            <div className="glass-panel py-4 px-5 flex flex-col justify-between min-h-[120px] gap-3 relative overflow-hidden transition-all duration-300 hover:shadow-lg group">
+              <div className="absolute inset-0 bg-gradient-to-br from-zinc-500/[0.03] to-transparent pointer-events-none" />
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-zinc-500 h-[30%] group-hover:h-full transition-all duration-300" />
+              <div className="flex items-start justify-between">
+                <span className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">Historical / Unknown</span>
+                <ShieldCheck size={14} className="text-zinc-400" />
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Trades</div>
+                  <div className="text-base font-semibold text-zinc-200 mt-1 font-mono">{comparisonData.unknown?.count || 0}</div>
+                </div>
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Win Rate</div>
+                  <div className="text-base font-semibold text-zinc-200 mt-1 font-mono">
+                    {comparisonData.unknown?.count > 0 ? `${((comparisonData.unknown.wins / comparisonData.unknown.count) * 100).toFixed(1)}%` : '0.0%'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Net PnL</div>
+                  <div className={`text-base font-bold mt-1 font-mono ${comparisonData.unknown?.totalPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                    {comparisonData.unknown?.totalPnl >= 0 ? '+' : ''}${comparisonData.unknown?.totalPnl.toFixed(2) || '0.00'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Market Prices and Signals Grid */}
       <div className="grid-layout-3">

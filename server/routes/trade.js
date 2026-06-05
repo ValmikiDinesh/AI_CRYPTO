@@ -65,6 +65,50 @@ router.get('/stats', async (req, res, next) => {
   }
 });
 
+// GET /api/trades/performance-comparison — compare AI vs Local performance
+router.get('/performance-comparison', async (req, res, next) => {
+  try {
+    const trades = await Trade.find({ status: 'closed' }).lean();
+
+    const stats = {
+      ai: { count: 0, wins: 0, losses: 0, totalPnl: 0 },
+      fallback: { count: 0, wins: 0, losses: 0, totalPnl: 0 },
+      unknown: { count: 0, wins: 0, losses: 0, totalPnl: 0 }
+    };
+
+    trades.forEach(trade => {
+      const source = trade.metadata?.sourceModel || 'none';
+      let category = 'unknown';
+      
+      if (source.includes('ai_')) {
+        category = 'ai';
+      } else if (source.includes('fallback') || source.includes('statistical')) {
+        category = 'fallback';
+      }
+
+      const pnl = trade.pnl || 0;
+      const fees = trade.fees || 0;
+      const netPnl = pnl - fees;
+
+      stats[category].count++;
+      stats[category].totalPnl += netPnl;
+
+      if (netPnl > 0) {
+        stats[category].wins++;
+      } else if (netPnl < 0) {
+        stats[category].losses++;
+      }
+    });
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/trades/signals — latest signals
 router.get('/signals', async (req, res, next) => {
   try {

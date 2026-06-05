@@ -184,6 +184,7 @@ export default class ExecutionAgent extends BaseAgent {
       reasoning: signal.reasoning,
       status: 'pending',
       exchange: 'binance_testnet',
+      metadata: signal.metadata || {},
     });
 
     // Attempt order placement with retries
@@ -316,11 +317,15 @@ export default class ExecutionAgent extends BaseAgent {
       status: 'executed',
     });
 
+    const model = signal.metadata?.sourceModel || 'none';
+    const strategy = model.includes('ai_') ? 'Google Gemini (AI)' : (model.includes('fallback') || model.includes('statistical')) ? 'Local Statistical (Fallback)' : 'Ensemble';
+
     // Notify Telegram
     await sendTelegramMessage(
       `🔔 <b>Trade Executed! [Auto]</b>\n` +
       `<b>Asset</b>: ${signal.asset.replace('USDT', '')}/USDT\n` +
       `<b>Action</b>: ${signal.action} (${signal.action === 'BUY' ? 'LONG' : 'SHORT'})\n` +
+      `<b>Strategy</b>: ${strategy}\n` +
       `<b>Entry Price</b>: $${formatPrice(executionPrice)}\n` +
       `<b>Quantity</b>: ${executionQuantity.toFixed(5)}\n` +
       `<b>Stop Loss</b>: ${signal.stopLoss ? '$' + formatPrice(signal.stopLoss) : '—'}\n` +

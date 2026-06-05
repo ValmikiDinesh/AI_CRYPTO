@@ -75,17 +75,19 @@ export default class PredictionAgent extends BaseAgent {
 
       if (aiPredictions) {
         const aiPred = aiPredictions.find(p => p.asset === asset);
-        if (aiPred && ['up', 'down', 'neutral'].includes(aiPred.direction)) {
+        if (aiPred && ['up', 'down', 'neutral', 'hold'].includes(aiPred.direction.toLowerCase())) {
           const isGemini = !!process.env.GEMINI_API_KEY;
+          const normalizedDirection = aiPred.direction.toLowerCase() === 'hold' ? 'neutral' : aiPred.direction.toLowerCase();
+          
           prediction = {
             asset,
             model: isGemini ? 'ai_gemini' : 'ai_openai',
             horizon: '1h',
-            direction: aiPred.direction,
+            direction: normalizedDirection,
             probability: aiPred.probability || 0.5,
             predictedPrice: aiPred.takeProfit || currentPrice,
             currentPrice,
-            priceChangePercent: aiPred.direction === 'up' ? (aiPred.probability || 0.5) * 5 : aiPred.direction === 'down' ? -(aiPred.probability || 0.5) * 5 : 0,
+            priceChangePercent: normalizedDirection === 'up' ? (aiPred.probability || 0.5) * 5 : normalizedDirection === 'down' ? -(aiPred.probability || 0.5) * 5 : 0,
             features: {
               indicators: data.indicators,
               sentiment: data.sentiment ? { label: data.sentiment.label, score: data.sentiment.sentiment } : null

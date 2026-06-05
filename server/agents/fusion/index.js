@@ -168,6 +168,9 @@ export default class FusionAgent extends BaseAgent {
         momentumScore,
         composite,
       },
+      metadata: {
+        sourceModel: prediction?.model || 'none'
+      }
     };
   }
 
