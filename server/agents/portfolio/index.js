@@ -139,6 +139,9 @@ export default class PortfolioAgent extends BaseAgent {
           const currentPrice = exchangePos.markPrice || entryPrice;
           const unrealizedPnl = exchangePos.unrealizedPnl || 0;
 
+          // Find or create a corresponding open Trade document in the DB
+          const activeTrade = await Trade.findOne({ asset, status: 'open' });
+
           // Add to portfolio positions array
           portfolio.positions.push({
             asset,
@@ -151,10 +154,10 @@ export default class PortfolioAgent extends BaseAgent {
             status: 'open',
             openedAt: new Date(exchangePos.timestamp || Date.now()),
             fees: 0,
+            stopLoss: activeTrade ? activeTrade.stopLoss : undefined,
+            takeProfit: activeTrade ? activeTrade.takeProfit : undefined,
           });
 
-          // Find or create a corresponding open Trade document in the DB
-          const activeTrade = await Trade.findOne({ asset, status: 'open' });
           if (!activeTrade) {
             await Trade.create({
               userId: portfolio.userId || null,
