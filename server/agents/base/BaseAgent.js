@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
 import { createAgentLogger } from '../../utils/logger.js';
-import AgentLog from '../../models/AgentLog.js';
 
 /**
  * BaseAgent — abstract base class for all AI agents.
@@ -63,8 +62,7 @@ export default class BaseAgent {
       await this.execute();
       this.status = 'running'; // Reset to running on success
       const duration = Date.now() - start;
-
-      await this.log('info', 'cycle_complete', `Cycle ${this.cycleCount} completed`, { duration });
+      this.logger.info(`Cycle ${this.cycleCount} completed in ${duration}ms`);
     } catch (err) {
       this.status = 'error'; // Set status to error on cycle failure
       this.errors.push(err.message);
@@ -96,18 +94,17 @@ export default class BaseAgent {
     };
   }
 
-  /** Persist a structured log entry to MongoDB. */
+  /** Persist a structured log entry (Redirected to local console/file Winston log). */
   async log(level, action, message, metadata = {}) {
-    try {
-      await AgentLog.create({
-        agent: this.name,
-        level,
-        action,
-        message,
-        ...metadata,
-      });
-    } catch (err) {
-      this.logger.error(`Failed to persist agent log: ${err.message}`);
+    const metaStr = Object.keys(metadata).length ? ` | metadata: ${JSON.stringify(metadata)}` : '';
+    const logMsg = `[${action}] ${message}${metaStr}`;
+    
+    if (level === 'error') {
+      this.logger.error(logMsg);
+    } else if (level === 'warn') {
+      this.logger.warn(logMsg);
+    } else {
+      this.logger.info(logMsg);
     }
   }
 }

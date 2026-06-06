@@ -1,5 +1,4 @@
 import express from 'express';
-import AgentLog from '../models/AgentLog.js';
 import RiskEvent from '../models/RiskEvent.js';
 import Trade from '../models/Trade.js';
 import { SUPPORTED_ASSETS } from '../config/constants.js';
@@ -149,22 +148,9 @@ router.post('/restart/:name', async (req, res) => {
   }
 });
 
-// GET /api/agents/logs — recent agent logs
-router.get('/logs', async (req, res, next) => {
-  try {
-    const { agent, level, limit = 50 } = req.query;
-    const filter = {};
-    if (agent) filter.agent = agent;
-    if (level) filter.level = level;
-
-    const logs = await AgentLog.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit));
-
-    res.json({ success: true, data: logs });
-  } catch (err) {
-    next(err);
-  }
+// GET /api/agents/logs — recent agent logs (Database logging is disabled)
+router.get('/logs', (req, res) => {
+  res.json({ success: true, data: [] });
 });
 
 // GET /api/agents/risk-events — recent risk events

@@ -76,7 +76,6 @@ async function boot() {
         await db.collection('predictions').dropIndex('createdAt_1');
         logger.info('🔄 Dropped old predictions TTL index');
       }
-
       // Re-trigger index creation to ensure they exist with the new options
       const { default: Signal } = await import('./models/Signal.js');
       const { default: Prediction } = await import('./models/Prediction.js');
