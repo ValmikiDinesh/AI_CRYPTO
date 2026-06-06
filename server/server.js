@@ -133,15 +133,15 @@ async function bootAgents() {
   setAgentReferences(supervisorAgent);
   setMarketAgentRef(marketAgent);
 
-  // Start agents with staggered intervals
+  // Start agents with staggered, decoupled intervals
   await marketAgent.start(5_000);                                // 5s — price refresh
-  await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5s (high-frequency)
-  await sentimentAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 120); // 10min (120 * 5s)
-  await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 24);  // 2min (24 * 5s)
-  await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 5s
-  await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 5s
-  await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5s
-  await portfolioAgent.start(INTERVALS.ANALYSIS_CYCLE_MS * 6);   // 30s — reduce API load
+  await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5m — technical indicator calculations
+  await sentimentAgent.start(600_000);                          // 10m — news sentiment refresh
+  await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);      // 5m — AI predictions cycle (aligned with trading cycle)
+  await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 5m — decision fusion
+  await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 5m — risk verification
+  await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5m — trade execution
+  await portfolioAgent.start(30_000);                            // 30s — fast database-to-exchange reconciliation
   await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);    // 60s
   await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);        // 15s
 

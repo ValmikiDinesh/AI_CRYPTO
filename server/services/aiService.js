@@ -17,8 +17,9 @@ export async function generateBatchPredictions(assetsData) {
     return null;
   }
 
-  // Chunk the assets into smaller batches to prevent timeouts and reduce output size
-  const CHUNK_SIZE = 13;
+  // Chunk the assets into exactly 3 batches to spread load across the 3 Gemini API keys
+  const totalChunks = 3;
+  const CHUNK_SIZE = Math.ceil(assetsData.length / totalChunks);
   const chunks = [];
   for (let i = 0; i < assetsData.length; i += CHUNK_SIZE) {
     chunks.push(assetsData.slice(i, i + CHUNK_SIZE));
