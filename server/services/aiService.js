@@ -43,9 +43,9 @@ export async function generateBatchPredictions(assetsData) {
     // 1. Try Gemini if key is present
     if (currentGeminiKey) {
       try {
-        logger.info(`AI Service: Querying Google Gemini (gemini-flash-latest) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
+        logger.info(`AI Service: Querying Google Gemini (gemini-2.5-flash) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
         const response = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${currentGeminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentGeminiKey}`,
           {
             contents: [{ parts: [{ text: promptText }] }],
             generationConfig: { responseMimeType: 'application/json' }

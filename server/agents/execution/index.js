@@ -1,6 +1,6 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS, ACTIONS } from '../../config/constants.js';
-import { publishEvent, CHANNELS } from '../../config/redis.js';
+import { publishEvent, CHANNELS, subscribeToChannel } from '../../config/redis.js';
 import { placeMarketOrder, getExchange } from '../../services/exchangeService.js';
 import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
 import Trade from '../../models/Trade.js';
@@ -26,82 +26,109 @@ export default class ExecutionAgent extends BaseAgent {
     this.lastExecutedAction = {};
   }
 
-  async execute() {
-    for (const asset of SUPPORTED_ASSETS) {
-      if (this.inFlightAssets.has(asset)) {
-        this.logger.debug(`${asset}: Order already in-flight — skipping cycle execution`);
-        continue;
-      }
+  async initialize() {
+    await super.initialize();
 
+    // Subscribe to fused signals channel to execute trades instantly when they are published
+    await subscribeToChannel(CHANNELS.FUSED_SIGNALS, async (fusedSignal) => {
+      try {
+        if (fusedSignal && fusedSignal.action !== ACTIONS.HOLD) {
+          this.logger.info(`Received live signal event for ${fusedSignal.asset} (${fusedSignal.action})`);
+          await this.processSignal(fusedSignal);
+        } else if (fusedSignal && fusedSignal.action === ACTIONS.HOLD) {
+          this.lastExecutedAction[fusedSignal.asset] = ACTIONS.HOLD;
+        }
+      } catch (err) {
+        this.logger.error(`Error processing subscribed signal for ${fusedSignal?.asset}: ${err.message}`);
+      }
+    });
+  }
+
+  async execute() {
+    // Fallback/sanity check interval execution: check last signals from FusionAgent
+    for (const asset of SUPPORTED_ASSETS) {
       try {
         const signal = this.fusionAgent.getLastSignal(asset);
-
         if (!signal) continue;
 
-        // If the signal is HOLD, reset lastExecutedAction to allow future trades when it transitions back to BUY/SELL
         if (signal.action === ACTIONS.HOLD) {
           this.lastExecutedAction[asset] = ACTIONS.HOLD;
           continue;
         }
 
-        // Skip if signal is already processed
-        if (signal._id && this.processedSignalIds.has(signal._id.toString())) {
-          continue;
-        }
-
-        // Prevent immediate re-entry on the same action (e.g. BUY -> close -> BUY immediately)
-        if (this.lastExecutedAction[asset] === signal.action) {
-          continue;
-        }
-
-        // Freshness check: skip if signal is older than 15s
+        // For interval backup check, use a looser freshness window (e.g. 5.5 minutes)
         const signalTime = signal.timestamp || (signal.createdAt ? new Date(signal.createdAt).getTime() : null);
-        if (signalTime && Date.now() - signalTime > 15000) {
-          this.logger.debug(`${asset}: Signal is stale (${Date.now() - signalTime}ms old) — skipping execution`);
-          continue;
-        }
-
-        // Get portfolio for the default user (paper trading)
-        let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
-        if (!portfolio) {
-          portfolio = await Portfolio.create({
-            userId: null,   // system portfolio for paper trading
-            totalBalance: 1000,
-            availableBalance: 1000,
-          });
-        }
-
-        // Risk check
-        const riskResult = await this.riskAgent.validateTrade(signal, portfolio);
-        if (!riskResult.approved) {
-          this.logger.info(`${asset}: Trade rejected — ${riskResult.reason}`);
-          
-          // If rejected because position is already open, sync our lastExecutedAction state
-          if (riskResult.reason.includes('already open') || riskResult.reason.includes('duplicate')) {
-            this.lastExecutedAction[asset] = signal.action;
-          }
-          continue;
-        }
-
-        // Mark asset as in-flight and signal as processed
-        this.inFlightAssets.add(asset);
-        this.lastExecutedAction[asset] = signal.action;
-        if (signal._id) {
-          this.processedSignalIds.add(signal._id.toString());
-          if (this.processedSignalIds.size > 2000) {
-            this.processedSignalIds.clear();
-          }
-        }
-
-        try {
-          // Execute trade
-          await this.executeTrade(signal, portfolio);
-        } finally {
-          this.inFlightAssets.delete(asset);
+        if (signalTime && Date.now() - signalTime < 330000) {
+          await this.processSignal(signal);
         }
       } catch (err) {
-        this.logger.error(`Execution error for ${asset}: ${err.message}`);
+        this.logger.error(`Sanity check execution error for ${asset}: ${err.message}`);
       }
+    }
+  }
+
+  async processSignal(signal) {
+    const asset = signal.asset;
+
+    if (this.inFlightAssets.has(asset)) {
+      this.logger.debug(`${asset}: Order already in-flight — skipping execution`);
+      return;
+    }
+
+    // Skip if signal is already processed
+    if (signal._id && this.processedSignalIds.has(signal._id.toString())) {
+      return;
+    }
+
+    // Prevent immediate re-entry on the same action (e.g. BUY -> close -> BUY immediately)
+    if (this.lastExecutedAction[asset] === signal.action) {
+      return;
+    }
+
+    // Freshness check: skip if signal is older than 15s (only applies to fresh execution)
+    const signalTime = signal.timestamp || (signal.createdAt ? new Date(signal.createdAt).getTime() : null);
+    if (signalTime && Date.now() - signalTime > 15000) {
+      this.logger.debug(`${asset}: Signal is stale (${Date.now() - signalTime}ms old) — skipping execution`);
+      return;
+    }
+
+    // Get portfolio for the default user (paper trading)
+    let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+    if (!portfolio) {
+      portfolio = await Portfolio.create({
+        userId: null,   // system portfolio for paper trading
+        totalBalance: 1000,
+        availableBalance: 1000,
+      });
+    }
+
+    // Risk check
+    const riskResult = await this.riskAgent.validateTrade(signal, portfolio);
+    if (!riskResult.approved) {
+      this.logger.info(`${asset}: Trade rejected — ${riskResult.reason}`);
+      
+      // If rejected because position is already open, sync our lastExecutedAction state
+      if (riskResult.reason.includes('already open') || riskResult.reason.includes('duplicate')) {
+        this.lastExecutedAction[asset] = signal.action;
+      }
+      return;
+    }
+
+    // Mark asset as in-flight and signal as processed
+    this.inFlightAssets.add(asset);
+    this.lastExecutedAction[asset] = signal.action;
+    if (signal._id) {
+      this.processedSignalIds.add(signal._id.toString());
+      if (this.processedSignalIds.size > 2000) {
+        this.processedSignalIds.clear();
+      }
+    }
+
+    try {
+      // Execute trade
+      await this.executeTrade(signal, portfolio);
+    } finally {
+      this.inFlightAssets.delete(asset);
     }
   }
 
