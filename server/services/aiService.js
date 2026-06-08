@@ -42,30 +42,37 @@ export async function generateBatchPredictions(assetsData) {
 
     // 1. Try Gemini if key is present
     if (currentGeminiKey) {
-      try {
-        logger.info(`AI Service: Querying Google Gemini (gemini-2.5-flash) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
-        const response = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentGeminiKey}`,
-          {
-            contents: [{ parts: [{ text: promptText }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          },
-          { headers: { 'Content-Type': 'application/json' }, timeout: 30_000 }
-        );
+      const geminiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
+      for (const modelName of geminiModels) {
+        try {
+          logger.info(`AI Service: Querying Google Gemini (${modelName}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
+          const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentGeminiKey}`,
+            {
+              contents: [{ parts: [{ text: promptText }] }],
+              generationConfig: { responseMimeType: 'application/json' }
+            },
+            { headers: { 'Content-Type': 'application/json' }, timeout: 30_000 }
+          );
 
-        const resultText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!resultText) throw new Error('Empty content returned from Gemini API');
+          const resultText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!resultText) throw new Error('Empty content returned from Gemini API');
 
-        const parsed = JSON.parse(resultText);
-        if (parsed && Array.isArray(parsed.predictions)) {
-          allPredictions = allPredictions.concat(parsed.predictions);
-          chunkSuccess = true;
-        } else {
-          throw new Error('Response did not contain the "predictions" array matching schema');
+          const parsed = JSON.parse(resultText);
+          if (parsed && Array.isArray(parsed.predictions)) {
+            allPredictions = allPredictions.concat(parsed.predictions);
+            chunkSuccess = true;
+            break; // Success! Break out of the models loop
+          } else {
+            throw new Error('Response did not contain the "predictions" array matching schema');
+          }
+        } catch (err) {
+          const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+          logger.warn(`AI Service: Gemini API call failed for model ${modelName} on chunk ${index + 1}: ${errorDetail}`);
         }
-      } catch (err) {
-        const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-        logger.warn(`AI Service: Gemini API call failed for chunk ${index + 1}: ${errorDetail}. ${openaiKey ? 'Attempting OpenAI fallback...' : 'Falling back to local model for this chunk.'}`);
+      }
+      if (!chunkSuccess) {
+        logger.warn(`AI Service: All Gemini models failed for chunk ${index + 1}. ${openaiKey ? 'Attempting OpenAI fallback...' : 'Falling back to local model for this chunk.'}`);
       }
     }
 

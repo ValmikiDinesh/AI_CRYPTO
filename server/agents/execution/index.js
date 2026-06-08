@@ -92,31 +92,8 @@ export default class ExecutionAgent extends BaseAgent {
       return;
     }
 
-    // Get portfolio for the default user (paper trading)
-    let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
-    if (!portfolio) {
-      portfolio = await Portfolio.create({
-        userId: null,   // system portfolio for paper trading
-        totalBalance: 1000,
-        availableBalance: 1000,
-      });
-    }
-
-    // Risk check
-    const riskResult = await this.riskAgent.validateTrade(signal, portfolio);
-    if (!riskResult.approved) {
-      this.logger.info(`${asset}: Trade rejected — ${riskResult.reason}`);
-      
-      // If rejected because position is already open, sync our lastExecutedAction state
-      if (riskResult.reason.includes('already open') || riskResult.reason.includes('duplicate')) {
-        this.lastExecutedAction[asset] = signal.action;
-      }
-      return;
-    }
-
-    // Mark asset as in-flight and signal as processed
+    // Mark asset as in-flight and signal as processed synchronously to prevent race conditions
     this.inFlightAssets.add(asset);
-    this.lastExecutedAction[asset] = signal.action;
     if (signal._id) {
       this.processedSignalIds.add(signal._id.toString());
       if (this.processedSignalIds.size > 2000) {
@@ -125,8 +102,34 @@ export default class ExecutionAgent extends BaseAgent {
     }
 
     try {
+      // Get portfolio for the default user (paper trading)
+      let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+      if (!portfolio) {
+        portfolio = await Portfolio.create({
+          userId: null,   // system portfolio for paper trading
+          totalBalance: 1000,
+          availableBalance: 1000,
+        });
+      }
+
+      // Risk check
+      const riskResult = await this.riskAgent.validateTrade(signal, portfolio);
+      if (!riskResult.approved) {
+        this.logger.info(`${asset}: Trade rejected — ${riskResult.reason}`);
+        
+        // If rejected because position is already open, sync our lastExecutedAction state
+        if (riskResult.reason.includes('already open') || riskResult.reason.includes('duplicate')) {
+          this.lastExecutedAction[asset] = signal.action;
+        }
+        return;
+      }
+
+      this.lastExecutedAction[asset] = signal.action;
+
       // Execute trade
       await this.executeTrade(signal, portfolio);
+    } catch (err) {
+      this.logger.error(`Execution error for ${asset}: ${err.message}`);
     } finally {
       this.inFlightAssets.delete(asset);
     }
