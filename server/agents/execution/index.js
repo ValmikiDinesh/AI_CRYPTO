@@ -348,7 +348,7 @@ export default class ExecutionAgent extends BaseAgent {
     });
 
     const model = signal.metadata?.sourceModel || 'none';
-    const strategy = model.includes('ai_') ? 'Google Gemini (AI)' : (model.includes('fallback') || model.includes('statistical')) ? 'Local Statistical (Fallback)' : 'Ensemble';
+    const strategy = model === 'ai_groq' ? 'Groq AI' : model === 'ai_openai' ? 'OpenAI (AI)' : model.includes('ai_') ? 'Google Gemini (AI)' : (model.includes('fallback') || model.includes('statistical')) ? 'Local Statistical (Fallback)' : 'Ensemble';
 
     // Notify Telegram
     await sendTelegramMessage(

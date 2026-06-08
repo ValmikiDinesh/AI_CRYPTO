@@ -81,7 +81,7 @@ export default class PredictionAgent extends BaseAgent {
           
           prediction = {
             asset,
-            model: isGemini ? 'ai_gemini' : 'ai_openai',
+            model: aiPred.sourceModel || (isGemini ? 'ai_gemini' : 'ai_openai'),
             horizon: '1h',
             direction: normalizedDirection,
             probability: aiPred.probability || 0.5,

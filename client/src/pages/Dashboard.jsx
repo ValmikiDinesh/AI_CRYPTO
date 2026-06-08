@@ -266,7 +266,7 @@ export default function Dashboard() {
               <div className="absolute inset-0 bg-gradient-to-br from-purple-500/[0.03] to-transparent pointer-events-none" />
               <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500 h-[30%] group-hover:h-full transition-all duration-300" />
               <div className="flex items-start justify-between">
-                <span className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">AI System (Gemini)</span>
+                <span className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">AI System (Groq / Gemini)</span>
                 <Bot size={14} className="text-purple-400" />
               </div>
               <div className="mt-2 grid grid-cols-3 gap-2">

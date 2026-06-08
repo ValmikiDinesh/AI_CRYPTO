@@ -5,14 +5,17 @@ import { logger } from '../utils/logger.js';
  * AI Service to handle external LLM calls (Gemini/OpenAI) with structured batch predictions.
  */
 export async function generateBatchPredictions(assetsData) {
+  const groqKey = process.env.GROQ_API_KEY;
+  const groqModel = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+
   // Support single or multiple comma-separated keys
   const geminiKeysRaw = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || '';
   const geminiKeys = geminiKeysRaw.split(',').map(k => k.trim()).filter(Boolean);
   const openaiKey = process.env.OPENAI_API_KEY;
 
-  logger.info(`AI Service: Loaded ${geminiKeys.length} Gemini API key(s) from .env: ${geminiKeys.map(k => k.substring(0, 6) + '...').join(', ')}`);
+  logger.info(`AI Service: Loaded Groq API key: ${groqKey ? 'present' : 'absent'}, ${geminiKeys.length} Gemini key(s), OpenAI key: ${openaiKey ? 'present' : 'absent'}`);
 
-  if (geminiKeys.length === 0 && !openaiKey) {
+  if (!groqKey && geminiKeys.length === 0 && !openaiKey) {
     logger.debug('AI Service: No LLM keys found. Falling back to local model.');
     return null;
   }
@@ -36,13 +39,56 @@ export async function generateBatchPredictions(assetsData) {
 
     const promptText = buildPrompt(chunk);
     let chunkSuccess = false;
-    
-    // Pick the next Gemini key in a round-robin fashion
-    const currentGeminiKey = geminiKeys.length > 0 ? geminiKeys[index % geminiKeys.length] : null;
 
-    // 1. Try Gemini if key is present
-    if (currentGeminiKey) {
+    // 1. Try Groq if key is present (Primary AI)
+    if (groqKey) {
+      try {
+        logger.info(`AI Service: Querying Groq (${groqModel}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
+        const response = await axios.post(
+          'https://api.groq.com/openai/v1/chat/completions',
+          {
+            model: groqModel,
+            messages: [
+              {
+                role: 'system',
+                content: 'You are an advanced quantitative cryptocurrency trading assistant. Analyze the provided market data and return predictions in the requested JSON structure.'
+              },
+              { role: 'user', content: promptText }
+            ],
+            response_format: { type: 'json_object' }
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${groqKey}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 30_000
+          }
+        );
+
+        const resultText = response.data?.choices?.[0]?.message?.content;
+        if (!resultText) throw new Error('Empty content returned from Groq API');
+
+        const parsed = JSON.parse(resultText);
+        if (parsed && Array.isArray(parsed.predictions)) {
+          parsed.predictions.forEach(p => p.sourceModel = 'ai_groq');
+          allPredictions = allPredictions.concat(parsed.predictions);
+          chunkSuccess = true;
+        } else {
+          throw new Error('Response did not contain the "predictions" array matching schema');
+        }
+      } catch (err) {
+        const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+        logger.warn(`AI Service: Groq API call failed for chunk ${index + 1}: ${errorDetail}`);
+      }
+    }
+
+    // 2. Try Gemini if Groq was absent or failed (Secondary AI / Fallback)
+    if (!chunkSuccess && geminiKeys.length > 0) {
+      // Pick the next Gemini key in a round-robin fashion
+      const currentGeminiKey = geminiKeys[index % geminiKeys.length];
       const geminiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
+      
       for (const modelName of geminiModels) {
         try {
           logger.info(`AI Service: Querying Google Gemini (${modelName}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
@@ -60,6 +106,7 @@ export async function generateBatchPredictions(assetsData) {
 
           const parsed = JSON.parse(resultText);
           if (parsed && Array.isArray(parsed.predictions)) {
+            parsed.predictions.forEach(p => p.sourceModel = 'ai_gemini');
             allPredictions = allPredictions.concat(parsed.predictions);
             chunkSuccess = true;
             break; // Success! Break out of the models loop
@@ -71,12 +118,9 @@ export async function generateBatchPredictions(assetsData) {
           logger.warn(`AI Service: Gemini API call failed for model ${modelName} on chunk ${index + 1}: ${errorDetail}`);
         }
       }
-      if (!chunkSuccess) {
-        logger.warn(`AI Service: All Gemini models failed for chunk ${index + 1}. ${openaiKey ? 'Attempting OpenAI fallback...' : 'Falling back to local model for this chunk.'}`);
-      }
     }
 
-    // 2. Try OpenAI if Gemini key was missing or request failed
+    // 3. Try OpenAI if Groq & Gemini failed or were absent (Tertiary AI / Fallback)
     if (!chunkSuccess && openaiKey) {
       try {
         logger.info(`AI Service: Querying OpenAI (gpt-4o-mini) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
@@ -107,14 +151,19 @@ export async function generateBatchPredictions(assetsData) {
 
         const parsed = JSON.parse(resultText);
         if (parsed && Array.isArray(parsed.predictions)) {
+          parsed.predictions.forEach(p => p.sourceModel = 'ai_openai');
           allPredictions = allPredictions.concat(parsed.predictions);
           chunkSuccess = true;
         } else {
           throw new Error('Response did not contain the "predictions" array matching schema');
         }
       } catch (err) {
-        logger.warn(`AI Service: OpenAI API call failed for chunk ${index + 1}: ${err.message}. Falling back to local model for this chunk.`);
+        logger.warn(`AI Service: OpenAI API call failed for chunk ${index + 1}: ${err.message}`);
       }
+    }
+
+    if (!chunkSuccess) {
+      logger.warn(`AI Service: All AI prediction models failed for chunk ${index + 1}. Falling back to local model for this chunk.`);
     }
   }
 
