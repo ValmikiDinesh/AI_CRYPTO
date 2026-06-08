@@ -335,18 +335,18 @@ export default class PortfolioAgent extends BaseAgent {
     const pnlPercent = initialMargin > 0 ? (position.realizedPnl / initialMargin) * 100 : 0;
 
     // Update corresponding trade record
-    const activeTrade = await Trade.findOneAndUpdate(
-      { asset: position.asset, status: 'open' },
-      {
-        status: 'closed',
-        exitPrice: actualClosePrice,
-        pnl: position.realizedPnl,
-        pnlPercent,
-        fees: totalPositionFees,
-        closedAt: new Date(),
-        metadata: { ...position.metadata, closeReason: reason },
-      }
-    );
+    const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+    if (activeTrade) {
+      activeTrade.status = 'closed';
+      activeTrade.exitPrice = actualClosePrice;
+      activeTrade.pnl = position.realizedPnl;
+      activeTrade.pnlPercent = pnlPercent;
+      activeTrade.fees = totalPositionFees;
+      activeTrade.closedAt = new Date();
+      activeTrade.metadata = { ...(activeTrade.metadata || {}), closeReason: reason };
+      activeTrade.markModified('metadata');
+      await activeTrade.save();
+    }
 
     const model = activeTrade?.metadata?.sourceModel || 'none';
     const strategy = model.includes('ai_') ? 'Google Gemini (AI)' : (model.includes('fallback') || model.includes('statistical')) ? 'Local Statistical (Fallback)' : 'Ensemble';
