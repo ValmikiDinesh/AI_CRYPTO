@@ -90,9 +90,6 @@ export default class FusionAgent extends BaseAgent {
       action = ACTIONS.SELL;
     }
 
-    // Dynamic position sizing based on confidence
-    const positionPercent = Math.min(5, Math.max(0.5, confidence * 5));
-
     let stopLoss;
     let takeProfit;
     let usedAiTargets = false;
@@ -137,6 +134,22 @@ export default class FusionAgent extends BaseAgent {
       takeProfit = action === ACTIONS.BUY
         ? currentPrice + atr * tpMultiplier
         : currentPrice - atr * tpMultiplier;
+    }
+
+    // Dynamic position sizing based on Fractional Kelly Criterion (Quarter-Kelly)
+    let positionPercent = 1.0; // Default 1%
+    if (action !== ACTIONS.HOLD) {
+      const p = confidence;
+      const riskDistance = Math.abs(currentPrice - stopLoss);
+      const rewardDistance = Math.abs(takeProfit - currentPrice);
+      const b = riskDistance > 0 ? (rewardDistance / riskDistance) : 2.0;
+
+      // Kelly Formula: f* = (p * b - q) / b
+      const kellyFraction = b > 0 ? ((p * b - (1 - p)) / b) : 0;
+      const targetPercent = 0.25 * kellyFraction * 100; // Quarter-Kelly in %
+      
+      // Cap the trade allocation between 0.5% and 5% of portfolio capital (safe risk management)
+      positionPercent = Math.min(5, Math.max(0.5, targetPercent));
     }
 
     // Compute risk score (lower = safer)

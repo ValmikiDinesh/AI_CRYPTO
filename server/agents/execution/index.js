@@ -142,17 +142,31 @@ export default class ExecutionAgent extends BaseAgent {
       return;
     }
 
-    // Calculate position size
+    // Calculate targeted risk amount (e.g. positionPct of available balance)
     const positionPct = parseFloat(signal.positionSize) / 100;
-    let positionValue = portfolio.availableBalance * positionPct;
+    const riskAmount = portfolio.availableBalance * positionPct;
 
-    // Enforce Binance Futures minimum notional order limit of 50 USDT
-    const MIN_NOTIONAL = 53; // Base limit updated to 53 USDT (target range 52-55)
+    // Calculate Stop-Loss percentage distance as a proxy for asset volatility
+    const slPercent = signal.stopLoss ? Math.abs(currentPrice - signal.stopLoss) / currentPrice : 0.05;
+    
+    // Position Value based on Volatility (Risk Parity): positionValue = riskAmount / slPercent
+    let positionValue = slPercent > 0.001 ? (riskAmount / slPercent) : (riskAmount / 0.05);
+
+    // Enforce safety limits: cap the maximum margin used for a single trade to 15% of total balance
+    const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 3;
+    const maxMargin = portfolio.totalBalance * 0.15;
+    const maxNotional = maxMargin * leverage;
+    
+    if (positionValue > maxNotional) {
+      positionValue = maxNotional;
+    }
+
+    // Enforce Binance Futures minimum notional order limit of 53 USDT
+    const MIN_NOTIONAL = 53;
     if (positionValue < MIN_NOTIONAL) {
       positionValue = MIN_NOTIONAL;
     }
 
-    const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 3;
     let marginRequired = positionValue / leverage;
 
     if (portfolio.availableBalance < marginRequired) {
