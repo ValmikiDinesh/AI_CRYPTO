@@ -146,10 +146,10 @@ export default class FusionAgent extends BaseAgent {
 
       // Kelly Formula: f* = (p * b - q) / b
       const kellyFraction = b > 0 ? ((p * b - (1 - p)) / b) : 0;
-      const targetPercent = 0.25 * kellyFraction * 100; // Quarter-Kelly in %
+      const targetPercent = 0.50 * kellyFraction * 100; // Half-Kelly in % (aggressive sizing)
       
-      // Cap the trade allocation between 0.5% and 5% of portfolio capital (safe risk management)
-      positionPercent = Math.min(5, Math.max(0.5, targetPercent));
+      // Cap the trade allocation between 0.5% and 15% of portfolio capital (aggressive risk management)
+      positionPercent = Math.min(15, Math.max(0.5, targetPercent));
     }
 
     // Compute risk score (lower = safer)

@@ -152,9 +152,9 @@ export default class ExecutionAgent extends BaseAgent {
     // Position Value based on Volatility (Risk Parity): positionValue = riskAmount / slPercent
     let positionValue = slPercent > 0.001 ? (riskAmount / slPercent) : (riskAmount / 0.05);
 
-    // Enforce safety limits: cap the maximum margin used for a single trade to 15% of total balance
+    // Enforce safety limits: cap the maximum margin used for a single trade to 35% of total balance (aggressive)
     const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 3;
-    const maxMargin = portfolio.totalBalance * 0.15;
+    const maxMargin = portfolio.totalBalance * 0.35;
     const maxNotional = maxMargin * leverage;
     
     if (positionValue > maxNotional) {
