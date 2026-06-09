@@ -85,9 +85,8 @@ export async function generateBatchPredictions(assetsData) {
 
     // 2. Try Gemini if Groq was absent or failed (Secondary AI / Fallback)
     if (!chunkSuccess && geminiKeys.length > 0) {
-      // Pick the next Gemini key in a round-robin fashion
       const currentGeminiKey = geminiKeys[index % geminiKeys.length];
-      const geminiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
+      const geminiModels = ['gemini-3.1-flash-lite'];
       
       for (const modelName of geminiModels) {
         try {
