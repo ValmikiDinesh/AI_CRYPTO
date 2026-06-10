@@ -86,9 +86,9 @@ export default class RiskAgent extends BaseAgent {
     }
 
 
-    // 3. Max risk per trade
+    // 3. Max risk per trade (increased to 16% to support aggressive Kelly allocations)
     const positionPct = parseFloat(signal.positionSize) / 100;
-    if (positionPct > RISK.MAX_RISK_PER_TRADE * 10) { // position size check
+    if (positionPct > 0.16) { 
       return this.reject(
         `Position size ${signal.positionSize} exceeds max allowed`,
         'max_trade_risk',
