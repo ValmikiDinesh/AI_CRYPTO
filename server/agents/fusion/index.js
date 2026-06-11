@@ -90,50 +90,18 @@ export default class FusionAgent extends BaseAgent {
       action = ACTIONS.SELL;
     }
 
-    let stopLoss;
-    let takeProfit;
-    let usedAiTargets = false;
+    let stopLoss = currentPrice;
+    let takeProfit = currentPrice;
+    const trailingPct = parseFloat(process.env.TRAILING_STOP_PCT) || 0.03; // Default 3.0% trailing stop
 
-    if (prediction && prediction.metadata && prediction.metadata.takeProfit && prediction.metadata.stopLoss) {
-      const aiSl = Number(prediction.metadata.stopLoss);
-      const aiTp = Number(prediction.metadata.takeProfit);
-
-      if (!isNaN(aiSl) && !isNaN(aiTp)) {
-        if (action === ACTIONS.BUY && aiSl < currentPrice && aiTp > currentPrice) {
-          stopLoss = aiSl;
-          takeProfit = aiTp;
-          usedAiTargets = true;
-        } else if (action === ACTIONS.SELL && aiSl > currentPrice && aiTp < currentPrice) {
-          stopLoss = aiSl;
-          takeProfit = aiTp;
-          usedAiTargets = true;
-        }
+    if (action !== ACTIONS.HOLD) {
+      if (action === ACTIONS.BUY) {
+        stopLoss = currentPrice * (1 - trailingPct);
+        takeProfit = currentPrice * (1 + trailingPct * 4); // Widen Take Profit to 4x trailing distance
+      } else if (action === ACTIONS.SELL) {
+        stopLoss = currentPrice * (1 + trailingPct);
+        takeProfit = currentPrice * (1 - trailingPct * 4); // Widen Take Profit to 4x trailing distance
       }
-    }
-
-    if (!usedAiTargets) {
-      const regime = technical.indicators?.regime || 'ranging';
-      const atr = technical.indicators?.atr || currentPrice * 0.02;
-      let slMultiplier = 3.5;
-      let tpMultiplier = 7.0;
-
-      if (regime === 'volatile') {
-        slMultiplier = 4.5;
-        tpMultiplier = 9.0;
-      } else if (regime === 'trending_up' || regime === 'trending_down') {
-        slMultiplier = 3.0;
-        tpMultiplier = 6.0;
-      } else if (regime === 'ranging') {
-        slMultiplier = 2.0;
-        tpMultiplier = 4.0;
-      }
-
-      stopLoss = action === ACTIONS.BUY
-        ? currentPrice - atr * slMultiplier
-        : currentPrice + atr * slMultiplier;
-      takeProfit = action === ACTIONS.BUY
-        ? currentPrice + atr * tpMultiplier
-        : currentPrice - atr * tpMultiplier;
     }
 
     // Dynamic position sizing based on Fractional Kelly Criterion (Quarter-Kelly)
@@ -162,6 +130,7 @@ export default class FusionAgent extends BaseAgent {
       riskScore,
       source: 'fusion',
       positionSize: `${positionPercent.toFixed(1)}%`,
+      trailingPct,
       stopLoss: currentPrice < 0.001 
         ? Math.round(stopLoss * 100000000) / 100000000 
         : currentPrice < 10 

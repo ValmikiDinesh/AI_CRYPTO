@@ -281,6 +281,8 @@ export default class ExecutionAgent extends BaseAgent {
     await trade.save();
 
     // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
+    let stopLossOrderId = null;
+
     if (order && order.id && !order.id.startsWith('mock_')) {
       try {
         const exchange = getExchange();
@@ -288,7 +290,7 @@ export default class ExecutionAgent extends BaseAgent {
         
         // 1. Native Stop-Loss trigger order
         if (signal.stopLoss) {
-          await exchange.createOrder(
+          const slOrderResult = await exchange.createOrder(
             signal.asset,
             'stop_market',
             exitSide,
@@ -299,7 +301,8 @@ export default class ExecutionAgent extends BaseAgent {
               reduceOnly: true
             }
           );
-          this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${signal.stopLoss} on Binance Demo`);
+          stopLossOrderId = slOrderResult?.id;
+          this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${signal.stopLoss} id=${stopLossOrderId} on Binance Demo`);
         }
 
         // 2. Native Take-Profit trigger order
@@ -334,6 +337,10 @@ export default class ExecutionAgent extends BaseAgent {
       leverage,
       stopLoss: signal.stopLoss,
       takeProfit: signal.takeProfit,
+      stopLossOrderId: stopLossOrderId,
+      highestPrice: executionPrice,
+      lowestPrice: executionPrice,
+      trailingPct: signal.trailingPct || 0.03,
       status: 'open',
       fees: actualFee,
     });

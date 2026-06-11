@@ -120,6 +120,87 @@ export default class PortfolioAgent extends BaseAgent {
         position.unrealizedPnl = (position.entryPrice - currentPrice) * position.quantity;
       }
 
+      // Dynamic trailing stop update
+      if (position.trailingPct && position.trailingPct > 0) {
+        let priceUpdated = false;
+        let newStopLoss = position.stopLoss;
+
+        if (position.side === 'long') {
+          // Initialize highest price if not set
+          if (!position.highestPrice || position.highestPrice === 0) {
+            position.highestPrice = position.entryPrice;
+          }
+          if (currentPrice > position.highestPrice) {
+            position.highestPrice = currentPrice;
+            newStopLoss = currentPrice * (1 - position.trailingPct);
+            priceUpdated = true;
+          }
+        } else if (position.side === 'short') {
+          // Initialize lowest price if not set
+          if (!position.lowestPrice || position.lowestPrice === 0) {
+            position.lowestPrice = position.entryPrice;
+          }
+          if (currentPrice < position.lowestPrice) {
+            position.lowestPrice = currentPrice;
+            newStopLoss = currentPrice * (1 + position.trailingPct);
+            priceUpdated = true;
+          }
+        }
+
+        // If the stop-loss moved, update it locally and sync to Binance
+        if (priceUpdated && newStopLoss !== position.stopLoss) {
+          const oldStopLoss = position.stopLoss;
+          position.stopLoss = currentPrice < 0.001 
+            ? Math.round(newStopLoss * 100000000) / 100000000 
+            : currentPrice < 10 
+              ? Math.round(newStopLoss * 1000000) / 1000000 
+              : Math.round(newStopLoss * 100) / 100;
+              
+          this.logger.info(`📈 [TRAILING STOP UPDATE] ${position.asset} SL moved from $${oldStopLoss} to $${position.stopLoss} (Peak: $${position.side === 'long' ? position.highestPrice : position.lowestPrice})`);
+
+          // Update matching open trade in database
+          await Trade.updateOne(
+            { asset: position.asset, status: 'open' },
+            { $set: { stopLoss: position.stopLoss } }
+          );
+
+          // Sync the Stop-Loss to Binance Demo
+          if (position.stopLossOrderId) {
+            try {
+              const { getExchange } = await import('../../services/exchangeService.js');
+              const exchange = getExchange();
+              
+              // 1. Cancel the old native Stop-Loss order
+              try {
+                await exchange.cancelOrder(position.stopLossOrderId, position.asset);
+                this.logger.info(`🧹 [TRAILING STOP SYNC] Cancelled old Binance stop order: ${position.stopLossOrderId}`);
+              } catch (cancelErr) {
+                this.logger.debug(`Failed to cancel old stop order ${position.stopLossOrderId}: ${cancelErr.message}`);
+              }
+
+              // 2. Place a new native Stop-Loss order at the updated price
+              const exitSide = position.side === 'long' ? 'sell' : 'buy';
+              const newSlOrder = await exchange.createOrder(
+                position.asset,
+                'stop_market',
+                exitSide,
+                position.quantity,
+                undefined,
+                {
+                  stopPrice: position.stopLoss,
+                  reduceOnly: true
+                }
+              );
+              position.stopLossOrderId = newSlOrder?.id;
+              this.logger.info(`✅ [TRAILING STOP SYNC] Placed updated stop order on Binance: id=${position.stopLossOrderId} at $${position.stopLoss}`);
+
+            } catch (syncErr) {
+              this.logger.error(`❌ [TRAILING STOP SYNC FAILED] Failed to sync updated Stop-Loss order to Binance for ${position.asset}: ${syncErr.message}`);
+            }
+          }
+        }
+      }
+
       totalUnrealizedPnl += position.unrealizedPnl;
     }
 
