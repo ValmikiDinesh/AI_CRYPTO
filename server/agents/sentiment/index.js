@@ -65,7 +65,8 @@ export default class SentimentAgent extends BaseAgent {
       // Fetch a larger pool of latest articles in a single call
       const url = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&limit=50';
       const response = await axios.get(url, { headers, timeout: 10_000 });
-      return response.data?.Data || [];
+      const data = response.data?.Data;
+      return Array.isArray(data) ? data : [];
     } catch (err) {
       this.logger.warn(`General news fetch failed: ${err.message}`);
       return [];
@@ -73,6 +74,8 @@ export default class SentimentAgent extends BaseAgent {
   }
 
   filterArticlesForAsset(articles, baseAsset) {
+    if (!Array.isArray(articles)) return [];
+
     const searchTerms = [
       baseAsset,                            // e.g. "sol"
       this.getAssetNameFull(baseAsset),     // e.g. "solana"
