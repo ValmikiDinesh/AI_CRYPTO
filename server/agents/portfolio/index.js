@@ -64,7 +64,16 @@ export default class PortfolioAgent extends BaseAgent {
     for (const position of portfolio.positions) {
       if (position.status !== 'open') continue;
 
-      const currentPrice = this.marketAgent.getPrice(position.asset);
+      let currentPrice = this.marketAgent.getPrice(position.asset);
+      if (!currentPrice && fetchedExchangeSuccessfully) {
+        const exchangePos = exchangePositionMap.get(position.asset);
+        if (exchangePos) {
+          currentPrice = exchangePos.markPrice || exchangePos.entryPrice || 0;
+        } else {
+          currentPrice = position.currentPrice || position.entryPrice || 0;
+        }
+      }
+
       if (!currentPrice) continue;
 
       let isNativelyClosed = false;
@@ -81,7 +90,7 @@ export default class PortfolioAgent extends BaseAgent {
 
           // Check if this is a real exchange trade (not mock/simulated) and is old enough to reconcile
           const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-          if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_') && positionAgeMs >= MIN_RECONCILIATION_AGE_MS) {
+          if (activeTrade && positionAgeMs >= MIN_RECONCILIATION_AGE_MS) {
             isNativelyClosed = true;
             this.logger.warn(`🔄 [RECONCILIATION] Open position for ${position.asset} is no longer active on Binance. Syncing closure locally.`);
 
@@ -281,7 +290,10 @@ export default class PortfolioAgent extends BaseAgent {
       }
 
       processedAssets.add(position.asset);
-      const currentPrice = this.marketAgent.getPrice(position.asset);
+      let currentPrice = this.marketAgent.getPrice(position.asset);
+      if (!currentPrice) {
+        currentPrice = position.currentPrice || 0;
+      }
       if (!currentPrice) continue;
 
       let shouldClose = false;
