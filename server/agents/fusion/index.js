@@ -90,13 +90,6 @@ export default class FusionAgent extends BaseAgent {
       action = ACTIONS.SELL;
     }
 
-    // Reverse trading override
-    if (process.env.REVERSE_TRADING === 'true' && action !== ACTIONS.HOLD) {
-      const originalAction = action;
-      action = (action === ACTIONS.BUY) ? ACTIONS.SELL : ACTIONS.BUY;
-      this.logger.info(`🔄 [REVERSE TRADING] Flipped action for ${asset} from ${originalAction} to ${action}`);
-    }
-
     let stopLoss = currentPrice;
     let takeProfit = currentPrice;
     const trailingPct = parseFloat(process.env.TRAILING_STOP_PCT) || 0.03; // Default 3.0% trailing stop
@@ -190,8 +183,7 @@ export default class FusionAgent extends BaseAgent {
     if (sentiment) parts.push(`Sentiment: ${sentiment.label} (score=${sentiment.sentiment?.toFixed(2)})`);
     if (prediction) parts.push(`Prediction: ${prediction.direction} (prob=${prediction.probability?.toFixed(2)})`);
     parts.push(`Composite score: ${composite.toFixed(3)}`);
-    const reverseStr = process.env.REVERSE_TRADING === 'true' ? ' [REVERSED]' : '';
-    return `${action}${reverseStr} decision — ${parts.join('; ')}`;
+    return `${action} decision — ${parts.join('; ')}`;
   }
 
   getLastSignal(asset) {
