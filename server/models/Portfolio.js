@@ -26,6 +26,7 @@ const portfolioSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     index: true,
+    unique: true,
   },
   totalBalance: { type: Number, default: 1000 },   // paper-trading start capital
   availableBalance: { type: Number, default: 1000 },
