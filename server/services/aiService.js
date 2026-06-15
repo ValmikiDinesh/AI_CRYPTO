@@ -204,12 +204,12 @@ To make the response extremely fast and save generation time:
 - You must output exactly one prediction object for EVERY asset in the provided list.
 - For neutral setups, output direction 'hold'.
 
-For each asset, output: direction ('up', 'down', or 'hold'), confidence probability (0.0 to 1.0), reasoning, and recommended 'takeProfit' and 'stopLoss' prices. 
+For each asset, output: direction ('up', 'down', or 'hold'), confidence probability (0.0 to 1.0), reasoning, and recommended 'limitEntryPrice', 'takeProfit', and 'stopLoss' prices. 
 The recommended price targets must be highly realistic:
-- For 'up' (BUY) direction: 'takeProfit' must be higher than currentPrice, and 'stopLoss' must be lower than currentPrice.
-- For 'down' (SELL) direction: 'takeProfit' must be lower than currentPrice, and 'stopLoss' must be higher than currentPrice.
-- For 'hold' (NEUTRAL) direction: set takeProfit and stopLoss to the currentPrice.
-- Base your targets on technical indicators like Bollinger Bands boundaries, ATR (volatility index), and support/resistance lines.
+- For 'up' (BUY) direction: 'limitEntryPrice' must be at a discount (strictly less than currentPrice), 'takeProfit' must be higher than limitEntryPrice, and 'stopLoss' must be lower than limitEntryPrice.
+- For 'down' (SELL) direction: 'limitEntryPrice' must be at a premium (strictly greater than currentPrice), 'takeProfit' must be lower than limitEntryPrice, and 'stopLoss' must be higher than limitEntryPrice.
+- For 'hold' (NEUTRAL) direction: set limitEntryPrice, takeProfit, and stopLoss to the currentPrice.
+- Base your targets on technical indicators like Bollinger Bands boundaries, EMA levels, and ATR (volatility index).
 
 Return EXACTLY a JSON object with a "predictions" property containing an array of objects structured exactly as shown below:
 {
@@ -218,6 +218,7 @@ Return EXACTLY a JSON object with a "predictions" property containing an array o
       "asset": "BTCUSDT",
       "direction": "up",
       "probability": 0.85,
+      "limitEntryPrice": 67800.00,
       "takeProfit": 69200.00,
       "stopLoss": 66500.00,
       "reasoning": "EMA crossover and positive news sentiment."

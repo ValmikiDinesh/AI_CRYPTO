@@ -13,9 +13,10 @@ import Trade from '../../models/Trade.js';
  * - Dynamically rebalances portfolio allocation.
  */
 export default class PortfolioAgent extends BaseAgent {
-  constructor(marketAgent) {
+  constructor(marketAgent, riskAgent) {
     super(AGENT_NAMES.PORTFOLIO);
     this.marketAgent = marketAgent;
+    this.riskAgent = riskAgent;
   }
 
   async execute() {
@@ -141,8 +142,74 @@ export default class PortfolioAgent extends BaseAgent {
           const currentPrice = exchangePos.markPrice || entryPrice;
           const unrealizedPnl = exchangePos.unrealizedPnl || 0;
 
-          // Find or create a corresponding open Trade document in the DB
-          const activeTrade = await Trade.findOne({ asset, status: 'open' });
+          // Find a corresponding pending or open Trade document in the DB
+          let activeTrade = await Trade.findOne({ asset, status: { $in: ['open', 'pending'] } }).sort({ createdAt: -1 });
+          let stopLossOrderId = null;
+
+          if (activeTrade && activeTrade.status === 'pending') {
+            activeTrade.status = 'open';
+            activeTrade.entryPrice = entryPrice;
+            activeTrade.quantity = quantity;
+            activeTrade.executedAt = new Date(exchangePos.timestamp || Date.now());
+            await activeTrade.save();
+
+            if (this.riskAgent) {
+              this.riskAgent.incrementDailyTradeCount();
+            }
+
+            // Place stop-loss and take-profit trigger orders on the exchange for newly filled limit order
+            if (activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+              try {
+                const { getExchange } = await import('../../services/exchangeService.js');
+                const exchange = getExchange();
+                const oppositeSide = activeTrade.action === 'BUY' ? 'sell' : 'buy';
+                
+                if (activeTrade.stopLoss) {
+                  const slOrderResult = await exchange.createOrder(
+                    asset,
+                    'stop_market',
+                    oppositeSide,
+                    quantity,
+                    undefined,
+                    {
+                      stopPrice: activeTrade.stopLoss,
+                      reduceOnly: true
+                    }
+                  );
+                  stopLossOrderId = slOrderResult?.id;
+                  this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${activeTrade.stopLoss} id=${stopLossOrderId} on Binance Demo for filled limit order`);
+                }
+                
+                if (activeTrade.takeProfit) {
+                  await exchange.createOrder(
+                    asset,
+                    'take_profit_market',
+                    oppositeSide,
+                    quantity,
+                    undefined,
+                    {
+                      stopPrice: activeTrade.takeProfit,
+                      reduceOnly: true
+                    }
+                  );
+                  this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${activeTrade.takeProfit} on Binance Demo for filled limit order`);
+                }
+              } catch (triggerErr) {
+                this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
+              }
+            }
+
+            // Send fill notification to Telegram
+            await sendTelegramMessage(
+              `⚡️ <b>Limit Order Filled! [Open]</b>\n` +
+              `<b>Asset</b>: ${asset.replace('USDT', '')}/USDT\n` +
+              `<b>Action</b>: ${activeTrade.action} (${activeTrade.action === 'BUY' ? 'LONG' : 'SHORT'})\n` +
+              `<b>Fill Price</b>: $${formatPrice(entryPrice)}\n` +
+              `<b>Quantity</b>: ${quantity.toFixed(5)}\n` +
+              `<b>Stop Loss</b>: ${activeTrade.stopLoss ? '$' + formatPrice(activeTrade.stopLoss) : '—'}\n` +
+              `<b>Target</b>: ${activeTrade.takeProfit ? '$' + formatPrice(activeTrade.takeProfit) : '—'}`
+            );
+          }
 
           // Add to portfolio positions array
           portfolio.positions.push({
@@ -155,9 +222,10 @@ export default class PortfolioAgent extends BaseAgent {
             unrealizedPnl,
             status: 'open',
             openedAt: new Date(exchangePos.timestamp || Date.now()),
-            fees: 0,
+            fees: activeTrade ? (activeTrade.fees || 0) : 0,
             stopLoss: activeTrade ? activeTrade.stopLoss : undefined,
             takeProfit: activeTrade ? activeTrade.takeProfit : undefined,
+            stopLossOrderId,
           });
 
           if (!activeTrade) {
@@ -426,6 +494,16 @@ export default class PortfolioAgent extends BaseAgent {
         trueAvailable -= (margin + entryFee);
         openExposure += margin;
         openUnrealized += p.unrealizedPnl;
+      });
+
+      // Deduct margin and fees for pending limit orders
+      const pendingTrades = await Trade.find({ status: 'pending' });
+      pendingTrades.forEach(t => {
+        const leverage = t.leverage && t.leverage > 1 ? t.leverage : 3;
+        const exposure = t.entryPrice * t.quantity;
+        const margin = exposure / leverage;
+        const entryFee = t.fees || 0;
+        trueAvailable -= (margin + entryFee);
       });
 
       // 3. Calculate true total balance (Net Worth)

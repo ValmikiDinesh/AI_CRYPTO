@@ -45,7 +45,53 @@ export default class ExecutionAgent extends BaseAgent {
   }
 
   async execute() {
-    // Fallback/sanity check interval execution: check last signals from FusionAgent
+    // 1. Scan and cancel expired pending limit orders (older than 5 minutes)
+    try {
+      const pendingTrades = await Trade.find({ status: 'pending' });
+      const EXPIRATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+      
+      for (const trade of pendingTrades) {
+        const age = Date.now() - new Date(trade.createdAt).getTime();
+        if (age >= EXPIRATION_TIMEOUT_MS) {
+          this.logger.info(`⏳ Pending trade for ${trade.asset} expired (${Math.round(age / 1000)}s old). Cancelling...`);
+          
+          try {
+            const exchange = getExchange();
+            if (trade.exchangeOrderId && !trade.exchangeOrderId.startsWith('mock_')) {
+              await exchange.cancelOrder(trade.exchangeOrderId, trade.asset);
+            }
+          } catch (cancelErr) {
+            this.logger.warn(`Failed to cancel expired order ${trade.exchangeOrderId} on exchange: ${cancelErr.message}`);
+          }
+          
+          trade.status = 'cancelled';
+          trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)' };
+          await trade.save();
+          
+          // Refund margin and fees
+          const leverage = trade.leverage || 3;
+          const marginReserved = (trade.entryPrice * trade.quantity) / leverage;
+          const feeReserved = trade.fees || 0;
+          
+          let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+          if (portfolio) {
+            portfolio.availableBalance += (marginReserved + feeReserved);
+            await portfolio.save();
+            this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for expired trade on ${trade.asset}`);
+          }
+          
+          await sendTelegramMessage(
+            `⏳ <b>Limit Order Expired</b>\n` +
+            `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
+            `<b>Action</b>: ${trade.action} limit order was cancelled after 5 minutes of no fill.`
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Error cleaning up expired pending orders: ${err.message}`);
+    }
+
+    // 2. Fallback/sanity check interval execution: check last signals from FusionAgent
     for (const asset of SUPPORTED_ASSETS) {
       try {
         const signal = this.fusionAgent.getLastSignal(asset);
@@ -102,6 +148,40 @@ export default class ExecutionAgent extends BaseAgent {
     }
 
     try {
+      // Cancel any existing pending trade/order for this asset first
+      try {
+        const pendingTrade = await Trade.findOne({ asset, status: 'pending' });
+        if (pendingTrade) {
+          this.logger.info(`Cancelling existing pending limit order for ${asset} (ID: ${pendingTrade.exchangeOrderId}) before processing new signal`);
+          try {
+            const exchange = getExchange();
+            if (pendingTrade.exchangeOrderId && !pendingTrade.exchangeOrderId.startsWith('mock_')) {
+              await exchange.cancelOrder(pendingTrade.exchangeOrderId, asset);
+            }
+          } catch (cancelErr) {
+            this.logger.warn(`Could not cancel order ${pendingTrade.exchangeOrderId} on exchange: ${cancelErr.message}`);
+          }
+          
+          pendingTrade.status = 'cancelled';
+          pendingTrade.metadata = { ...(pendingTrade.metadata || {}), cancelReason: 'Superceded by new signal' };
+          await pendingTrade.save();
+          
+          // Refund margin
+          const leverage = pendingTrade.leverage || 3;
+          const marginReserved = (pendingTrade.entryPrice * pendingTrade.quantity) / leverage;
+          const feeReserved = pendingTrade.fees || 0;
+          
+          let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+          if (portfolio) {
+            portfolio.availableBalance += (marginReserved + feeReserved);
+            await portfolio.save();
+            this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for cancelled trade on ${asset}`);
+          }
+        }
+      } catch (cancelErr) {
+        this.logger.error(`Error during pending trade cleanup for ${asset}: ${cancelErr.message}`);
+      }
+
       // Get portfolio for the default user (paper trading)
       let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
       if (!portfolio) {
@@ -142,12 +222,14 @@ export default class ExecutionAgent extends BaseAgent {
       return;
     }
 
+    const limitEntryPrice = signal.limitEntryPrice || currentPrice;
+
     // Calculate targeted risk amount (e.g. positionPct of available balance)
     const positionPct = parseFloat(signal.positionSize) / 100;
     const riskAmount = portfolio.availableBalance * positionPct;
 
-    // Calculate Stop-Loss percentage distance as a proxy for asset volatility
-    const slPercent = signal.stopLoss ? Math.abs(currentPrice - signal.stopLoss) / currentPrice : 0.05;
+    // Calculate Stop-Loss percentage distance relative to limitEntryPrice
+    const slPercent = signal.stopLoss ? Math.abs(limitEntryPrice - signal.stopLoss) / limitEntryPrice : 0.05;
     
     // Position Value based on Volatility (Risk Parity): positionValue = riskAmount / slPercent
     let positionValue = slPercent > 0.001 ? (riskAmount / slPercent) : (riskAmount / 0.05);
@@ -174,7 +256,7 @@ export default class ExecutionAgent extends BaseAgent {
       return;
     }
 
-    let quantity = positionValue / currentPrice;
+    let quantity = positionValue / limitEntryPrice;
 
     // Retrieve exchange metadata and round quantity UP to the nearest step size to prevent notional limit errors
     try {
@@ -188,7 +270,7 @@ export default class ExecutionAgent extends BaseAgent {
         quantity = Math.ceil(quantity * factor) / factor;
         
         // Dynamically adjust positionValue to exactly match the rounded-up quantity
-        positionValue = quantity * currentPrice;
+        positionValue = quantity * limitEntryPrice;
         marginRequired = positionValue / leverage;
       }
     } catch (err) {
@@ -217,7 +299,7 @@ export default class ExecutionAgent extends BaseAgent {
       action: signal.action,
       type: 'paper',
       side: signal.action === ACTIONS.BUY ? 'long' : 'short',
-      entryPrice: currentPrice,
+      entryPrice: limitEntryPrice,
       quantity,
       positionSize: (positionValue / portfolio.totalBalance) * 100,
       stopLoss: signal.stopLoss,
@@ -238,7 +320,7 @@ export default class ExecutionAgent extends BaseAgent {
     while (attempt < this.maxRetries) {
       try {
         attempt++;
-        order = await placeLimitOrder(signal.asset, side, quantity, currentPrice);
+        order = await placeLimitOrder(signal.asset, side, quantity, limitEntryPrice);
         break;
       } catch (err) {
         this.logger.warn(`Order attempt ${attempt}/${this.maxRetries} failed: ${err.message}`);
@@ -256,7 +338,7 @@ export default class ExecutionAgent extends BaseAgent {
     }
 
     // Confirm execution parameters from CCXT order response
-    const executionPrice = order.average || order.price || currentPrice;
+    const executionPrice = order.average || order.price || limitEntryPrice;
     const executionQuantity = order.filled || order.amount || quantity;
 
     let actualFee = entryFee;
@@ -268,124 +350,168 @@ export default class ExecutionAgent extends BaseAgent {
 
     const finalMarginRequired = (executionPrice * executionQuantity) / leverage;
 
-    // Increment daily trade count in Risk Agent
-    this.riskAgent.incrementDailyTradeCount();
+    // Check if order filled immediately
+    const isFilled = order.status === 'closed' || (order.filled && order.filled >= quantity);
 
-    // Update trade record
-    trade.status = 'open';
-    trade.entryPrice = executionPrice;
-    trade.quantity = executionQuantity;
-    trade.exchangeOrderId = order?.id;
-    trade.executedAt = new Date(order.timestamp || Date.now());
-    trade.fees = actualFee;
-    await trade.save();
+    if (isFilled) {
+      // Increment daily trade count in Risk Agent
+      this.riskAgent.incrementDailyTradeCount();
 
-    // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
-    let stopLossOrderId = null;
+      // Update trade record
+      trade.status = 'open';
+      trade.entryPrice = executionPrice;
+      trade.quantity = executionQuantity;
+      trade.exchangeOrderId = order?.id;
+      trade.executedAt = new Date(order.timestamp || Date.now());
+      trade.fees = actualFee;
+      await trade.save();
 
-    if (order && order.id && !order.id.startsWith('mock_')) {
-      try {
-        const exchange = getExchange();
-        const exitSide = side === 'buy' ? 'sell' : 'buy';
-        
-        // 1. Native Stop-Loss trigger order
-        if (signal.stopLoss) {
-          const slOrderResult = await exchange.createOrder(
-            signal.asset,
-            'stop_market',
-            exitSide,
-            quantity,
-            undefined,
-            {
-              stopPrice: signal.stopLoss,
-              reduceOnly: true
-            }
-          );
-          stopLossOrderId = slOrderResult?.id;
-          this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${signal.stopLoss} id=${stopLossOrderId} on Binance Demo`);
-        }
-
-        // 2. Native Take-Profit trigger order
-        if (signal.takeProfit) {
-          await exchange.createOrder(
-            signal.asset,
-            'take_profit_market',
-            exitSide,
-            quantity,
-            undefined,
-            {
-              stopPrice: signal.takeProfit,
-              reduceOnly: true
-            }
-          );
-          this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${signal.takeProfit} on Binance Demo`);
-        }
-      } catch (triggerErr) {
-        this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
+      // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
+      let stopLossOrderId = null;
+      if (order && order.id && !order.id.startsWith('mock_')) {
+        stopLossOrderId = await this.placeTriggerOrders(signal, executionQuantity, side);
       }
+
+      // Update portfolio positions
+      portfolio.availableBalance -= (finalMarginRequired + actualFee);
+      portfolio.totalTrades += 1;
+      portfolio.positions.push({
+        asset: signal.asset,
+        side: signal.action === ACTIONS.BUY ? 'long' : 'short',
+        entryPrice: executionPrice,
+        currentPrice: executionPrice,
+        quantity: executionQuantity,
+        leverage,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        stopLossOrderId: stopLossOrderId,
+        highestPrice: executionPrice,
+        lowestPrice: executionPrice,
+        trailingPct: signal.trailingPct || 0.03,
+        status: 'open',
+        fees: actualFee,
+      });
+
+      // Recalculate total balance using leverage-adjusted universal equity formula
+      const marginValue = portfolio.positions
+        .filter((p) => p.status === 'open')
+        .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+      portfolio.totalBalance = portfolio.availableBalance + marginValue;
+
+      if (portfolio.totalBalance > portfolio.peakBalance) {
+        portfolio.peakBalance = portfolio.totalBalance;
+      }
+
+      await portfolio.save();
+
+      // Publish execution event
+      await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
+        tradeId: trade._id,
+        asset: signal.asset,
+        action: signal.action,
+        price: executionPrice,
+        quantity: executionQuantity,
+        confidence: signal.confidence,
+        status: 'executed',
+      });
+
+      const model = signal.metadata?.sourceModel || 'none';
+      const hasAiTargets = signal.metadata?.usedAiTargets;
+      const modelName = model === 'ai_groq' ? 'Groq AI' : model === 'ai_openai' ? 'OpenAI' : model.includes('ai_') ? 'Gemini' : 'Statistical';
+      const strategy = hasAiTargets ? `${modelName} (AI-Decided Entry/SL/TP)` : `${modelName} (Regime pullback)`;
+
+      // Notify Telegram
+      await sendTelegramMessage(
+        `🔔 <b>Trade Executed! [Auto]</b>\n` +
+        `<b>Asset</b>: ${signal.asset.replace('USDT', '')}/USDT\n` +
+        `<b>Action</b>: ${signal.action} (${signal.action === 'BUY' ? 'LONG' : 'SHORT'})\n` +
+        `<b>Strategy</b>: ${strategy}\n` +
+        `<b>Entry Price</b>: $${formatPrice(executionPrice)}\n` +
+        `<b>Quantity</b>: ${executionQuantity.toFixed(5)}\n` +
+        `<b>Stop Loss</b>: ${signal.stopLoss ? '$' + formatPrice(signal.stopLoss) : '—'}\n` +
+        `<b>Target</b>: ${signal.takeProfit ? '$' + formatPrice(signal.takeProfit) : '—'}\n` +
+        `<b>Confidence</b>: ${(signal.confidence * 100).toFixed(0)}%`
+      );
+
+      this.logger.info(
+        `✅ ${signal.action} ${executionQuantity.toFixed(6)} ${signal.asset} @ ${executionPrice} (confidence=${signal.confidence.toFixed(2)})`
+      );
+    } else {
+      // Order is pending: save as pending trade and do not push to portfolio.positions yet
+      trade.status = 'pending';
+      trade.entryPrice = limitEntryPrice;
+      trade.quantity = quantity;
+      trade.exchangeOrderId = order?.id;
+      trade.fees = actualFee;
+      await trade.save();
+
+      // Deduct margin from available balance locally to reserve it
+      portfolio.availableBalance -= (finalMarginRequired + actualFee);
+      await portfolio.save();
+
+      this.logger.info(`⏳ Limit order placed and pending on Binance for ${signal.asset} @ ${limitEntryPrice} (ID: ${order?.id})`);
+
+      const model = signal.metadata?.sourceModel || 'none';
+      const hasAiTargets = signal.metadata?.usedAiTargets;
+      const modelName = model === 'ai_groq' ? 'Groq AI' : model === 'ai_openai' ? 'OpenAI' : model.includes('ai_') ? 'Gemini' : 'Statistical';
+      const strategy = hasAiTargets ? `${modelName} (AI-Decided Entry/SL/TP)` : `${modelName} (Regime pullback)`;
+
+      // Notify Telegram
+      await sendTelegramMessage(
+        `⏳ <b>Limit Order Placed! [Pending]</b>\n` +
+        `<b>Asset</b>: ${signal.asset.replace('USDT', '')}/USDT\n` +
+        `<b>Action</b>: ${signal.action} (${signal.action === 'BUY' ? 'LONG' : 'SHORT'})\n` +
+        `<b>Strategy</b>: ${strategy}\n` +
+        `<b>Limit Price</b>: $${formatPrice(limitEntryPrice)}\n` +
+        `<b>Current Price</b>: $${formatPrice(currentPrice)}\n` +
+        `<b>Quantity</b>: ${quantity.toFixed(5)}\n` +
+        `<b>Stop Loss</b>: ${signal.stopLoss ? '$' + formatPrice(signal.stopLoss) : '—'}\n` +
+        `<b>Target</b>: ${signal.takeProfit ? '$' + formatPrice(signal.takeProfit) : '—'}`
+      );
     }
+  }
 
-    // Update portfolio
-    portfolio.availableBalance -= (finalMarginRequired + actualFee);
-    portfolio.totalTrades += 1;
-    portfolio.positions.push({
-      asset: signal.asset,
-      side: signal.action === ACTIONS.BUY ? 'long' : 'short',
-      entryPrice: executionPrice,
-      currentPrice: executionPrice,
-      quantity: executionQuantity,
-      leverage,
-      stopLoss: signal.stopLoss,
-      takeProfit: signal.takeProfit,
-      stopLossOrderId: stopLossOrderId,
-      highestPrice: executionPrice,
-      lowestPrice: executionPrice,
-      trailingPct: signal.trailingPct || 0.03,
-      status: 'open',
-      fees: actualFee,
-    });
+  async placeTriggerOrders(signal, quantity, side) {
+    let stopLossOrderId = null;
+    try {
+      const exchange = getExchange();
+      const exitSide = side === 'buy' ? 'sell' : 'buy';
+      
+      // 1. Native Stop-Loss trigger order
+      if (signal.stopLoss) {
+        const slOrderResult = await exchange.createOrder(
+          signal.asset,
+          'stop_market',
+          exitSide,
+          quantity,
+          undefined,
+          {
+            stopPrice: signal.stopLoss,
+            reduceOnly: true
+          }
+        );
+        stopLossOrderId = slOrderResult?.id;
+        this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${signal.stopLoss} id=${stopLossOrderId} on Binance Demo`);
+      }
 
-    // Recalculate total balance using leverage-adjusted universal equity formula
-    const marginValue = portfolio.positions
-      .filter((p) => p.status === 'open')
-      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
-    portfolio.totalBalance = portfolio.availableBalance + marginValue;
-
-    if (portfolio.totalBalance > portfolio.peakBalance) {
-      portfolio.peakBalance = portfolio.totalBalance;
+      // 2. Native Take-Profit trigger order
+      if (signal.takeProfit) {
+        await exchange.createOrder(
+          signal.asset,
+          'take_profit_market',
+          exitSide,
+          quantity,
+          undefined,
+          {
+            stopPrice: signal.takeProfit,
+            reduceOnly: true
+          }
+        );
+        this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${signal.takeProfit} on Binance Demo`);
+      }
+    } catch (triggerErr) {
+      this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
     }
-
-    await portfolio.save();
-
-    // Publish execution event
-    await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
-      tradeId: trade._id,
-      asset: signal.asset,
-      action: signal.action,
-      price: executionPrice,
-      quantity: executionQuantity,
-      confidence: signal.confidence,
-      status: 'executed',
-    });
-
-    const model = signal.metadata?.sourceModel || 'none';
-    const strategy = model === 'ai_groq' ? 'Groq AI' : model === 'ai_openai' ? 'OpenAI (AI)' : model.includes('ai_') ? 'Google Gemini (AI)' : (model.includes('fallback') || model.includes('statistical')) ? 'Local Statistical (Fallback)' : 'Ensemble';
-
-    // Notify Telegram
-    await sendTelegramMessage(
-      `🔔 <b>Trade Executed! [Auto]</b>\n` +
-      `<b>Asset</b>: ${signal.asset.replace('USDT', '')}/USDT\n` +
-      `<b>Action</b>: ${signal.action} (${signal.action === 'BUY' ? 'LONG' : 'SHORT'})\n` +
-      `<b>Strategy</b>: ${strategy}\n` +
-      `<b>Entry Price</b>: $${formatPrice(executionPrice)}\n` +
-      `<b>Quantity</b>: ${executionQuantity.toFixed(5)}\n` +
-      `<b>Stop Loss</b>: ${signal.stopLoss ? '$' + formatPrice(signal.stopLoss) : '—'}\n` +
-      `<b>Target</b>: ${signal.takeProfit ? '$' + formatPrice(signal.takeProfit) : '—'}\n` +
-      `<b>Confidence</b>: ${(signal.confidence * 100).toFixed(0)}%`
-    );
-
-    this.logger.info(
-      `✅ ${signal.action} ${executionQuantity.toFixed(6)} ${signal.asset} @ ${executionPrice} (confidence=${signal.confidence.toFixed(2)})`
-    );
+    return stopLossOrderId;
   }
 }

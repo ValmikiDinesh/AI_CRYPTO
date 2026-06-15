@@ -89,18 +89,82 @@ export default class FusionAgent extends BaseAgent {
     } else if (composite < -0.15 && confidence >= RISK.MIN_CONFIDENCE_THRESHOLD) {
       action = ACTIONS.SELL;
     }
-
+    let limitEntryPrice = currentPrice;
     let stopLoss = currentPrice;
     let takeProfit = currentPrice;
     const trailingPct = parseFloat(process.env.TRAILING_STOP_PCT) || 0.03; // Default 3.0% trailing stop
+    let usedAiTargets = false;
 
     if (action !== ACTIONS.HOLD) {
+      const regime = technical.indicators?.regime || 'ranging';
+      const atr = technical.indicators?.atr || (currentPrice * 0.02); // Fallback to 2% volatility
+      const ema9 = technical.indicators?.ema?.ema9;
+      const bb = technical.indicators?.bollingerBands || {};
+
+      const predDir = prediction?.direction;
+      const predMetadata = prediction?.metadata || {};
+
       if (action === ACTIONS.BUY) {
-        stopLoss = currentPrice * (1 - trailingPct);
-        takeProfit = currentPrice * (1 + trailingPct * 4); // Widen Take Profit to 4x trailing distance
+        // Validate and use AI-defined levels if direction-aligned and structurally correct
+        if (predDir === 'up' && predMetadata.limitEntryPrice && predMetadata.stopLoss && predMetadata.takeProfit) {
+          const aiEntry = parseFloat(predMetadata.limitEntryPrice);
+          const aiSL = parseFloat(predMetadata.stopLoss);
+          const aiTP = parseFloat(predMetadata.takeProfit);
+          
+          if (aiEntry < currentPrice && aiSL < aiEntry && aiTP > aiEntry) {
+            limitEntryPrice = aiEntry;
+            stopLoss = aiSL;
+            takeProfit = aiTP;
+            usedAiTargets = true;
+          }
+        }
+
+        if (!usedAiTargets) {
+          // Fallback to regime-adaptive technical indicator targets
+          if (regime === 'trending_up') {
+            const pullbackPrice = ema9 || (currentPrice - 0.25 * atr);
+            limitEntryPrice = Math.min(currentPrice, pullbackPrice);
+            limitEntryPrice = Math.max(limitEntryPrice, currentPrice - 0.5 * atr);
+          } else {
+            const supportPrice = bb.lower || (currentPrice - 0.5 * atr);
+            limitEntryPrice = Math.min(currentPrice * 0.995, supportPrice);
+          }
+          limitEntryPrice = Math.min(limitEntryPrice, currentPrice - 0.05 * atr);
+          limitEntryPrice = Math.max(0.00000001, limitEntryPrice);
+
+          stopLoss = limitEntryPrice - 1.5 * atr;
+          takeProfit = limitEntryPrice + 3.0 * atr;
+        }
       } else if (action === ACTIONS.SELL) {
-        stopLoss = currentPrice * (1 + trailingPct);
-        takeProfit = currentPrice * (1 - trailingPct * 4); // Widen Take Profit to 4x trailing distance
+        // Validate and use AI-defined levels if direction-aligned and structurally correct
+        if (predDir === 'down' && predMetadata.limitEntryPrice && predMetadata.stopLoss && predMetadata.takeProfit) {
+          const aiEntry = parseFloat(predMetadata.limitEntryPrice);
+          const aiSL = parseFloat(predMetadata.stopLoss);
+          const aiTP = parseFloat(predMetadata.takeProfit);
+
+          if (aiEntry > currentPrice && aiSL > aiEntry && aiTP < aiEntry) {
+            limitEntryPrice = aiEntry;
+            stopLoss = aiSL;
+            takeProfit = aiTP;
+            usedAiTargets = true;
+          }
+        }
+
+        if (!usedAiTargets) {
+          // Fallback to regime-adaptive technical indicator targets
+          if (regime === 'trending_down') {
+            const rallyPrice = ema9 || (currentPrice + 0.25 * atr);
+            limitEntryPrice = Math.max(currentPrice, rallyPrice);
+            limitEntryPrice = Math.min(limitEntryPrice, currentPrice + 0.5 * atr);
+          } else {
+            const resistancePrice = bb.upper || (currentPrice + 0.5 * atr);
+            limitEntryPrice = Math.max(currentPrice * 1.005, resistancePrice);
+          }
+          limitEntryPrice = Math.max(limitEntryPrice, currentPrice + 0.05 * atr);
+
+          stopLoss = limitEntryPrice + 1.5 * atr;
+          takeProfit = limitEntryPrice - 3.0 * atr;
+        }
       }
     }
 
@@ -108,8 +172,8 @@ export default class FusionAgent extends BaseAgent {
     let positionPercent = 1.0; // Default 1%
     if (action !== ACTIONS.HOLD) {
       const p = confidence;
-      const riskDistance = Math.abs(currentPrice - stopLoss);
-      const rewardDistance = Math.abs(takeProfit - currentPrice);
+      const riskDistance = Math.abs(limitEntryPrice - stopLoss);
+      const rewardDistance = Math.abs(takeProfit - limitEntryPrice);
       const b = riskDistance > 0 ? (rewardDistance / riskDistance) : 2.0;
 
       // Kelly Formula: f* = (p * b - q) / b
@@ -131,14 +195,19 @@ export default class FusionAgent extends BaseAgent {
       source: 'fusion',
       positionSize: `${positionPercent.toFixed(1)}%`,
       trailingPct,
-      stopLoss: currentPrice < 0.001 
+      limitEntryPrice: limitEntryPrice < 0.001 
+        ? Math.round(limitEntryPrice * 100000000) / 100000000 
+        : limitEntryPrice < 10 
+          ? Math.round(limitEntryPrice * 1000000) / 1000000 
+          : Math.round(limitEntryPrice * 100) / 100,
+      stopLoss: limitEntryPrice < 0.001 
         ? Math.round(stopLoss * 100000000) / 100000000 
-        : currentPrice < 10 
+        : limitEntryPrice < 10 
           ? Math.round(stopLoss * 1000000) / 1000000 
           : Math.round(stopLoss * 100) / 100,
-      takeProfit: currentPrice < 0.001 
+      takeProfit: limitEntryPrice < 0.001 
         ? Math.round(takeProfit * 100000000) / 100000000 
-        : currentPrice < 10 
+        : limitEntryPrice < 10 
           ? Math.round(takeProfit * 1000000) / 1000000 
           : Math.round(takeProfit * 100) / 100,
       reasoning: this.buildReasoning(action, technical, sentiment, prediction, composite),
@@ -151,7 +220,8 @@ export default class FusionAgent extends BaseAgent {
         composite,
       },
       metadata: {
-        sourceModel: prediction?.model || 'none'
+        sourceModel: prediction?.model || 'none',
+        usedAiTargets
       }
     };
   }

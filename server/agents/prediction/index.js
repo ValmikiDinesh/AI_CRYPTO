@@ -95,6 +95,7 @@ export default class PredictionAgent extends BaseAgent {
             metadata: {
               takeProfit: aiPred.takeProfit,
               stopLoss: aiPred.stopLoss,
+              limitEntryPrice: aiPred.limitEntryPrice,
               reasoning: aiPred.reasoning
             }
           };
@@ -247,6 +248,43 @@ export default class PredictionAgent extends BaseAgent {
       probability = 0.5;
     }
 
+    // Calculate mathematical fallback targets based on current regime
+    const atr = ind.atr || (currentPrice * 0.02);
+    const bb = ind.bollingerBands || {};
+    
+    let fallbackLimitEntryPrice = currentPrice;
+    let fallbackStopLoss = currentPrice;
+    let fallbackTakeProfit = currentPrice;
+
+    if (direction === 'up') {
+      if (regime === 'trending_up') {
+        const pullbackPrice = ema9 || (currentPrice - 0.25 * atr);
+        fallbackLimitEntryPrice = Math.min(currentPrice, pullbackPrice);
+        fallbackLimitEntryPrice = Math.max(fallbackLimitEntryPrice, currentPrice - 0.5 * atr);
+      } else {
+        const supportPrice = bb.lower || (currentPrice - 0.5 * atr);
+        fallbackLimitEntryPrice = Math.min(currentPrice * 0.995, supportPrice);
+      }
+      fallbackLimitEntryPrice = Math.min(fallbackLimitEntryPrice, currentPrice - 0.05 * atr);
+      fallbackLimitEntryPrice = Math.max(0.00000001, fallbackLimitEntryPrice);
+
+      fallbackStopLoss = fallbackLimitEntryPrice - 1.5 * atr;
+      fallbackTakeProfit = fallbackLimitEntryPrice + 3.0 * atr;
+    } else if (direction === 'down') {
+      if (regime === 'trending_down') {
+        const rallyPrice = ema9 || (currentPrice + 0.25 * atr);
+        fallbackLimitEntryPrice = Math.max(currentPrice, rallyPrice);
+        fallbackLimitEntryPrice = Math.min(fallbackLimitEntryPrice, currentPrice + 0.5 * atr);
+      } else {
+        const resistancePrice = bb.upper || (currentPrice + 0.5 * atr);
+        fallbackLimitEntryPrice = Math.max(currentPrice * 1.005, resistancePrice);
+      }
+      fallbackLimitEntryPrice = Math.max(fallbackLimitEntryPrice, currentPrice + 0.05 * atr);
+
+      fallbackStopLoss = fallbackLimitEntryPrice + 1.5 * atr;
+      fallbackTakeProfit = fallbackLimitEntryPrice - 3.0 * atr;
+    }
+
     return {
       asset,
       model: 'adaptive_statistical_fallback',
@@ -264,7 +302,22 @@ export default class PredictionAgent extends BaseAgent {
         ema9_21_cross: ema9 && ema21 ? (ema9 - ema21) / ema21 : 0
       },
       metadata: {
-        reasoning
+        reasoning,
+        limitEntryPrice: fallbackLimitEntryPrice < 0.001 
+          ? Math.round(fallbackLimitEntryPrice * 100000000) / 100000000 
+          : fallbackLimitEntryPrice < 10 
+            ? Math.round(fallbackLimitEntryPrice * 1000000) / 1000000 
+            : Math.round(fallbackLimitEntryPrice * 100) / 100,
+        stopLoss: fallbackLimitEntryPrice < 0.001 
+          ? Math.round(fallbackStopLoss * 100000000) / 100000000 
+          : fallbackLimitEntryPrice < 10 
+            ? Math.round(fallbackStopLoss * 1000000) / 1000000 
+            : Math.round(fallbackStopLoss * 100) / 100,
+        takeProfit: fallbackLimitEntryPrice < 0.001 
+          ? Math.round(fallbackTakeProfit * 100000000) / 100000000 
+          : fallbackLimitEntryPrice < 10 
+            ? Math.round(fallbackTakeProfit * 1000000) / 1000000 
+            : Math.round(fallbackTakeProfit * 100) / 100,
       }
     };
   }

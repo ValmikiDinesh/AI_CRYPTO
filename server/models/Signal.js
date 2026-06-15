@@ -11,6 +11,7 @@ const signalSchema = new mongoose.Schema({
     required: true,
   },
   positionSize: { type: String },       // e.g. "2%"
+  limitEntryPrice: { type: Number },
   stopLoss: { type: Number },
   takeProfit: { type: Number },
   reasoning: { type: String },
