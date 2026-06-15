@@ -60,6 +60,7 @@ router.get('/performance', async (req, res, next) => {
         drawdown: portfolio.currentDrawdown,
         peakBalance: portfolio.peakBalance,
         allocation: portfolio.allocationBreakdown,
+        openPositions: portfolio.positions.filter((p) => p.status === 'open').length,
       },
     });
   } catch (err) {
