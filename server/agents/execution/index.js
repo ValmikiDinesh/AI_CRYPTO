@@ -282,11 +282,11 @@ export default class ExecutionAgent extends BaseAgent {
       return;
     }
 
-    const futuresFeeRate = 0.0005; // 0.05% Taker Fee
-    const entryFee = positionValue * futuresFeeRate;
+    const futuresMakerFeeRate = 0.0002; // 0.02% Maker Fee
+    const entryFee = positionValue * futuresMakerFeeRate;
 
     if (portfolio.availableBalance < (marginRequired + entryFee)) {
-      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required ($${(marginRequired + entryFee).toFixed(2)}) including margin and 0.05% Taker fee — skipping`);
+      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required ($${(marginRequired + entryFee).toFixed(2)}) including margin and 0.02% Maker fee — skipping`);
       return;
     }
 
@@ -345,7 +345,7 @@ export default class ExecutionAgent extends BaseAgent {
     if (order.fee && order.fee.cost) {
       actualFee = order.fee.cost;
     } else {
-      actualFee = (executionPrice * executionQuantity) * futuresFeeRate;
+      actualFee = (executionPrice * executionQuantity) * futuresMakerFeeRate;
     }
 
     const finalMarginRequired = (executionPrice * executionQuantity) / leverage;
