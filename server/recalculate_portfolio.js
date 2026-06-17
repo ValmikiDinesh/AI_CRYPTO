@@ -60,9 +60,20 @@ async function run() {
     openUnrealized += p.unrealizedPnl;
   });
 
+  // Deduct margin and fees for pending limit orders
+  let pendingMargin = 0;
+  const pendingTrades = await Trade.find({ status: 'pending' });
+  pendingTrades.forEach(t => {
+    const leverage = t.leverage && t.leverage > 1 ? t.leverage : 3;
+    const exposure = t.entryPrice * t.quantity;
+    const margin = exposure / leverage;
+    const entryFee = t.fees || 0;
+    trueAvailable -= (margin + entryFee);
+    pendingMargin += (margin + entryFee);
+  });
+
   // 3. Calculate true total balance (Net Worth)
-  // totalBalance = trueAvailable + openExposure + openUnrealized
-  const trueTotalBalance = trueAvailable + openExposure + openUnrealized;
+  const trueTotalBalance = trueAvailable + pendingMargin + openExposure + openUnrealized;
 
   console.log("\n=== RECALCULATED TRUE VALUES ===");
   console.log(`trueTotalPnl: $${trueTotalPnl.toFixed(4)}`);

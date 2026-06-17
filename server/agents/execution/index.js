@@ -475,39 +475,44 @@ export default class ExecutionAgent extends BaseAgent {
     let stopLossOrderId = null;
     try {
       const exchange = getExchange();
+      await exchange.loadMarkets();
       const exitSide = side === 'buy' ? 'sell' : 'buy';
+      
+      const formattedAmount = parseFloat(exchange.amountToPrecision(signal.asset, quantity));
       
       // 1. Native Stop-Loss trigger order
       if (signal.stopLoss) {
+        const formattedStopLoss = parseFloat(exchange.priceToPrecision(signal.asset, signal.stopLoss));
         const slOrderResult = await exchange.createOrder(
           signal.asset,
           'stop_market',
           exitSide,
-          quantity,
+          formattedAmount,
           undefined,
           {
-            stopPrice: signal.stopLoss,
+            stopPrice: formattedStopLoss,
             reduceOnly: true
           }
         );
         stopLossOrderId = slOrderResult?.id;
-        this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${signal.stopLoss} id=${stopLossOrderId} on Binance Demo`);
+        this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} id=${stopLossOrderId} on Binance Demo`);
       }
 
       // 2. Native Take-Profit trigger order
       if (signal.takeProfit) {
+        const formattedTakeProfit = parseFloat(exchange.priceToPrecision(signal.asset, signal.takeProfit));
         await exchange.createOrder(
           signal.asset,
           'take_profit_market',
           exitSide,
-          quantity,
+          formattedAmount,
           undefined,
           {
-            stopPrice: signal.takeProfit,
+            stopPrice: formattedTakeProfit,
             reduceOnly: true
           }
         );
-        this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${signal.takeProfit} on Binance Demo`);
+        this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} on Binance Demo`);
       }
     } catch (triggerErr) {
       this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);

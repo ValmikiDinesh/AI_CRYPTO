@@ -105,8 +105,10 @@ export const fetchOrderBook = async (symbol, limit = 20) => {
 export const placeMarketOrder = async (symbol, side, amount) => {
   try {
     const exchange = getExchange();
-    const order = await exchange.createMarketOrder(symbol, side, amount);
-    logger.info(`Order placed: ${side} ${amount} ${symbol} → ID ${order.id}`);
+    await exchange.loadMarkets();
+    const formattedAmount = parseFloat(exchange.amountToPrecision(symbol, amount));
+    const order = await exchange.createMarketOrder(symbol, side, formattedAmount);
+    logger.info(`Order placed: ${side} ${formattedAmount} ${symbol} (raw: ${amount}) → ID ${order.id}`);
     return order;
   } catch (err) {
     logger.error(`placeMarketOrder(${symbol}, ${side}) error: ${err.message}`);
@@ -120,8 +122,11 @@ export const placeMarketOrder = async (symbol, side, amount) => {
 export const placeLimitOrder = async (symbol, side, amount, price) => {
   try {
     const exchange = getExchange();
-    const order = await exchange.createLimitOrder(symbol, side, amount, price);
-    logger.info(`Limit order: ${side} ${amount} ${symbol} @ ${price} → ID ${order.id}`);
+    await exchange.loadMarkets();
+    const formattedAmount = parseFloat(exchange.amountToPrecision(symbol, amount));
+    const formattedPrice = parseFloat(exchange.priceToPrecision(symbol, price));
+    const order = await exchange.createLimitOrder(symbol, side, formattedAmount, formattedPrice);
+    logger.info(`Limit order: ${side} ${formattedAmount} ${symbol} @ ${formattedPrice} (raw: ${amount} @ ${price}) → ID ${order.id}`);
     return order;
   } catch (err) {
     logger.error(`placeLimitOrder error: ${err.message}`);

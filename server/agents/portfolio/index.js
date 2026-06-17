@@ -171,37 +171,42 @@ export default class PortfolioAgent extends BaseAgent {
               try {
                 const { getExchange } = await import('../../services/exchangeService.js');
                 const exchange = getExchange();
+                await exchange.loadMarkets();
                 const oppositeSide = activeTrade.action === 'BUY' ? 'sell' : 'buy';
                 
+                const formattedAmount = parseFloat(exchange.amountToPrecision(asset, quantity));
+                
                 if (activeTrade.stopLoss) {
+                  const formattedStopLoss = parseFloat(exchange.priceToPrecision(asset, activeTrade.stopLoss));
                   const slOrderResult = await exchange.createOrder(
                     asset,
                     'stop_market',
                     oppositeSide,
-                    quantity,
+                    formattedAmount,
                     undefined,
                     {
-                      stopPrice: activeTrade.stopLoss,
+                      stopPrice: formattedStopLoss,
                       reduceOnly: true
                     }
                   );
                   stopLossOrderId = slOrderResult?.id;
-                  this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${activeTrade.stopLoss} id=${stopLossOrderId} on Binance Demo for filled limit order`);
+                  this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} id=${stopLossOrderId} on Binance Demo for filled limit order`);
                 }
                 
                 if (activeTrade.takeProfit) {
+                  const formattedTakeProfit = parseFloat(exchange.priceToPrecision(asset, activeTrade.takeProfit));
                   await exchange.createOrder(
                     asset,
                     'take_profit_market',
                     oppositeSide,
-                    quantity,
+                    formattedAmount,
                     undefined,
                     {
-                      stopPrice: activeTrade.takeProfit,
+                      stopPrice: formattedTakeProfit,
                       reduceOnly: true
                     }
                   );
-                  this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${activeTrade.takeProfit} on Binance Demo for filled limit order`);
+                  this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} on Binance Demo for filled limit order`);
                 }
               } catch (triggerErr) {
                 this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
@@ -509,6 +514,7 @@ export default class PortfolioAgent extends BaseAgent {
       });
 
       // Deduct margin and fees for pending limit orders
+      let pendingMargin = 0;
       const pendingTrades = await Trade.find({ status: 'pending' });
       pendingTrades.forEach(t => {
         const leverage = t.leverage && t.leverage > 1 ? t.leverage : 3;
@@ -516,10 +522,11 @@ export default class PortfolioAgent extends BaseAgent {
         const margin = exposure / leverage;
         const entryFee = t.fees || 0;
         trueAvailable -= (margin + entryFee);
+        pendingMargin += (margin + entryFee);
       });
 
       // 3. Calculate true total balance (Net Worth)
-      const trueTotalBalance = trueAvailable + openExposure + openUnrealized;
+      const trueTotalBalance = trueAvailable + pendingMargin + openExposure + openUnrealized;
 
       portfolio.totalPnl = trueTotalPnl;
       portfolio.availableBalance = trueAvailable;
