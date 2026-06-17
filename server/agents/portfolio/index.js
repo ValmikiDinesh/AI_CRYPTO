@@ -113,6 +113,27 @@ export default class PortfolioAgent extends BaseAgent {
           position.entryPrice = exchangePos.entryPrice || position.entryPrice;
           position.quantity = exchangePos.contracts || position.quantity;
           position.currentPrice = exchangePos.markPrice || currentPrice;
+
+          // Also sync corresponding open Trade record quantity and entryPrice to avoid DB-exchange drift
+          try {
+            const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+            if (activeTrade) {
+              let changed = false;
+              if (activeTrade.quantity !== position.quantity) {
+                activeTrade.quantity = position.quantity;
+                changed = true;
+              }
+              if (activeTrade.entryPrice !== position.entryPrice) {
+                activeTrade.entryPrice = position.entryPrice;
+                changed = true;
+              }
+              if (changed) {
+                await activeTrade.save();
+              }
+            }
+          } catch (tradeSyncErr) {
+            this.logger.error(`Failed to sync Trade quantity/entryPrice for ${position.asset}: ${tradeSyncErr.message}`);
+          }
         }
       }
 
@@ -341,10 +362,23 @@ export default class PortfolioAgent extends BaseAgent {
         const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
         if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
           const exitSide = position.side === 'long' ? 'sell' : 'buy';
-          this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} (${position.quantity} units)`);
+          
+          // Fetch fresh position size directly from the exchange to ensure we close the full current position
+          let closeQty = position.quantity;
+          try {
+            const { fetchPositions } = await import('../../services/exchangeService.js');
+            const activePos = await fetchPositions(position.asset);
+            if (activePos && activePos.length > 0) {
+              closeQty = activePos[0].contracts || position.quantity;
+            }
+          } catch (fetchErr) {
+            this.logger.warn(`Failed to fetch fresh position size before exit, falling back to local quantity: ${fetchErr.message}`);
+          }
+
+          this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} (${closeQty} units)`);
           
           // Await close order and retrieve actual executed parameters from response
-          const closeOrder = await placeMarketOrder(position.asset, exitSide, position.quantity);
+          const closeOrder = await placeMarketOrder(position.asset, exitSide, closeQty);
           
           actualClosePrice = closeOrder.average || closeOrder.price || closePrice;
           if (closeOrder.fee && closeOrder.fee.cost) {
