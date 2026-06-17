@@ -55,6 +55,7 @@ export default class ExecutionAgent extends BaseAgent {
         if (age >= EXPIRATION_TIMEOUT_MS) {
           this.logger.info(`⏳ Pending trade for ${trade.asset} expired (${Math.round(age / 1000)}s old). Cancelling...`);
           
+          let cancelFailedDueToFill = false;
           try {
             const exchange = getExchange();
             if (trade.exchangeOrderId && !trade.exchangeOrderId.startsWith('mock_')) {
@@ -62,8 +63,41 @@ export default class ExecutionAgent extends BaseAgent {
             }
           } catch (cancelErr) {
             this.logger.warn(`Failed to cancel expired order ${trade.exchangeOrderId} on exchange: ${cancelErr.message}`);
+            if (cancelErr.message.includes('filled') || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
+              cancelFailedDueToFill = true;
+            }
           }
           
+          if (cancelFailedDueToFill) {
+            this.logger.info(`🔄 Order ${trade.exchangeOrderId} for ${trade.asset} was already filled on exchange. Transitioning trade to open instead of cancelling.`);
+            trade.status = 'open';
+            trade.executedAt = new Date();
+            await trade.save();
+            
+            // Add to portfolio active positions so it is properly monitored
+            let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+            if (portfolio) {
+              const exists = portfolio.positions.some(p => p.asset === trade.asset && p.status === 'open');
+              if (!exists) {
+                portfolio.positions.push({
+                  asset: trade.asset,
+                  side: trade.side,
+                  entryPrice: trade.entryPrice,
+                  currentPrice: trade.entryPrice,
+                  quantity: trade.quantity,
+                  leverage: trade.leverage,
+                  stopLoss: trade.stopLoss,
+                  takeProfit: trade.takeProfit,
+                  status: 'open',
+                  openedAt: new Date(),
+                  fees: trade.fees || 0,
+                });
+                await portfolio.save();
+              }
+            }
+            continue;
+          }
+
           trade.status = 'cancelled';
           trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)' };
           await trade.save();
@@ -153,6 +187,7 @@ export default class ExecutionAgent extends BaseAgent {
         const pendingTrade = await Trade.findOne({ asset, status: 'pending' });
         if (pendingTrade) {
           this.logger.info(`Cancelling existing pending limit order for ${asset} (ID: ${pendingTrade.exchangeOrderId}) before processing new signal`);
+          let cancelFailedDueToFill = false;
           try {
             const exchange = getExchange();
             if (pendingTrade.exchangeOrderId && !pendingTrade.exchangeOrderId.startsWith('mock_')) {
@@ -160,22 +195,54 @@ export default class ExecutionAgent extends BaseAgent {
             }
           } catch (cancelErr) {
             this.logger.warn(`Could not cancel order ${pendingTrade.exchangeOrderId} on exchange: ${cancelErr.message}`);
+            if (cancelErr.message.includes('filled') || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
+              cancelFailedDueToFill = true;
+            }
           }
           
-          pendingTrade.status = 'cancelled';
-          pendingTrade.metadata = { ...(pendingTrade.metadata || {}), cancelReason: 'Superceded by new signal' };
-          await pendingTrade.save();
-          
-          // Refund margin
-          const leverage = pendingTrade.leverage || 3;
-          const marginReserved = (pendingTrade.entryPrice * pendingTrade.quantity) / leverage;
-          const feeReserved = pendingTrade.fees || 0;
-          
-          let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
-          if (portfolio) {
-            portfolio.availableBalance += (marginReserved + feeReserved);
-            await portfolio.save();
-            this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for cancelled trade on ${asset}`);
+          if (cancelFailedDueToFill) {
+            this.logger.info(`🔄 Pending order ${pendingTrade.exchangeOrderId} for ${asset} was already filled on exchange. Transitioning to open instead of cancelling.`);
+            pendingTrade.status = 'open';
+            pendingTrade.executedAt = new Date();
+            await pendingTrade.save();
+            
+            // Add to portfolio active positions so it is properly monitored
+            let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+            if (portfolio) {
+              const exists = portfolio.positions.some(p => p.asset === asset && p.status === 'open');
+              if (!exists) {
+                portfolio.positions.push({
+                  asset: asset,
+                  side: pendingTrade.side,
+                  entryPrice: pendingTrade.entryPrice,
+                  currentPrice: pendingTrade.entryPrice,
+                  quantity: pendingTrade.quantity,
+                  leverage: pendingTrade.leverage,
+                  stopLoss: pendingTrade.stopLoss,
+                  takeProfit: pendingTrade.takeProfit,
+                  status: 'open',
+                  openedAt: new Date(),
+                  fees: pendingTrade.fees || 0,
+                });
+                await portfolio.save();
+              }
+            }
+          } else {
+            pendingTrade.status = 'cancelled';
+            pendingTrade.metadata = { ...(pendingTrade.metadata || {}), cancelReason: 'Superceded by new signal' };
+            await pendingTrade.save();
+            
+            // Refund margin
+            const leverage = pendingTrade.leverage || 3;
+            const marginReserved = (pendingTrade.entryPrice * pendingTrade.quantity) / leverage;
+            const feeReserved = pendingTrade.fees || 0;
+            
+            let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+            if (portfolio) {
+              portfolio.availableBalance += (marginReserved + feeReserved);
+              await portfolio.save();
+              this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for cancelled trade on ${asset}`);
+            }
           }
         }
       } catch (cancelErr) {
