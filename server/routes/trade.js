@@ -282,22 +282,75 @@ router.post('/manual-close', async (req, res, next) => {
     }
 
     const pos = portfolio.positions[positionIndex];
+
+    // Place offsetting market close order on the exchange if it's a live/testnet trade
+    let finalExitPrice = exitPrice;
+    let finalExitFee = (exitPrice * pos.quantity) * 0.0005; // default 0.05% taker fee
+    
+    try {
+      const activeTrade = await Trade.findOne({ asset, status: 'open' });
+      if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+        const { placeMarketOrder, getExchange } = await import('../services/exchangeService.js');
+        const exitSide = pos.side === 'long' ? 'sell' : 'buy';
+        
+        let closeQty = pos.quantity;
+        try {
+          const exchange = getExchange();
+          await exchange.loadMarkets();
+          
+          let exchangeSymbol = asset.replace('USDT', '/USDT:USDT');
+          if (asset.startsWith('1000')) {
+            // keep it
+          } else if (asset === 'BONKUSDT' || asset === 'SHIBUSDT' || asset === 'PEPEUSDT' || asset === 'FLOKIUSDT') {
+            exchangeSymbol = '1000' + asset.replace('USDT', '/USDT:USDT');
+          }
+          
+          const positions = await exchange.fetchPositions([exchangeSymbol]);
+          const activePos = positions.find(p => p.symbol === exchangeSymbol && parseFloat(p.contracts) > 0);
+          if (activePos) {
+            closeQty = parseFloat(activePos.contracts);
+          }
+        } catch (fetchErr) {
+          console.warn(`Failed to fetch fresh position size before exit: ${fetchErr.message}`);
+        }
+
+        console.log(`Executing offsetting market order on exchange to close ${closeQty} contracts for ${asset}`);
+        const closeOrder = await placeMarketOrder(asset, exitSide, closeQty);
+        
+        finalExitPrice = closeOrder.average || closeOrder.price || exitPrice;
+        if (closeOrder.fee && closeOrder.fee.cost) {
+          finalExitFee = closeOrder.fee.cost;
+        }
+
+        // Clean up remaining open trigger orders on exchange
+        try {
+          const exchange = getExchange();
+          await exchange.cancelAllOrders(asset);
+        } catch (cleanErr) {
+          console.warn(`Failed to clean up remaining triggers: ${cleanErr.message}`);
+        }
+      }
+    } catch (exchangeErr) {
+      return res.status(500).json({ 
+        success: false, 
+        message: `Failed to execute close order on Binance exchange: ${exchangeErr.message}` 
+      });
+    }
+
     pos.status = 'closed';
     pos.closedAt = new Date();
 
     let pnl = 0;
     if (pos.side === 'long') {
-      pnl = (exitPrice - pos.entryPrice) * pos.quantity;
+      pnl = (finalExitPrice - pos.entryPrice) * pos.quantity;
     } else {
-      pnl = (pos.entryPrice - exitPrice) * pos.quantity;
+      pnl = (pos.entryPrice - finalExitPrice) * pos.quantity;
     }
 
     pos.realizedPnl = pnl;
     pos.unrealizedPnl = 0;
 
-    const futuresFeeRate = 0.0005; // 0.05% Taker Fee
-    const exitFee = (exitPrice * pos.quantity) * futuresFeeRate;
-    const totalPositionFees = (pos.fees || 0) + exitFee;
+    const totalPositionFees = (pos.fees || 0) + finalExitFee;
     pos.fees = totalPositionFees;
 
     // Refund capital and PnL (minus exit fee) to availableBalance
