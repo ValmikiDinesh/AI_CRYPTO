@@ -317,7 +317,17 @@ router.post('/manual-close', async (req, res, next) => {
         console.log(`Executing offsetting market order on exchange to close ${closeQty} contracts for ${asset}`);
         const closeOrder = await placeMarketOrder(asset, exitSide, closeQty);
         
-        finalExitPrice = closeOrder.average || closeOrder.price || exitPrice;
+        finalExitPrice = closeOrder.average || closeOrder.price || 0;
+        if (finalExitPrice === 0) {
+          try {
+            const exchange = getExchange();
+            const ticker = await exchange.fetchTicker(exchangeSymbol);
+            finalExitPrice = ticker.last || ticker.close || exitPrice;
+            console.log(`⚠️ Market order price was not returned. Used ticker price fallback for manual close: $${finalExitPrice}`);
+          } catch (tickerErr) {
+            finalExitPrice = exitPrice;
+          }
+        }
         if (closeOrder.fee && closeOrder.fee.cost) {
           finalExitFee = closeOrder.fee.cost;
         }

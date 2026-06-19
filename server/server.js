@@ -11,6 +11,7 @@ import { INTERVALS } from './config/constants.js';
 import { logger } from './utils/logger.js';
 import errorHandler from './middleware/errorHandler.js';
 import { initializeSocketServer } from './websocket/socketManager.js';
+import { sendTelegramMessage } from './services/telegramService.js';
 
 // Routes
 import authRoutes from './routes/auth.js';
@@ -98,6 +99,9 @@ async function boot() {
     // 4. Initialize AI agents
     await bootAgents();
     logger.info('✅ All agents started');
+    
+    // Notify Telegram
+    await sendTelegramMessage('🚀 <b>Trading Bot Started!</b>\nAll agent pipelines are active and monitoring open trades.');
 
   } catch (err) {
     logger.error(`Boot failed: ${err.message}`);
@@ -151,6 +155,12 @@ async function bootAgents() {
 // ─── Graceful shutdown ───────────────────────────────────────────
 const shutdown = async (signal) => {
   logger.info(`${signal} received — starting graceful shutdown`);
+
+  try {
+    await sendTelegramMessage(`⚠️ <b>Trading Bot Stopping!</b>\nSignal received: ${signal}. Graceful shutdown initiated.`);
+  } catch (tgErr) {
+    logger.error(`Failed to send shutdown Telegram message: ${tgErr.message}`);
+  }
 
   // Set a timeout watchdog to force exit if graceful close hangs
   const forceExitTimeout = setTimeout(() => {
