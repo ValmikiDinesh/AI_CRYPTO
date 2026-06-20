@@ -515,8 +515,6 @@ export default class PortfolioAgent extends BaseAgent {
       const previousMilestone = position.highestProfitMilestone || 0;
 
       if (currentMilestone > previousMilestone && currentMilestone >= 1) {
-        position.highestProfitMilestone = currentMilestone;
-
         const makerFeeRate = 0.0002;
         const takerFeeRate = 0.0005;
         let newSLPrice = 0;
@@ -543,20 +541,13 @@ export default class PortfolioAgent extends BaseAgent {
           
           this.logger.info(`📈 [TRAILING SL MILESTONE] ${position.asset} profit reached $${currentMilestone.toFixed(2)}. Adjusting Stop-Loss to $${formattedSLPrice} to lock it in (Entry: $${position.entryPrice}, Qty: ${position.quantity})`);
 
-          // 1. Update Stop-Loss locally in Database
-          position.stopLoss = formattedSLPrice;
-          
           const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-          if (activeTrade) {
-            activeTrade.stopLoss = formattedSLPrice;
-            await activeTrade.save();
-          }
 
-          // 2. Re-adjust Stop-Loss order on Binance exchange book
+          // 1. Re-adjust Stop-Loss order on Binance exchange book FIRST (only if live/testnet trade)
           if (process.env.BINANCE_TESTNET_API_KEY && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
             try {
               const openOrders = await exchange.fetchOpenOrders(symbol);
-              const slOrders = openOrders.filter(o => o.type.includes('stop') || o.type.includes('trigger'));
+              const slOrders = openOrders.filter(o => o.type && (o.type.toLowerCase().includes('stop') || o.type.toLowerCase().includes('trigger')));
               for (const slOrder of slOrders) {
                 this.logger.info(`🧹 [TRAILING SL CLEANUP] Cancelling old stop-loss order ${slOrder.id} for ${position.asset}`);
                 await exchange.cancelOrder(slOrder.id, symbol);
@@ -580,6 +571,15 @@ export default class PortfolioAgent extends BaseAgent {
               }
             );
             this.logger.info(`✅ [NATIVE STOP-LOSS UPDATED] stopPrice=${formattedSLPrice} size=${formattedAmount} id=${slOrderResult.id} on Binance Demo`);
+          }
+
+          // 2. Update local database ONLY after successful exchange execution/update
+          position.highestProfitMilestone = currentMilestone;
+          position.stopLoss = formattedSLPrice;
+          
+          if (activeTrade) {
+            activeTrade.stopLoss = formattedSLPrice;
+            await activeTrade.save();
           }
         } catch (err) {
           this.logger.error(`❌ [TRAILING SL UPDATE FAILED] Failed to update Stop-Loss for ${position.asset}: ${err.message}`);
