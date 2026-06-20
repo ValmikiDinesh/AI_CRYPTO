@@ -246,6 +246,9 @@ export default class PortfolioAgent extends BaseAgent {
             );
           }
 
+          const calculatedStopLoss = (activeTrade && activeTrade.stopLoss) ? activeTrade.stopLoss : (side === 'long' ? entryPrice * 0.95 : entryPrice * 1.05);
+          const calculatedTakeProfit = (activeTrade && activeTrade.takeProfit) ? activeTrade.takeProfit : (side === 'long' ? entryPrice * 1.10 : entryPrice * 0.90);
+
           // Add to portfolio positions array
           portfolio.positions.push({
             asset,
@@ -258,8 +261,8 @@ export default class PortfolioAgent extends BaseAgent {
             status: 'open',
             openedAt: new Date(exchangePos.timestamp || Date.now()),
             fees: activeTrade ? (activeTrade.fees || 0) : 0,
-            stopLoss: activeTrade ? activeTrade.stopLoss : undefined,
-            takeProfit: activeTrade ? activeTrade.takeProfit : undefined,
+            stopLoss: calculatedStopLoss,
+            takeProfit: calculatedTakeProfit,
             stopLossOrderId,
           });
 
@@ -274,6 +277,8 @@ export default class PortfolioAgent extends BaseAgent {
               quantity,
               positionSize: ((entryPrice * quantity) / portfolio.totalBalance) * 100,
               leverage,
+              stopLoss: calculatedStopLoss,
+              takeProfit: calculatedTakeProfit,
               confidence: 1.0,
               riskScore: 0.5,
               reasoning: 'Imported via Binance reconciliation sync',
@@ -281,7 +286,7 @@ export default class PortfolioAgent extends BaseAgent {
               executedAt: new Date(exchangePos.timestamp || Date.now()),
               exchange: 'binance_testnet',
             });
-            this.logger.info(`✅ [RECONCILIATION] Created matching Trade record for ${asset} (${side.toUpperCase()})`);
+            this.logger.info(`✅ [RECONCILIATION] Created matching Trade record for ${asset} (${side.toUpperCase()}) with fallback targets (SL: ${calculatedStopLoss}, TP: ${calculatedTakeProfit})`);
           }
         }
       }
