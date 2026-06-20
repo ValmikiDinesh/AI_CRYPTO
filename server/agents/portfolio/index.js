@@ -160,6 +160,12 @@ export default class PortfolioAgent extends BaseAgent {
     if (fetchedExchangeSuccessfully) {
       for (const exchangePos of activeExchangePositions) {
         const asset = exchangePos.symbol.split(':')[0].replace('/', '');
+
+        // Skip assets not supported by this bot instance
+        if (!SUPPORTED_ASSETS.includes(asset)) {
+          continue;
+        }
+
         const dbPosition = portfolio.positions.find((p) => p.asset === asset && p.status === 'open');
 
         if (!dbPosition) {
@@ -168,12 +174,17 @@ export default class PortfolioAgent extends BaseAgent {
           const side = exchangePos.side; // 'long' or 'short'
           const entryPrice = exchangePos.entryPrice;
           const quantity = exchangePos.contracts;
-          const leverage = exchangePos.initialMarginPercentage > 0 ? Math.round(1 / exchangePos.initialMarginPercentage) : 3;
+          let leverage = exchangePos.initialMarginPercentage > 0 ? Math.round(1 / exchangePos.initialMarginPercentage) : 3;
           const currentPrice = exchangePos.markPrice || entryPrice;
           const unrealizedPnl = exchangePos.unrealizedPnl || 0;
 
           // Find a corresponding pending or open Trade document in the DB
           let activeTrade = await Trade.findOne({ asset, status: { $in: ['open', 'pending'] } }).sort({ createdAt: -1 });
+          
+          if (activeTrade && activeTrade.leverage > 0) {
+            leverage = activeTrade.leverage;
+          }
+
           let stopLossOrderId = null;
 
           if (activeTrade && activeTrade.status === 'pending') {
