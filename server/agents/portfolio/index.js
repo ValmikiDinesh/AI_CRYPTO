@@ -504,19 +504,25 @@ export default class PortfolioAgent extends BaseAgent {
       if (!currentPrice) continue;
 
       // ─── Trailing Stop-Loss $1 Milestones ─────────────────────────────────
-      let currentProfit = 0;
+      const makerFeeRate = 0.0002;
+      const takerFeeRate = 0.0005;
+
+      let grossProfit = 0;
       if (position.side === 'long') {
-        currentProfit = (currentPrice - position.entryPrice) * position.quantity;
+        grossProfit = (currentPrice - position.entryPrice) * position.quantity;
       } else {
-        currentProfit = (position.entryPrice - currentPrice) * position.quantity;
+        grossProfit = (position.entryPrice - currentPrice) * position.quantity;
       }
 
-      const currentMilestone = Math.floor(currentProfit);
+      const entryFee = position.entryPrice * position.quantity * makerFeeRate;
+      const estimatedExitFee = currentPrice * position.quantity * takerFeeRate;
+      const totalEstimatedFees = entryFee + estimatedExitFee;
+      const currentNetProfit = grossProfit - totalEstimatedFees;
+
+      const currentMilestone = Math.floor(currentNetProfit);
       const previousMilestone = position.highestProfitMilestone || 0;
 
       if (currentMilestone > previousMilestone && currentMilestone >= 1) {
-        const makerFeeRate = 0.0002;
-        const takerFeeRate = 0.0005;
         let newSLPrice = 0;
 
         if (position.side === 'long') {
