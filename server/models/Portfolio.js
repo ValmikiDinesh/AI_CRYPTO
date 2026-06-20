@@ -16,6 +16,7 @@ const positionSchema = new mongoose.Schema({
   highestPrice: { type: Number },
   lowestPrice: { type: Number },
   trailingPct: { type: Number },
+  highestProfitMilestone: { type: Number, default: 0 },
   openedAt: { type: Date, default: Date.now },
   closedAt: { type: Date },
   status: { type: String, enum: ['open', 'closed'], default: 'open' },

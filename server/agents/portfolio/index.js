@@ -503,6 +503,90 @@ export default class PortfolioAgent extends BaseAgent {
       }
       if (!currentPrice) continue;
 
+      // ─── Trailing Stop-Loss $1 Milestones ─────────────────────────────────
+      let currentProfit = 0;
+      if (position.side === 'long') {
+        currentProfit = (currentPrice - position.entryPrice) * position.quantity;
+      } else {
+        currentProfit = (position.entryPrice - currentPrice) * position.quantity;
+      }
+
+      const currentMilestone = Math.floor(currentProfit);
+      const previousMilestone = position.highestProfitMilestone || 0;
+
+      if (currentMilestone > previousMilestone && currentMilestone >= 1) {
+        position.highestProfitMilestone = currentMilestone;
+
+        const makerFeeRate = 0.0002;
+        const takerFeeRate = 0.0005;
+        let newSLPrice = 0;
+
+        if (position.side === 'long') {
+          newSLPrice = ((currentMilestone / position.quantity) + position.entryPrice * (1 + makerFeeRate)) / (1 - takerFeeRate);
+        } else {
+          newSLPrice = (-(currentMilestone / position.quantity) + position.entryPrice * (1 - makerFeeRate)) / (1 + takerFeeRate);
+        }
+
+        try {
+          const { getExchange } = await import('../../services/exchangeService.js');
+          const exchange = getExchange();
+          await exchange.loadMarkets();
+          
+          let symbol = position.asset.replace('USDT', '/USDT:USDT');
+          if (position.asset.startsWith('1000')) {
+            // keep it
+          } else if (position.asset === 'BONKUSDT' || position.asset === 'SHIBUSDT' || position.asset === 'PEPEUSDT' || position.asset === 'FLOKIUSDT') {
+            symbol = '1000' + position.asset.replace('USDT', '/USDT:USDT');
+          }
+
+          const formattedSLPrice = parseFloat(exchange.priceToPrecision(symbol, newSLPrice));
+          
+          this.logger.info(`📈 [TRAILING SL MILESTONE] ${position.asset} profit reached $${currentMilestone.toFixed(2)}. Adjusting Stop-Loss to $${formattedSLPrice} to lock it in (Entry: $${position.entryPrice}, Qty: ${position.quantity})`);
+
+          // 1. Update Stop-Loss locally in Database
+          position.stopLoss = formattedSLPrice;
+          
+          const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
+          if (activeTrade) {
+            activeTrade.stopLoss = formattedSLPrice;
+            await activeTrade.save();
+          }
+
+          // 2. Re-adjust Stop-Loss order on Binance exchange book
+          if (process.env.BINANCE_TESTNET_API_KEY && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
+            try {
+              const openOrders = await exchange.fetchOpenOrders(symbol);
+              const slOrders = openOrders.filter(o => o.type.includes('stop') || o.type.includes('trigger'));
+              for (const slOrder of slOrders) {
+                this.logger.info(`🧹 [TRAILING SL CLEANUP] Cancelling old stop-loss order ${slOrder.id} for ${position.asset}`);
+                await exchange.cancelOrder(slOrder.id, symbol);
+              }
+            } catch (cancelErr) {
+              this.logger.warn(`Failed to clean up old stop-loss trigger orders for ${position.asset}: ${cancelErr.message}`);
+            }
+
+            const exitSide = position.side === 'long' ? 'sell' : 'buy';
+            const formattedAmount = parseFloat(exchange.amountToPrecision(symbol, position.quantity));
+            
+            const slOrderResult = await exchange.createOrder(
+              symbol,
+              'stop_market',
+              exitSide,
+              formattedAmount,
+              undefined,
+              {
+                stopPrice: formattedSLPrice,
+                reduceOnly: true
+              }
+            );
+            this.logger.info(`✅ [NATIVE STOP-LOSS UPDATED] stopPrice=${formattedSLPrice} size=${formattedAmount} id=${slOrderResult.id} on Binance Demo`);
+          }
+        } catch (err) {
+          this.logger.error(`❌ [TRAILING SL UPDATE FAILED] Failed to update Stop-Loss for ${position.asset}: ${err.message}`);
+        }
+      }
+      // ──────────────────────────────────────────────────────────────────────
+
       let shouldClose = false;
       let reason = '';
 
