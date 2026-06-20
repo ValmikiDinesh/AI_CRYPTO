@@ -175,7 +175,12 @@ export const fetchPositions = async (symbol) => {
       }
       
       const positions = await exchange.fetchPositions(symbol ? [symbol] : undefined);
-      return positions.filter((p) => parseFloat(p.contracts) > 0);
+      return positions.filter((p) => {
+        const contracts = parseFloat(p.contracts) || 0;
+        const markPrice = parseFloat(p.markPrice) || parseFloat(p.entryPrice) || 0;
+        const positionValue = contracts * markPrice;
+        return contracts > 0 && positionValue >= 1.5; // Ignore dust positions worth less than $1.50
+      });
     });
   } catch (err) {
     logger.error(`fetchPositions error: ${err.message}`);
