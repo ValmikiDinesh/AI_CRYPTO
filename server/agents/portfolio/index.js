@@ -339,7 +339,7 @@ export default class PortfolioAgent extends BaseAgent {
           const side = exchangePos.side; // 'long' or 'short'
           const entryPrice = exchangePos.entryPrice;
           const quantity = exchangePos.contracts;
-          let leverage = exchangePos.initialMarginPercentage > 0 ? Math.round(1 / exchangePos.initialMarginPercentage) : 3;
+          let leverage = exchangePos.leverage || (exchangePos.initialMarginPercentage > 0 ? Math.round(1 / exchangePos.initialMarginPercentage) : 3);
           const currentPrice = exchangePos.markPrice || entryPrice;
           const unrealizedPnl = exchangePos.unrealizedPnl || 0;
 
