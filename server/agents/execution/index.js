@@ -359,6 +359,34 @@ export default class ExecutionAgent extends BaseAgent {
 
     const side = signal.action === ACTIONS.BUY ? 'buy' : 'sell';
 
+    let finalTakeProfit = signal.takeProfit;
+
+    if (process.env.ONE_DOLLAR_PROFIT_TARGET === 'true') {
+      const sideMultiplier = signal.action === ACTIONS.BUY ? 1 : -1;
+      const makerFeeRate = 0.0002;
+      const takerFeeRate = 0.0005;
+      
+      let targetPrice = 0;
+      if (sideMultiplier === 1) {
+        // Long exit: TP = ( (1.0 / Q) + entryPrice * (1 + makerFee) ) / (1 - takerFee)
+        targetPrice = ((1.0 / quantity) + limitEntryPrice * (1 + makerFeeRate)) / (1 - takerFeeRate);
+      } else {
+        // Short exit: TP = ( -(1.0 / Q) + entryPrice * (1 - makerFee) ) / (1 + takerFee)
+        targetPrice = (-(1.0 / quantity) + limitEntryPrice * (1 - makerFeeRate)) / (1 + takerFeeRate);
+      }
+
+      try {
+        const exchange = getExchange();
+        await exchange.loadMarkets();
+        finalTakeProfit = parseFloat(exchange.priceToPrecision(signal.asset, targetPrice));
+      } catch (err) {
+        finalTakeProfit = parseFloat(targetPrice.toFixed(6)); // fallback
+      }
+
+      this.logger.info(`🎯 [1$ CONCEPT ACTIVE] Calculated take profit target for ${signal.asset} to make exactly $1.00 net profit: $${finalTakeProfit} (Entry: $${limitEntryPrice}, Qty: ${quantity})`);
+      signal.takeProfit = finalTakeProfit; // update signal object so trigger orders use the correct price
+    }
+
     // Create trade record
     const trade = await Trade.create({
       userId: portfolio.userId,
@@ -370,7 +398,7 @@ export default class ExecutionAgent extends BaseAgent {
       quantity,
       positionSize: (positionValue / portfolio.totalBalance) * 100,
       stopLoss: signal.stopLoss,
-      takeProfit: signal.takeProfit,
+      takeProfit: finalTakeProfit,
       leverage,
       confidence: signal.confidence,
       riskScore: signal.riskScore,
