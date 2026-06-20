@@ -2,7 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
-import { placeMarketOrder } from '../../services/exchangeService.js';
+import { placeMarketOrder, getExchange } from '../../services/exchangeService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 
@@ -133,6 +133,171 @@ export default class PortfolioAgent extends BaseAgent {
             }
           } catch (tradeSyncErr) {
             this.logger.error(`Failed to sync Trade quantity/entryPrice for ${position.asset}: ${tradeSyncErr.message}`);
+          }
+
+          // Reconcile and synchronize Stop-Loss and Take-Profit trigger orders on the exchange
+          try {
+            const exchange = getExchange();
+            const symbol = `${position.asset.replace('USDT', '')}/USDT:USDT`;
+            
+            // Fetch open trigger orders for this symbol from the exchange
+            const openOrders = await exchange.fetchOpenOrders(symbol, undefined, undefined, { 'trigger': true });
+            const exitSide = position.side === 'long' ? 'sell' : 'buy';
+            
+            // Filter trigger orders matching the exit side
+            const triggerOrders = openOrders.filter(o => o.side === exitSide);
+            
+            const existingSLOrders = [];
+            const existingTPOrders = [];
+            
+            triggerOrders.forEach(o => {
+              const triggerPrice = parseFloat(o.stopPrice || o.triggerPrice || (o.info && o.info.stopPrice) || 0);
+              if (triggerPrice <= 0) return;
+              
+              if (position.side === 'long') {
+                if (triggerPrice < position.entryPrice) {
+                  existingSLOrders.push(o);
+                } else {
+                  existingTPOrders.push(o);
+                }
+              } else {
+                if (triggerPrice > position.entryPrice) {
+                  existingSLOrders.push(o);
+                } else {
+                  existingTPOrders.push(o);
+                }
+              }
+            });
+
+            this.logger.info(`🔍 [TRIGGER SYNC debug] ${symbol}: found ${existingSLOrders.length} SL orders and ${existingTPOrders.length} TP orders among ${openOrders.length} fetched open trigger orders`);
+
+            // 1. Reconcile Stop Loss
+            if (position.stopLoss) {
+              const formattedStopLoss = parseFloat(exchange.priceToPrecision(symbol, position.stopLoss));
+              
+              const matchingSLOrders = [];
+              const mismatchingSLOrders = [];
+              
+              existingSLOrders.forEach(o => {
+                const triggerPrice = parseFloat(o.stopPrice || o.triggerPrice || (o.info && o.info.stopPrice) || 0);
+                if (formattedStopLoss > 0 && Math.abs(triggerPrice - formattedStopLoss) / formattedStopLoss < 0.0001) {
+                  matchingSLOrders.push(o);
+                } else {
+                  mismatchingSLOrders.push(o);
+                }
+              });
+              
+              // Cancel any mismatching stop-loss orders
+              for (const o of mismatchingSLOrders) {
+                this.logger.info(`🔄 [SL SYNC] Cancelling mismatching stop-loss order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedStopLoss})`);
+                await exchange.cancelOrder(o.id, symbol);
+              }
+              
+              // Calculate total matching quantity
+              const totalMatchingQty = matchingSLOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
+              
+              // If matching qty is less than position qty, place the missing amount
+              const remainingQty = position.quantity - totalMatchingQty;
+              if (remainingQty > 0.0001) {
+                this.logger.info(`🔄 [SL SYNC] Stop Loss missing/insufficient for ${position.asset}. Placing trigger order for remaining qty: ${remainingQty}`);
+                
+                const market = exchange.market(symbol);
+                const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE');
+                const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
+                
+                let quantityToPlace = remainingQty;
+                while (quantityToPlace > 0) {
+                  const chunk = maxQty ? Math.min(quantityToPlace, maxQty) : quantityToPlace;
+                  const formattedChunk = parseFloat(exchange.amountToPrecision(symbol, chunk));
+                  if (formattedChunk <= 0) break;
+                  
+                  const slOrderResult = await exchange.createOrder(
+                    symbol,
+                    'stop_market',
+                    exitSide,
+                    formattedChunk,
+                    undefined,
+                    {
+                      stopPrice: formattedStopLoss,
+                      reduceOnly: true
+                    }
+                  );
+                  this.logger.info(`✅ [SL SYNC PLACED] stopPrice=${formattedStopLoss} size=${formattedChunk} id=${slOrderResult.id} on Binance Demo`);
+                  quantityToPlace -= chunk;
+                }
+              }
+            } else {
+              // DB has no stopLoss, cancel any existing stop-loss orders
+              for (const o of existingSLOrders) {
+                this.logger.info(`🔄 [SL SYNC] DB has no Stop Loss. Cancelling existing stop-loss order ${o.id} for ${position.asset}`);
+                await exchange.cancelOrder(o.id, symbol);
+              }
+            }
+            
+            // 2. Reconcile Take Profit
+            if (position.takeProfit) {
+              const formattedTakeProfit = parseFloat(exchange.priceToPrecision(symbol, position.takeProfit));
+              
+              const matchingTPOrders = [];
+              const mismatchingTPOrders = [];
+              
+              existingTPOrders.forEach(o => {
+                const triggerPrice = parseFloat(o.stopPrice || o.triggerPrice || (o.info && o.info.stopPrice) || 0);
+                if (formattedTakeProfit > 0 && Math.abs(triggerPrice - formattedTakeProfit) / formattedTakeProfit < 0.0001) {
+                  matchingTPOrders.push(o);
+                } else {
+                  mismatchingTPOrders.push(o);
+                }
+              });
+              
+              // Cancel any mismatching take-profit orders
+              for (const o of mismatchingTPOrders) {
+                this.logger.info(`🔄 [TP SYNC] Cancelling mismatching take-profit order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedTakeProfit})`);
+                await exchange.cancelOrder(o.id, symbol);
+              }
+              
+              // Calculate total matching quantity
+              const totalMatchingQty = matchingTPOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
+              
+              // If matching qty is less than position qty, place the missing amount
+              const remainingQty = position.quantity - totalMatchingQty;
+              if (remainingQty > 0.0001) {
+                this.logger.info(`🔄 [TP SYNC] Take Profit missing/insufficient for ${position.asset}. Placing trigger order for remaining qty: ${remainingQty}`);
+                
+                const market = exchange.market(symbol);
+                const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE');
+                const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
+                
+                let quantityToPlace = remainingQty;
+                while (quantityToPlace > 0) {
+                  const chunk = maxQty ? Math.min(quantityToPlace, maxQty) : quantityToPlace;
+                  const formattedChunk = parseFloat(exchange.amountToPrecision(symbol, chunk));
+                  if (formattedChunk <= 0) break;
+                  
+                  const tpOrderResult = await exchange.createOrder(
+                    symbol,
+                    'take_profit_market',
+                    exitSide,
+                    formattedChunk,
+                    undefined,
+                    {
+                      stopPrice: formattedTakeProfit,
+                      reduceOnly: true
+                    }
+                  );
+                  this.logger.info(`✅ [TP SYNC PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedChunk} id=${tpOrderResult.id} on Binance Demo`);
+                  quantityToPlace -= chunk;
+                }
+              }
+            } else {
+              // DB has no takeProfit, cancel any existing take-profit orders
+              for (const o of existingTPOrders) {
+                this.logger.info(`🔄 [TP SYNC] DB has no Take Profit. Cancelling existing take-profit order ${o.id} for ${position.asset}`);
+                await exchange.cancelOrder(o.id, symbol);
+              }
+            }
+          } catch (syncErr) {
+            this.logger.error(`❌ [TRIGGER SYNC FAILED] Failed to reconcile trigger orders for ${position.asset}: ${syncErr.stack || syncErr.message}`);
           }
         }
       }

@@ -545,41 +545,61 @@ export default class ExecutionAgent extends BaseAgent {
       await exchange.loadMarkets();
       const exitSide = side === 'buy' ? 'sell' : 'buy';
       
-      const formattedAmount = parseFloat(exchange.amountToPrecision(signal.asset, quantity));
+      const market = exchange.market(signal.asset);
+      const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE');
+      const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
       
       // 1. Native Stop-Loss trigger order
       if (signal.stopLoss) {
         const formattedStopLoss = parseFloat(exchange.priceToPrecision(signal.asset, signal.stopLoss));
-        const slOrderResult = await exchange.createOrder(
-          signal.asset,
-          'stop_market',
-          exitSide,
-          formattedAmount,
-          undefined,
-          {
-            stopPrice: formattedStopLoss,
-            reduceOnly: true
+        let remaining = quantity;
+        while (remaining > 0) {
+          const chunk = maxQty ? Math.min(remaining, maxQty) : remaining;
+          const formattedAmount = parseFloat(exchange.amountToPrecision(signal.asset, chunk));
+          if (formattedAmount <= 0) break;
+          
+          const slOrderResult = await exchange.createOrder(
+            signal.asset,
+            'stop_market',
+            exitSide,
+            formattedAmount,
+            undefined,
+            {
+              stopPrice: formattedStopLoss,
+              reduceOnly: true
+            }
+          );
+          if (!stopLossOrderId) {
+            stopLossOrderId = slOrderResult?.id; // return the first one as primary reference
           }
-        );
-        stopLossOrderId = slOrderResult?.id;
-        this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} id=${stopLossOrderId} on Binance Demo`);
+          this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} size=${formattedAmount} id=${slOrderResult?.id} on Binance Demo`);
+          remaining -= chunk;
+        }
       }
 
       // 2. Native Take-Profit trigger order
       if (signal.takeProfit) {
         const formattedTakeProfit = parseFloat(exchange.priceToPrecision(signal.asset, signal.takeProfit));
-        await exchange.createOrder(
-          signal.asset,
-          'take_profit_market',
-          exitSide,
-          formattedAmount,
-          undefined,
-          {
-            stopPrice: formattedTakeProfit,
-            reduceOnly: true
-          }
-        );
-        this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} on Binance Demo`);
+        let remaining = quantity;
+        while (remaining > 0) {
+          const chunk = maxQty ? Math.min(remaining, maxQty) : remaining;
+          const formattedAmount = parseFloat(exchange.amountToPrecision(signal.asset, chunk));
+          if (formattedAmount <= 0) break;
+          
+          await exchange.createOrder(
+            signal.asset,
+            'take_profit_market',
+            exitSide,
+            formattedAmount,
+            undefined,
+            {
+              stopPrice: formattedTakeProfit,
+              reduceOnly: true
+            }
+          );
+          this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedAmount} on Binance Demo`);
+          remaining -= chunk;
+        }
       }
     } catch (triggerErr) {
       this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
