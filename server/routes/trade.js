@@ -294,6 +294,8 @@ router.post('/manual-close', async (req, res, next) => {
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         
         let closeQty = pos.quantity;
+        let positionExistsOnExchange = false;
+
         try {
           const exchange = getExchange();
           await exchange.loadMarkets();
@@ -309,35 +311,47 @@ router.post('/manual-close', async (req, res, next) => {
           const activePos = positions.find(p => p.symbol === exchangeSymbol && parseFloat(p.contracts) > 0);
           if (activePos) {
             closeQty = parseFloat(activePos.contracts);
+            positionExistsOnExchange = true;
           }
         } catch (fetchErr) {
           console.warn(`Failed to fetch fresh position size before exit: ${fetchErr.message}`);
+          positionExistsOnExchange = true; // Fallback
         }
 
-        console.log(`Executing offsetting market order on exchange to close ${closeQty} contracts for ${asset}`);
-        const closeOrder = await placeMarketOrder(asset, exitSide, closeQty);
-        
-        finalExitPrice = closeOrder.average || closeOrder.price || 0;
-        if (finalExitPrice === 0) {
+        if (positionExistsOnExchange) {
+          console.log(`Executing offsetting market order on exchange to close ${closeQty} contracts for ${asset}`);
+          const closeOrder = await placeMarketOrder(asset, exitSide, closeQty);
+          
+          finalExitPrice = closeOrder.average || closeOrder.price || 0;
+          if (finalExitPrice === 0) {
+            try {
+              const exchange = getExchange();
+              let exchangeSymbol = asset.replace('USDT', '/USDT:USDT');
+              if (asset.startsWith('1000')) {
+                // keep it
+              } else if (asset === 'BONKUSDT' || asset === 'SHIBUSDT' || asset === 'PEPEUSDT' || asset === 'FLOKIUSDT') {
+                exchangeSymbol = '1000' + asset.replace('USDT', '/USDT:USDT');
+              }
+              const ticker = await exchange.fetchTicker(exchangeSymbol);
+              finalExitPrice = ticker.last || ticker.close || exitPrice;
+              console.log(`⚠️ Market order price was not returned. Used ticker price fallback for manual close: $${finalExitPrice}`);
+            } catch (tickerErr) {
+              finalExitPrice = exitPrice;
+            }
+          }
+          if (closeOrder.fee && closeOrder.fee.cost) {
+            finalExitFee = closeOrder.fee.cost;
+          }
+
+          // Clean up remaining open trigger orders on exchange
           try {
             const exchange = getExchange();
-            const ticker = await exchange.fetchTicker(exchangeSymbol);
-            finalExitPrice = ticker.last || ticker.close || exitPrice;
-            console.log(`⚠️ Market order price was not returned. Used ticker price fallback for manual close: $${finalExitPrice}`);
-          } catch (tickerErr) {
-            finalExitPrice = exitPrice;
+            await exchange.cancelAllOrders(asset);
+          } catch (cleanErr) {
+            console.warn(`Failed to clean up remaining triggers: ${cleanErr.message}`);
           }
-        }
-        if (closeOrder.fee && closeOrder.fee.cost) {
-          finalExitFee = closeOrder.fee.cost;
-        }
-
-        // Clean up remaining open trigger orders on exchange
-        try {
-          const exchange = getExchange();
-          await exchange.cancelAllOrders(asset);
-        } catch (cleanErr) {
-          console.warn(`Failed to clean up remaining triggers: ${cleanErr.message}`);
+        } else {
+          console.log(`No active position found on Binance for ${asset}. Closing position locally.`);
         }
       }
     } catch (exchangeErr) {
@@ -365,7 +379,7 @@ router.post('/manual-close', async (req, res, next) => {
 
     // Refund capital and PnL (minus exit fee) to availableBalance
     const capitalCost = (pos.entryPrice * pos.quantity) / (pos.leverage || 1);
-    portfolio.availableBalance += (capitalCost + pnl - exitFee);
+    portfolio.availableBalance += (capitalCost + pnl - finalExitFee);
     portfolio.totalPnl += (pnl - totalPositionFees);
     portfolio.dailyLossToday = (portfolio.dailyLossToday || 0) + pnl; // update daily loss with net PnL
 
