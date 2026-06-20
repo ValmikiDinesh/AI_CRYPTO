@@ -365,7 +365,7 @@ export default class PortfolioAgent extends BaseAgent {
     if (!isReconciliation) {
       try {
         const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-        if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+        if (process.env.BINANCE_TESTNET_API_KEY && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
           const exitSide = position.side === 'long' ? 'sell' : 'buy';
           
           // Fetch fresh position size directly from the exchange to ensure we close the full current position

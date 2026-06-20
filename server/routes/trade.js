@@ -289,7 +289,7 @@ router.post('/manual-close', async (req, res, next) => {
     
     try {
       const activeTrade = await Trade.findOne({ asset, status: 'open' });
-      if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
+      if (process.env.BINANCE_TESTNET_API_KEY && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
         const { placeMarketOrder, getExchange } = await import('../services/exchangeService.js');
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         
