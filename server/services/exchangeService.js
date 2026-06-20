@@ -106,10 +106,68 @@ export const placeMarketOrder = async (symbol, side, amount) => {
   try {
     const exchange = getExchange();
     await exchange.loadMarkets();
-    const formattedAmount = parseFloat(exchange.amountToPrecision(symbol, amount));
-    const order = await exchange.createMarketOrder(symbol, side, formattedAmount);
-    logger.info(`Order placed: ${side} ${formattedAmount} ${symbol} (raw: ${amount}) → ID ${order.id}`);
-    return order;
+    
+    // Resolve unified CCXT symbol if raw asset string is passed (e.g. BONKUSDT -> 1000BONK/USDT:USDT)
+    let marketSymbol = symbol;
+    if (!symbol.includes('/')) {
+      if (symbol.startsWith('1000')) {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      } else if (symbol === 'BONKUSDT' || symbol === 'SHIBUSDT' || symbol === 'PEPEUSDT' || symbol === 'FLOKIUSDT') {
+        marketSymbol = '1000' + symbol.replace('USDT', '/USDT:USDT');
+      } else {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      }
+    }
+    
+    const market = exchange.market(marketSymbol);
+    const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE') || market.info?.filters?.find(f => f.filterType === 'LOT_SIZE');
+    const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
+    
+    if (maxQty && amount > maxQty) {
+      logger.info(`⚠️ Market order quantity (${amount}) exceeds max quantity (${maxQty}) for ${marketSymbol}. Splitting into chunks...`);
+      let remaining = amount;
+      let lastOrder = null;
+      let totalFilled = 0;
+      let totalCost = 0;
+      let totalFee = 0;
+      
+      while (remaining > 0) {
+        const chunk = Math.min(remaining, maxQty);
+        const formattedChunk = parseFloat(exchange.amountToPrecision(marketSymbol, chunk));
+        if (formattedChunk <= 0) break;
+        
+        logger.info(`Placing market order chunk: ${side} ${formattedChunk} ${marketSymbol}`);
+        const order = await exchange.createMarketOrder(marketSymbol, side, formattedChunk);
+        lastOrder = order;
+        
+        totalFilled += order.filled || formattedChunk;
+        totalCost += (order.filled || formattedChunk) * (order.average || order.price || 0);
+        if (order.fee && order.fee.cost) {
+          totalFee += order.fee.cost;
+        }
+        
+        remaining -= chunk;
+      }
+      
+      // Return aggregated order representation
+      return {
+        id: lastOrder ? lastOrder.id : 'chunked_order',
+        status: 'closed',
+        filled: totalFilled,
+        amount: amount,
+        price: totalFilled > 0 ? (totalCost / totalFilled) : (lastOrder ? lastOrder.price : 0),
+        average: totalFilled > 0 ? (totalCost / totalFilled) : (lastOrder ? lastOrder.average : 0),
+        fee: {
+          cost: totalFee,
+          currency: lastOrder?.fee?.currency || 'USDT'
+        }
+      };
+    } else {
+      const formattedAmount = parseFloat(exchange.amountToPrecision(marketSymbol, amount));
+      const order = await exchange.createMarketOrder(marketSymbol, side, formattedAmount);
+      logger.info(`Order placed: ${side} ${formattedAmount} ${marketSymbol} (raw: ${amount}) → ID ${order.id}`);
+      return order;
+    }
   } catch (err) {
     logger.error(`placeMarketOrder(${symbol}, ${side}) error: ${err.message}`);
     throw err;
