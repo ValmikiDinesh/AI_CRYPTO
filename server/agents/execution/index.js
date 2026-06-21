@@ -77,7 +77,7 @@ export default class ExecutionAgent extends BaseAgent {
             // Add to portfolio active positions so it is properly monitored
             let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
             if (portfolio) {
-              const exists = portfolio.positions.some(p => p.asset === trade.asset && p.status === 'open');
+              const exists = portfolio.positions.some(p => p && p.asset === trade.asset && p.status === 'open');
               if (!exists) {
                 portfolio.positions.push({
                   asset: trade.asset,
@@ -209,7 +209,7 @@ export default class ExecutionAgent extends BaseAgent {
             // Add to portfolio active positions so it is properly monitored
             let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
             if (portfolio) {
-              const exists = portfolio.positions.some(p => p.asset === asset && p.status === 'open');
+              const exists = portfolio.positions.some(p => p && p.asset === asset && p.status === 'open');
               if (!exists) {
                 portfolio.positions.push({
                   asset: asset,

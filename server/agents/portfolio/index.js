@@ -62,7 +62,7 @@ export default class PortfolioAgent extends BaseAgent {
 
     // 2. Loop through all database open positions and reconcile them
     for (const position of portfolio.positions) {
-      if (position.status !== 'open') continue;
+      if (!position || position.status !== 'open') continue;
 
       let currentPrice = this.marketAgent.getPrice(position.asset);
       if (!currentPrice && fetchedExchangeSuccessfully) {
@@ -331,7 +331,7 @@ export default class PortfolioAgent extends BaseAgent {
           continue;
         }
 
-        const dbPosition = portfolio.positions.find((p) => p.asset === asset && p.status === 'open');
+        const dbPosition = portfolio.positions.find((p) => p && p.asset === asset && p.status === 'open');
 
         if (!dbPosition) {
           this.logger.info(`🔄 [RECONCILIATION] Active position for ${asset} found on Binance but not in DB. Importing...`);
@@ -470,7 +470,7 @@ export default class PortfolioAgent extends BaseAgent {
 
     // Recalculate total balance using leverage-adjusted universal equity formula
     const marginValue = portfolio.positions
-      .filter((p) => p.status === 'open')
+      .filter((p) => p && p.status === 'open')
       .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
 
     portfolio.totalBalance = portfolio.availableBalance + marginValue;
@@ -487,7 +487,7 @@ export default class PortfolioAgent extends BaseAgent {
     const processedAssets = new Set();
 
     for (const position of portfolio.positions) {
-      if (position.status !== 'open') continue;
+      if (!position || position.status !== 'open') continue;
 
       if (processedAssets.has(position.asset)) {
         this.logger.warn(`Duplicate open position found for ${position.asset} in exit loop — self-healing by marking it closed.`);
@@ -712,7 +712,7 @@ export default class PortfolioAgent extends BaseAgent {
 
     // Recalculate total balance using leverage-adjusted universal equity formula
     const marginValue = portfolio.positions
-      .filter((p) => p.status === 'open')
+      .filter((p) => p && p.status === 'open')
       .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
     portfolio.totalBalance = portfolio.availableBalance + marginValue;
 
@@ -774,7 +774,7 @@ export default class PortfolioAgent extends BaseAgent {
   /** Update aggregate portfolio metrics. */
   async updateMetrics(portfolio) {
     // Allocation breakdown
-    const openPositions = portfolio.positions.filter((p) => p.status === 'open');
+    const openPositions = portfolio.positions.filter((p) => p && p.status === 'open');
     const totalValue = openPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
 
     portfolio.allocationBreakdown = openPositions.map((p) => ({
@@ -956,7 +956,7 @@ export default class PortfolioAgent extends BaseAgent {
       totalPnlPercent: portfolio.totalPnlPercent,
       dailyPnl: portfolio.dailyLossToday,
       winRate: portfolio.winRate,
-      openPositions: portfolio.positions.filter((p) => p.status === 'open').length,
+      openPositions: portfolio.positions.filter((p) => p && p.status === 'open').length,
       allocation: portfolio.allocationBreakdown,
       winningTrades: portfolio.winningTrades,
       losingTrades: portfolio.losingTrades,
