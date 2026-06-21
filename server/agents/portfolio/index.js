@@ -189,8 +189,16 @@ export default class PortfolioAgent extends BaseAgent {
               
               // Cancel any mismatching stop-loss orders
               for (const o of mismatchingSLOrders) {
-                this.logger.info(`🔄 [SL SYNC] Cancelling mismatching stop-loss order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedStopLoss})`);
-                await exchange.cancelOrder(o.id, symbol);
+                try {
+                  this.logger.info(`🔄 [SL SYNC] Cancelling mismatching stop-loss order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedStopLoss})`);
+                  await exchange.cancelOrder(o.id, symbol);
+                } catch (cancelErr) {
+                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
+                    this.logger.debug(`[SL SYNC] Stop-loss order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
+                  } else {
+                    throw cancelErr;
+                  }
+                }
               }
               
               // Calculate total matching quantity
@@ -229,8 +237,16 @@ export default class PortfolioAgent extends BaseAgent {
             } else {
               // DB has no stopLoss, cancel any existing stop-loss orders
               for (const o of existingSLOrders) {
-                this.logger.info(`🔄 [SL SYNC] DB has no Stop Loss. Cancelling existing stop-loss order ${o.id} for ${position.asset}`);
-                await exchange.cancelOrder(o.id, symbol);
+                try {
+                  this.logger.info(`🔄 [SL SYNC] DB has no Stop Loss. Cancelling existing stop-loss order ${o.id} for ${position.asset}`);
+                  await exchange.cancelOrder(o.id, symbol);
+                } catch (cancelErr) {
+                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
+                    this.logger.debug(`[SL SYNC] Stop-loss order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
+                  } else {
+                    throw cancelErr;
+                  }
+                }
               }
             }
             
@@ -252,8 +268,16 @@ export default class PortfolioAgent extends BaseAgent {
               
               // Cancel any mismatching take-profit orders
               for (const o of mismatchingTPOrders) {
-                this.logger.info(`🔄 [TP SYNC] Cancelling mismatching take-profit order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedTakeProfit})`);
-                await exchange.cancelOrder(o.id, symbol);
+                try {
+                  this.logger.info(`🔄 [TP SYNC] Cancelling mismatching take-profit order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedTakeProfit})`);
+                  await exchange.cancelOrder(o.id, symbol);
+                } catch (cancelErr) {
+                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
+                    this.logger.debug(`[TP SYNC] Take-profit order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
+                  } else {
+                    throw cancelErr;
+                  }
+                }
               }
               
               // Calculate total matching quantity
@@ -292,8 +316,16 @@ export default class PortfolioAgent extends BaseAgent {
             } else {
               // DB has no takeProfit, cancel any existing take-profit orders
               for (const o of existingTPOrders) {
-                this.logger.info(`🔄 [TP SYNC] DB has no Take Profit. Cancelling existing take-profit order ${o.id} for ${position.asset}`);
-                await exchange.cancelOrder(o.id, symbol);
+                try {
+                  this.logger.info(`🔄 [TP SYNC] DB has no Take Profit. Cancelling existing take-profit order ${o.id} for ${position.asset}`);
+                  await exchange.cancelOrder(o.id, symbol);
+                } catch (cancelErr) {
+                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
+                    this.logger.debug(`[TP SYNC] Take-profit order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
+                  } else {
+                    throw cancelErr;
+                  }
+                }
               }
             }
           } catch (syncErr) {
