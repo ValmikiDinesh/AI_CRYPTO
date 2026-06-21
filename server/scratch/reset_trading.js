@@ -93,6 +93,10 @@ async function run() {
       portfolio.dailyLossToday = 0;
       portfolio.peakBalance = 1000;
       portfolio.allocationBreakdown = [];
+      portfolio.walletBalance = 0;
+      portfolio.tradingPaused = false;
+      portfolio.targetProfitThreshold = 1100;
+      portfolio.baseTradingCapital = 1000;
       await portfolio.save();
       console.log("Reset Portfolio baseline to $1,000 net worth");
     } else {
@@ -109,7 +113,11 @@ async function run() {
         dailyLossToday: 0,
         peakBalance: 1000,
         positions: [],
-        allocationBreakdown: []
+        allocationBreakdown: [],
+        walletBalance: 0,
+        tradingPaused: false,
+        targetProfitThreshold: 1100,
+        baseTradingCapital: 1000,
       });
       console.log("Created fresh Portfolio baseline with $1,000 capital");
     }

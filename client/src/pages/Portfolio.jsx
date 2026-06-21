@@ -23,6 +23,21 @@ export default function Portfolio() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState('netPnl'); // 'asset' | 'totalClosed' | 'winRate' | 'netPnl'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc' | 'desc'
+  const [resuming, setResuming] = useState(false);
+
+  const handleResumeBot = async () => {
+    try {
+      setResuming(true);
+      const res = await axios.post('/api/portfolio/resume');
+      if (res.data.success) {
+        usePortfolioStore.getState().setPortfolio(res.data.data);
+      }
+    } catch (err) {
+      console.error("Failed to resume bot:", err);
+    } finally {
+      setResuming(false);
+    }
+  };
 
   const filterByDate = (createdAt) => {
     if (dateFilter === 'all') return true;
@@ -443,8 +458,31 @@ export default function Portfolio() {
         </div>
       </div>
 
+      {portfolio.tradingPaused && (
+        <div className="glass-panel bg-red-950/20 border border-red-500/30 p-5 rounded-2xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-2.5 bg-red-500/10 text-red-400 rounded-xl">
+              <AlertCircle size={20} />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-red-200">Trading Bot Paused</h4>
+              <p className="text-xs text-red-300/80 mt-0.5">
+                The target profit threshold of ${(portfolio.targetProfitThreshold || 1100).toFixed(2)} was met. All open positions were automatically squared off, and excess profits were swept to the secure vault.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleResumeBot}
+            disabled={resuming}
+            className="w-full md:w-auto px-5 py-2.5 bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white font-mono font-bold text-[10px] tracking-wider uppercase rounded-xl transition-all duration-300 active:scale-95 cursor-pointer shadow-lg shadow-red-900/20 border border-red-500/30"
+          >
+            {resuming ? 'Resuming...' : 'Resume Trading Bot'}
+          </button>
+        </div>
+      )}
+
       {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-5">
         {[
           { 
             label: 'Net Balances', 
@@ -479,6 +517,14 @@ export default function Portfolio() {
               : '$0.00', 
             icon: Wallet, 
             color: '#86868b' 
+          },
+          { 
+            label: 'Secure Vault', 
+            value: portfolio.walletBalance !== undefined && portfolio.walletBalance !== null 
+              ? `$${portfolio.walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
+              : '$0.00', 
+            icon: Wallet, 
+            color: '#bf5af2' 
           },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="glass-panel bg-[#1c1c1e] py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">

@@ -259,6 +259,11 @@ export default class ExecutionAgent extends BaseAgent {
         });
       }
 
+      if (portfolio.tradingPaused) {
+        this.logger.info(`${asset}: Trading is paused (profit target met). Skipping signal.`);
+        return;
+      }
+
       // Risk check
       const riskResult = await this.riskAgent.validateTrade(signal, portfolio);
       if (!riskResult.approved) {

@@ -143,6 +143,10 @@ router.post('/manual', async (req, res, next) => {
       });
     }
 
+    if (portfolio.tradingPaused) {
+      return res.status(400).json({ success: false, message: 'Trading is currently paused because the profit target has been met. Please resume the bot from the portfolio page first.' });
+    }
+
     const hasOpenPosition = portfolio.positions?.some((p) => p.asset === asset && p.status === 'open');
     if (hasOpenPosition) {
       return res.status(400).json({ success: false, message: `Position already open for ${asset}` });

@@ -87,6 +87,10 @@ export const usePortfolioStore = create((set) => ({
     winningTrades: 0,
     losingTrades: 0,
     totalTrades: 0,
+    walletBalance: 0,
+    tradingPaused: false,
+    targetProfitThreshold: 1100,
+    baseTradingCapital: 1000,
   },
 
   setPortfolio: (data) => set((state) => ({ portfolio: { ...state.portfolio, ...data } })),

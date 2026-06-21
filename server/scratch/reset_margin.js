@@ -28,7 +28,11 @@ async function run() {
     positions: [],
     allocationBreakdown: [],
     peakBalance: 1000,
-    dailyLossToday: 0
+    dailyLossToday: 0,
+    walletBalance: 0,
+    tradingPaused: false,
+    targetProfitThreshold: 1100,
+    baseTradingCapital: 1000,
   });
 
   console.log("Successfully created fresh Portfolio baseline:");

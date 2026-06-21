@@ -803,7 +803,7 @@ export default class PortfolioAgent extends BaseAgent {
       const totalClosed = closedTrades.length;
 
       // 2. Calculate true available balance
-      let trueAvailable = 1000 + trueTotalPnl;
+      let trueAvailable = (portfolio.baseTradingCapital || 1000) + trueTotalPnl - (portfolio.walletBalance || 0);
       let openExposure = 0;
       let openUnrealized = 0;
 
@@ -849,8 +849,9 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.error(`Error during self-healing portfolio metrics recalculation: ${dbErr.message}`);
     }
 
+    const baseCap = portfolio.baseTradingCapital || 1000;
     portfolio.totalPnlPercent = portfolio.totalBalance > 0
-      ? ((portfolio.totalBalance - 1000) / 1000) * 100  // vs initial capital
+      ? ((portfolio.totalBalance - baseCap) / baseCap) * 100  // vs initial capital
       : 0;
 
     // Recalculate dailyLossToday dynamically from Trade collection (source of truth for today's closed trades in IST)
@@ -871,6 +872,7 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.error(`Failed to dynamically recalculate dailyLossToday: ${err.message}`);
     }
 
+    await this.checkProfitTarget(portfolio);
     await portfolio.save();
   }
 
@@ -961,6 +963,56 @@ export default class PortfolioAgent extends BaseAgent {
       winningTrades: portfolio.winningTrades,
       losingTrades: portfolio.losingTrades,
       totalTrades: portfolio.totalTrades,
+      walletBalance: portfolio.walletBalance || 0,
+      tradingPaused: portfolio.tradingPaused || false,
+      targetProfitThreshold: portfolio.targetProfitThreshold || 1100,
+      baseTradingCapital: portfolio.baseTradingCapital || 1000,
     });
+  }
+
+  async checkProfitTarget(portfolio) {
+    const target = portfolio.targetProfitThreshold || 1100;
+    if (portfolio.totalBalance >= target && !portfolio.tradingPaused) {
+      this.logger.warn(`🚨 [PROFIT TARGET MET] Net worth has reached $${portfolio.totalBalance.toFixed(2)} (Target: $${target}). Initiating automatic square-off...`);
+      
+      portfolio.tradingPaused = true;
+      await portfolio.save();
+
+      const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
+      this.logger.info(`🚨 Closing all ${openPositions.length} active positions on Binance...`);
+      for (const position of openPositions) {
+        try {
+          let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || position.entryPrice || 0;
+          await this.closePosition(portfolio, position, currentPrice, 'Profit Target Met (Auto-Squareoff)', false);
+        } catch (closeErr) {
+          this.logger.error(`Failed to close position for ${position.asset} during square-off: ${closeErr.message}`);
+        }
+      }
+
+      const baseCap = portfolio.baseTradingCapital || 1000;
+      const excessProfit = portfolio.totalBalance - baseCap;
+      
+      if (excessProfit > 0) {
+        portfolio.walletBalance = (portfolio.walletBalance || 0) + excessProfit;
+        portfolio.totalBalance = baseCap;
+        portfolio.availableBalance = baseCap;
+        portfolio.peakBalance = baseCap;
+        
+        this.logger.info(`💰 [PROFIT SWEEP] Swept $${excessProfit.toFixed(2)} of excess profit to the secure wallet. New wallet balance: $${portfolio.walletBalance.toFixed(2)}`);
+        
+        await sendTelegramMessage(
+          `🎯 <b>Profit Target Achieved!</b>\n\n` +
+          `• Net Worth reached: $${(baseCap + excessProfit).toFixed(2)} (Target: $${target.toFixed(2)})\n` +
+          `• Swept Profit to Local Vault: $${excessProfit.toFixed(2)}\n` +
+          `• Total Vault Balance: $${portfolio.walletBalance.toFixed(2)}\n` +
+          `• Trading bot has been <b>PAUSED</b> and all positions squared off.\n\n` +
+          `Please restart the bot manually from the dashboard when ready.`
+        );
+      } else {
+        this.logger.warn(`[PROFIT SWEEP] Net worth is not above base capital after closing positions. No sweep performed.`);
+      }
+
+      await portfolio.save();
+    }
   }
 }
