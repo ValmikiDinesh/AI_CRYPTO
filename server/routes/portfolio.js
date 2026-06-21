@@ -1,15 +1,17 @@
 import express from 'express';
 import Portfolio from '../models/Portfolio.js';
+import { SYSTEM_USER_ID } from '../config/constants.js';
 
 const router = express.Router();
 
 // GET /api/portfolio — current portfolio overview
 router.get('/', async (req, res, next) => {
   try {
-    let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
 
     if (!portfolio) {
       portfolio = await Portfolio.create({
+        userId: SYSTEM_USER_ID,
         totalBalance: 1000,
         availableBalance: 1000,
       });
@@ -24,7 +26,7 @@ router.get('/', async (req, res, next) => {
 // GET /api/portfolio/positions — open positions only
 router.get('/positions', async (req, res, next) => {
   try {
-    const portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     const openPositions = portfolio?.positions?.filter((p) => p.status === 'open') || [];
 
     res.json({ success: true, data: openPositions });
@@ -36,7 +38,7 @@ router.get('/positions', async (req, res, next) => {
 // GET /api/portfolio/performance — performance metrics
 router.get('/performance', async (req, res, next) => {
   try {
-    const portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
 
     if (!portfolio) {
       return res.json({
@@ -75,7 +77,7 @@ router.get('/performance', async (req, res, next) => {
 // POST /api/portfolio/resume — resume trading bot after profit target met
 router.post('/resume', async (req, res, next) => {
   try {
-    const portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
       return res.status(404).json({ success: false, message: 'Portfolio not found' });
     }

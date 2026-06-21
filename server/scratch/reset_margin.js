@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import connectDB from '../config/db.js';
 import Portfolio from '../models/Portfolio.js';
+import { SYSTEM_USER_ID } from '../config/constants.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -14,7 +15,7 @@ async function run() {
 
   // Create a clean default portfolio with $1,000 margin
   const newPortfolio = await Portfolio.create({
-    userId: null,
+    userId: SYSTEM_USER_ID,
     totalBalance: 1000,
     availableBalance: 1000,
     totalPnl: 0,

@@ -6,6 +6,7 @@ import Signal from '../models/Signal.js';
 import Prediction from '../models/Prediction.js';
 import RiskEvent from '../models/RiskEvent.js';
 import { getExchange } from '../services/exchangeService.js';
+import { SYSTEM_USER_ID } from '../config/constants.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -79,7 +80,7 @@ async function run() {
     console.log(`Deleted ${riskDel.deletedCount} RiskEvents`);
 
     // Reset portfolio to clean $1000 baseline
-    const portfolio = await Portfolio.findOne({});
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (portfolio) {
       portfolio.positions = [];
       portfolio.totalBalance = 1000;
@@ -101,7 +102,7 @@ async function run() {
       console.log("Reset Portfolio baseline to $1,000 net worth");
     } else {
       await Portfolio.create({
-        userId: null,
+        userId: SYSTEM_USER_ID,
         totalBalance: 1000,
         availableBalance: 1000,
         totalPnl: 0,

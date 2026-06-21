@@ -4,6 +4,7 @@ import Signal from '../models/Signal.js';
 import Portfolio from '../models/Portfolio.js';
 import { publishEvent, CHANNELS } from '../config/redis.js';
 import { sendTelegramMessage, formatPrice } from '../services/telegramService.js';
+import { SYSTEM_USER_ID } from '../config/constants.js';
 
 const router = express.Router();
 
@@ -135,9 +136,10 @@ router.post('/manual', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Missing required trade details' });
     }
 
-    let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
       portfolio = await Portfolio.create({
+        userId: SYSTEM_USER_ID,
         totalBalance: 1000,
         availableBalance: 1000,
       });

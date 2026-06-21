@@ -1,5 +1,5 @@
 import BaseAgent from '../base/BaseAgent.js';
-import { AGENT_NAMES, SUPPORTED_ASSETS, ACTIONS } from '../../config/constants.js';
+import { AGENT_NAMES, SUPPORTED_ASSETS, ACTIONS, SYSTEM_USER_ID } from '../../config/constants.js';
 import { publishEvent, CHANNELS, subscribeToChannel } from '../../config/redis.js';
 import { placeMarketOrder, getExchange } from '../../services/exchangeService.js';
 import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
@@ -250,10 +250,10 @@ export default class ExecutionAgent extends BaseAgent {
       }
 
       // Get portfolio for the default user (paper trading)
-      let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+      let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
       if (!portfolio) {
         portfolio = await Portfolio.create({
-          userId: null,   // system portfolio for paper trading
+          userId: SYSTEM_USER_ID,   // system portfolio for paper trading
           totalBalance: 1000,
           availableBalance: 1000,
         });

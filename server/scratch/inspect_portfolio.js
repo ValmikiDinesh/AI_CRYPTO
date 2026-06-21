@@ -7,8 +7,15 @@ dotenv.config();
 async function run() {
   await connectDB();
   const portfolios = await Portfolio.find({});
-  console.log(`Found ${portfolios.length} Portfolio documents in database:`);
-  console.log(JSON.stringify(portfolios, null, 2));
+  portfolios.forEach(p => {
+    console.log(`_id: ${p._id}, userId: ${p.userId}, totalBalance: ${p.totalBalance}, availableBalance: ${p.availableBalance}, tradingPaused: ${p.tradingPaused}, walletBalance: ${p.walletBalance}`);
+    console.log(`positions count: ${p.positions.length}`);
+    const open = p.positions.filter(pos => pos.status === 'open');
+    console.log(`open positions count: ${open.length}`);
+    open.forEach(pos => {
+      console.log(` - ${pos.asset} (${pos.side}): entry ${pos.entryPrice}, current ${pos.currentPrice}, qty ${pos.quantity}`);
+    });
+  });
   await mongoose.connection.close();
 }
 
