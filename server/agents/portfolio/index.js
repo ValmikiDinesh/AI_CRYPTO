@@ -219,18 +219,27 @@ export default class PortfolioAgent extends BaseAgent {
                   const formattedChunk = parseFloat(exchange.amountToPrecision(symbol, chunk));
                   if (formattedChunk <= 0) break;
                   
-                  const slOrderResult = await exchange.createOrder(
-                    symbol,
-                    'stop_market',
-                    exitSide,
-                    formattedChunk,
-                    undefined,
-                    {
-                      stopPrice: formattedStopLoss,
-                      reduceOnly: true
+                  try {
+                    const slOrderResult = await exchange.createOrder(
+                      symbol,
+                      'stop_market',
+                      exitSide,
+                      formattedChunk,
+                      undefined,
+                      {
+                        stopPrice: formattedStopLoss,
+                        reduceOnly: true
+                      }
+                    );
+                    this.logger.info(`✅ [SL SYNC PLACED] stopPrice=${formattedStopLoss} size=${formattedChunk} id=${slOrderResult.id} on Binance Demo`);
+                  } catch (orderErr) {
+                    if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
+                      this.logger.warn(`⚠️ [SL SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
+                      break;
+                    } else {
+                      throw orderErr;
                     }
-                  );
-                  this.logger.info(`✅ [SL SYNC PLACED] stopPrice=${formattedStopLoss} size=${formattedChunk} id=${slOrderResult.id} on Binance Demo`);
+                  }
                   quantityToPlace -= chunk;
                 }
               }
@@ -298,18 +307,27 @@ export default class PortfolioAgent extends BaseAgent {
                   const formattedChunk = parseFloat(exchange.amountToPrecision(symbol, chunk));
                   if (formattedChunk <= 0) break;
                   
-                  const tpOrderResult = await exchange.createOrder(
-                    symbol,
-                    'take_profit_market',
-                    exitSide,
-                    formattedChunk,
-                    undefined,
-                    {
-                      stopPrice: formattedTakeProfit,
-                      reduceOnly: true
+                  try {
+                    const tpOrderResult = await exchange.createOrder(
+                      symbol,
+                      'take_profit_market',
+                      exitSide,
+                      formattedChunk,
+                      undefined,
+                      {
+                        stopPrice: formattedTakeProfit,
+                        reduceOnly: true
+                      }
+                    );
+                    this.logger.info(`✅ [TP SYNC PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedChunk} id=${tpOrderResult.id} on Binance Demo`);
+                  } catch (orderErr) {
+                    if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
+                      this.logger.warn(`⚠️ [TP SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
+                      break;
+                    } else {
+                      throw orderErr;
                     }
-                  );
-                  this.logger.info(`✅ [TP SYNC PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedChunk} id=${tpOrderResult.id} on Binance Demo`);
+                  }
                   quantityToPlace -= chunk;
                 }
               }
