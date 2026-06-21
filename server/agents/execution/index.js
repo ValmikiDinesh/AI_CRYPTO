@@ -1,7 +1,7 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS, ACTIONS } from '../../config/constants.js';
 import { publishEvent, CHANNELS, subscribeToChannel } from '../../config/redis.js';
-import { placeLimitOrder, getExchange } from '../../services/exchangeService.js';
+import { placeMarketOrder, getExchange } from '../../services/exchangeService.js';
 import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
 import Trade from '../../models/Trade.js';
 import Portfolio from '../../models/Portfolio.js';
@@ -391,7 +391,7 @@ export default class ExecutionAgent extends BaseAgent {
     while (attempt < this.maxRetries) {
       try {
         attempt++;
-        order = await placeLimitOrder(signal.asset, side, quantity, limitEntryPrice);
+        order = await placeMarketOrder(signal.asset, side, quantity);
         break;
       } catch (err) {
         this.logger.warn(`Order attempt ${attempt}/${this.maxRetries} failed: ${err.message}`);
