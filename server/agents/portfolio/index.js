@@ -389,6 +389,13 @@ export default class PortfolioAgent extends BaseAgent {
           const side = exchangePos.side; // 'long' or 'short'
           const entryPrice = exchangePos.entryPrice;
           const quantity = exchangePos.contracts;
+
+          // Explicit validation of required position fields before import to prevent Mongoose validation failures
+          if (!side || !['long', 'short'].includes(side) || typeof entryPrice !== 'number' || isNaN(entryPrice) || entryPrice <= 0 || typeof quantity !== 'number' || isNaN(quantity) || quantity <= 0) {
+            this.logger.error(`❌ [RECONCILIATION] Invalid position data received from Binance for ${asset}: side=${side}, entryPrice=${entryPrice}, quantity=${quantity}. Skipping import to prevent DB corruption.`);
+            continue;
+          }
+
           let leverage = exchangePos.leverage || (exchangePos.initialMarginPercentage > 0 ? Math.round(1 / exchangePos.initialMarginPercentage) : 3);
           const currentPrice = exchangePos.markPrice || entryPrice;
           const unrealizedPnl = exchangePos.unrealizedPnl || 0;

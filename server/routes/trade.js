@@ -398,7 +398,7 @@ router.post('/manual-close', async (req, res, next) => {
     const totalClosed = (portfolio.winningTrades || 0) + (portfolio.losingTrades || 0);
     portfolio.winRate = totalClosed > 0 ? portfolio.winningTrades / totalClosed : 0;
 
-    portfolio.positions[positionIndex] = pos;
+    portfolio.markModified('positions');
 
     // Recalculate total balance using leverage-adjusted universal equity formula
     const marginValue = portfolio.positions
