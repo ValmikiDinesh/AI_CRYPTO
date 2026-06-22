@@ -49,6 +49,7 @@ const portfolioSchema = new mongoose.Schema({
   dailyLossToday: { type: Number, default: 0 },
   walletBalance: { type: Number, default: 0 },
   tradingPaused: { type: Boolean, default: false },
+  isSquaringOff: { type: Boolean, default: false },
   targetProfitThreshold: { type: Number, default: 1100 },
   baseTradingCapital: { type: Number, default: 1000 },
   lastRebalancedAt: { type: Date },

@@ -534,6 +534,44 @@ export default class PortfolioAgent extends BaseAgent {
   }
 
   async checkExits(portfolio) {
+    // ─── Basket Take-Profit & Square-Off ($100 Target) ───────────────────
+    const openPositions = portfolio.positions.filter((p) => p && p.status === 'open');
+
+    if (portfolio.isSquaringOff) {
+      if (openPositions.length === 0) {
+        portfolio.isSquaringOff = false;
+        await portfolio.save();
+        this.logger.info(`[BASKET EXIT] All positions closed successfully. Resetting square-off cooldown.`);
+        await sendTelegramMessage(`🔄 <b>Basket Profit Reset</b>\nAll positions successfully closed. Cooldown ended, fresh trades can now begin!`);
+      } else {
+        this.logger.info(`[BASKET EXIT] Square-off active. Closing remaining ${openPositions.length} positions.`);
+        for (const position of openPositions) {
+          let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
+          await this.closePosition(portfolio, position, currentPrice, 'Basket Square-Off Active (+$100 target reached)', false);
+        }
+      }
+      return;
+    }
+
+    const totalUnrealizedPnl = openPositions.reduce((sum, p) => sum + (p.unrealizedPnl || 0), 0);
+    if (totalUnrealizedPnl >= 100) {
+      this.logger.info(`[BASKET EXIT] Total unrealized profit reached $${totalUnrealizedPnl.toFixed(2)} (>= $100). Triggering emergency square-off!`);
+      portfolio.isSquaringOff = true;
+      await portfolio.save();
+
+      await sendTelegramMessage(
+        `🎯 <b>Basket Take-Profit Reached! [+$${totalUnrealizedPnl.toFixed(2)}]</b>\n` +
+        `Total unrealized profit reached $${totalUnrealizedPnl.toFixed(2)}. Pausing new trades and squaring off all ${openPositions.length} active positions.`
+      );
+
+      for (const position of openPositions) {
+        let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
+        await this.closePosition(portfolio, position, currentPrice, 'Basket Take Profit reached (+$100 target)', false);
+      }
+      return;
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
     const processedAssets = new Set();
 
     for (const position of portfolio.positions) {

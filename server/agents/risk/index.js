@@ -76,6 +76,11 @@ export default class RiskAgent extends BaseAgent {
       return this.reject('Emergency stop is active — all trading halted', 'emergency_shutdown', signal);
     }
 
+    // 1.5. Basket square-off check
+    if (portfolio && portfolio.isSquaringOff) {
+      return this.reject('Portfolio is squaring off all positions after reaching $100 profit target', 'portfolio_square_off', signal);
+    }
+
     // 2. Confidence threshold
     if (signal.confidence < RISK.MIN_CONFIDENCE_THRESHOLD) {
       return this.reject(

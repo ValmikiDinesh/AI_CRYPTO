@@ -17,6 +17,7 @@ const riskEventSchema = new mongoose.Schema({
       'duplicate_position',
       'macro_trend_blocked',
       'whipsaw_cooldown',
+      'portfolio_square_off',
     ],
     required: true,
   },
