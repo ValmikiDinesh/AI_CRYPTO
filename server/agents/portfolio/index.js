@@ -2,7 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
-import { placeMarketOrder, getExchange } from '../../services/exchangeService.js';
+import { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange } from '../../services/exchangeService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 
@@ -670,17 +670,24 @@ export default class PortfolioAgent extends BaseAgent {
       }
     }
 
-    // Exchange order cleanup: cancel any remaining Stop-Loss or Take-Profit orders for this asset
+    // Exchange order cleanup: cancel entry limit orders and any remaining triggers for this asset
     try {
       const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
       if (activeTrade && activeTrade.exchangeOrderId && !activeTrade.exchangeOrderId.startsWith('mock_')) {
-        const { getExchange } = await import('../../services/exchangeService.js');
-        const exchange = getExchange();
-        await exchange.cancelAllOrders(position.asset);
+        // Cancel the entry limit order explicitly first to confirm cancellation from Binance
+        try {
+          await cancelOrder(position.asset, activeTrade.exchangeOrderId);
+          this.logger.info(`🧹 [ORDER CLEANUP] Cancelled remaining unfilled portion of entry limit order ${activeTrade.exchangeOrderId} for ${position.asset}`);
+        } catch (orderErr) {
+          this.logger.debug(`Entry limit order ${activeTrade.exchangeOrderId} for ${position.asset} was already fully filled or cancelled: ${orderErr.message}`);
+        }
+
+        // Cancel all remaining open orders (triggers/SL/TP) for this asset
+        await cancelAllOrders(position.asset);
         this.logger.info(`🧹 [ORDER CLEANUP] Successfully cancelled all remaining pending trigger orders for ${position.asset} on Binance`);
       }
     } catch (cleanErr) {
-      this.logger.debug(`Failed to clean up remaining triggers for ${position.asset}: ${cleanErr.message}`);
+      this.logger.debug(`Failed to clean up remaining orders for ${position.asset}: ${cleanErr.message}`);
     }
 
     position.status = 'closed';

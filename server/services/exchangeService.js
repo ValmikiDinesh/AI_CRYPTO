@@ -256,6 +256,32 @@ export const cancelOrder = async (symbol, orderId) => {
 };
 
 /**
+ * Cancel all open orders for a symbol.
+ */
+export const cancelAllOrders = async (symbol) => {
+  try {
+    const exchange = getExchange();
+    await exchange.loadMarkets();
+    
+    let marketSymbol = symbol;
+    if (!symbol.includes('/')) {
+      if (symbol.startsWith('1000')) {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      } else if (symbol === 'BONKUSDT' || symbol === 'SHIBUSDT' || symbol === 'PEPEUSDT' || symbol === 'FLOKIUSDT') {
+        marketSymbol = '1000' + symbol.replace('USDT', '/USDT:USDT');
+      } else {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      }
+    }
+    
+    return await exchange.cancelAllOrders(marketSymbol);
+  } catch (err) {
+    logger.error(`cancelAllOrders(${symbol}) error: ${err.message}`);
+    throw err;
+  }
+};
+
+/**
  * Fetch account balance.
  */
 export const fetchBalance = async () => {
@@ -305,6 +331,7 @@ export default {
   placeLimitOrder,
   fetchOrder,
   cancelOrder,
+  cancelAllOrders,
   fetchBalance,
   fetchPositions,
 };

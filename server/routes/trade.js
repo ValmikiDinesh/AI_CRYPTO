@@ -296,7 +296,7 @@ router.post('/manual-close', async (req, res, next) => {
     try {
       const activeTrade = await Trade.findOne({ asset, status: 'open' });
       if (process.env.BINANCE_TESTNET_API_KEY && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
-        const { placeMarketOrder, getExchange } = await import('../services/exchangeService.js');
+        const { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange } = await import('../services/exchangeService.js');
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         
         let closeQty = pos.quantity;
@@ -349,10 +349,16 @@ router.post('/manual-close', async (req, res, next) => {
             finalExitFee = closeOrder.fee.cost;
           }
 
-          // Clean up remaining open trigger orders on exchange
+          // Clean up entry limit order and any remaining trigger orders on exchange
           try {
-            const exchange = getExchange();
-            await exchange.cancelAllOrders(asset);
+            if (activeTrade && activeTrade.exchangeOrderId) {
+              try {
+                await cancelOrder(asset, activeTrade.exchangeOrderId);
+              } catch (orderErr) {
+                console.log(`Entry limit order was already fully filled or cancelled: ${orderErr.message}`);
+              }
+            }
+            await cancelAllOrders(asset);
           } catch (cleanErr) {
             console.warn(`Failed to clean up remaining triggers: ${cleanErr.message}`);
           }
