@@ -172,22 +172,59 @@ export const placeMarketOrder = async (symbol, side, amount) => {
     logger.error(`placeMarketOrder(${symbol}, ${side}) error: ${err.message}`);
     throw err;
   }
-};
-
-/**
+};/**
  * Place a limit order with stop-loss and take-profit.
  */
 export const placeLimitOrder = async (symbol, side, amount, price) => {
   try {
     const exchange = getExchange();
     await exchange.loadMarkets();
-    const formattedAmount = parseFloat(exchange.amountToPrecision(symbol, amount));
-    const formattedPrice = parseFloat(exchange.priceToPrecision(symbol, price));
-    const order = await exchange.createLimitOrder(symbol, side, formattedAmount, formattedPrice);
-    logger.info(`Limit order: ${side} ${formattedAmount} ${symbol} @ ${formattedPrice} (raw: ${amount} @ ${price}) → ID ${order.id}`);
+    
+    // Resolve unified CCXT symbol if raw asset string is passed (e.g. BONKUSDT -> 1000BONK/USDT:USDT)
+    let marketSymbol = symbol;
+    if (!symbol.includes('/')) {
+      if (symbol.startsWith('1000')) {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      } else if (symbol === 'BONKUSDT' || symbol === 'SHIBUSDT' || symbol === 'PEPEUSDT' || symbol === 'FLOKIUSDT') {
+        marketSymbol = '1000' + symbol.replace('USDT', '/USDT:USDT');
+      } else {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      }
+    }
+    
+    const formattedAmount = parseFloat(exchange.amountToPrecision(marketSymbol, amount));
+    const formattedPrice = parseFloat(exchange.priceToPrecision(marketSymbol, price));
+    const order = await exchange.createLimitOrder(marketSymbol, side, formattedAmount, formattedPrice);
+    logger.info(`Limit order placed: ${side} ${formattedAmount} ${marketSymbol} @ ${formattedPrice} (raw: ${amount} @ ${price}) → ID ${order.id}`);
     return order;
   } catch (err) {
-    logger.error(`placeLimitOrder error: ${err.message}`);
+    logger.error(`placeLimitOrder(${symbol}, ${side}) error: ${err.message}`);
+    throw err;
+  }
+};
+
+/**
+ * Fetch a specific order details.
+ */
+export const fetchOrder = async (symbol, orderId) => {
+  try {
+    const exchange = getExchange();
+    await exchange.loadMarkets();
+    
+    let marketSymbol = symbol;
+    if (!symbol.includes('/')) {
+      if (symbol.startsWith('1000')) {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      } else if (symbol === 'BONKUSDT' || symbol === 'SHIBUSDT' || symbol === 'PEPEUSDT' || symbol === 'FLOKIUSDT') {
+        marketSymbol = '1000' + symbol.replace('USDT', '/USDT:USDT');
+      } else {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      }
+    }
+    
+    return await exchange.fetchOrder(orderId, marketSymbol);
+  } catch (err) {
+    logger.error(`fetchOrder(${orderId}, ${symbol}) error: ${err.message}`);
     throw err;
   }
 };
@@ -198,9 +235,22 @@ export const placeLimitOrder = async (symbol, side, amount, price) => {
 export const cancelOrder = async (symbol, orderId) => {
   try {
     const exchange = getExchange();
-    return await exchange.cancelOrder(orderId, symbol);
+    await exchange.loadMarkets();
+    
+    let marketSymbol = symbol;
+    if (!symbol.includes('/')) {
+      if (symbol.startsWith('1000')) {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      } else if (symbol === 'BONKUSDT' || symbol === 'SHIBUSDT' || symbol === 'PEPEUSDT' || symbol === 'FLOKIUSDT') {
+        marketSymbol = '1000' + symbol.replace('USDT', '/USDT:USDT');
+      } else {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      }
+    }
+    
+    return await exchange.cancelOrder(orderId, marketSymbol);
   } catch (err) {
-    logger.error(`cancelOrder(${orderId}) error: ${err.message}`);
+    logger.error(`cancelOrder(${orderId}, ${symbol}) error: ${err.message}`);
     throw err;
   }
 };
@@ -253,6 +303,7 @@ export default {
   fetchOrderBook,
   placeMarketOrder,
   placeLimitOrder,
+  fetchOrder,
   cancelOrder,
   fetchBalance,
   fetchPositions,

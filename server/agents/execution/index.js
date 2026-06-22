@@ -1,7 +1,7 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS, ACTIONS, SYSTEM_USER_ID } from '../../config/constants.js';
 import { publishEvent, CHANNELS, subscribeToChannel } from '../../config/redis.js';
-import { placeMarketOrder, getExchange } from '../../services/exchangeService.js';
+import { placeMarketOrder, placeLimitOrder, fetchOrder, cancelOrder, getExchange } from '../../services/exchangeService.js';
 import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
 import Trade from '../../models/Trade.js';
 import Portfolio from '../../models/Portfolio.js';
@@ -45,84 +45,174 @@ export default class ExecutionAgent extends BaseAgent {
   }
 
   async execute() {
-    // 1. Scan and cancel expired pending limit orders (older than 5 minutes)
+    // 1. Scan and process pending limit orders
     try {
       const pendingTrades = await Trade.find({ status: 'pending' });
       const EXPIRATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
       
       for (const trade of pendingTrades) {
-        const age = Date.now() - new Date(trade.createdAt).getTime();
-        if (age >= EXPIRATION_TIMEOUT_MS) {
-          this.logger.info(`⏳ Pending trade for ${trade.asset} expired (${Math.round(age / 1000)}s old). Cancelling...`);
+        if (!trade.exchangeOrderId || trade.exchangeOrderId.startsWith('mock_')) {
+          continue;
+        }
+
+        try {
+          const exchange = getExchange();
+          const order = await fetchOrder(trade.asset, trade.exchangeOrderId);
           
-          let cancelFailedDueToFill = false;
-          try {
-            const exchange = getExchange();
-            if (trade.exchangeOrderId && !trade.exchangeOrderId.startsWith('mock_')) {
-              await exchange.cancelOrder(trade.exchangeOrderId, trade.asset);
-            }
-          } catch (cancelErr) {
-            this.logger.warn(`Failed to cancel expired order ${trade.exchangeOrderId} on exchange: ${cancelErr.message}`);
-            if (cancelErr.message.includes('filled') || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
-              cancelFailedDueToFill = true;
-            }
+          const filled = order.filled || 0;
+          const status = order.status; // 'open', 'closed', 'canceled', 'expired', etc.
+          const amount = order.amount || trade.quantity;
+          const age = Date.now() - new Date(trade.createdAt).getTime();
+
+          // Case A: Fully Filled
+          if (status === 'closed' || filled >= amount) {
+            this.logger.info(`✅ Pending limit order ${trade.exchangeOrderId} for ${trade.asset} is fully filled!`);
+            await this.transitionPendingToOpen(trade, order);
+            continue;
           }
-          
-          if (cancelFailedDueToFill) {
-            this.logger.info(`🔄 Order ${trade.exchangeOrderId} for ${trade.asset} was already filled on exchange. Transitioning trade to open instead of cancelling.`);
-            trade.status = 'open';
-            trade.executedAt = new Date();
-            await trade.save();
+
+          // Case B: Partially Filled
+          if (filled > 0 && filled < amount) {
+            this.logger.warn(`⚠️ [PARTIAL FILL DETECTED] Order ${trade.exchangeOrderId} for ${trade.asset} is partially filled (${filled}/${amount}). Cancelling remaining and closing executed portion...`);
             
-            // Add to portfolio active positions so it is properly monitored
-            let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
-            if (portfolio) {
-              const exists = portfolio.positions.some(p => p && p.asset === trade.asset && p.status === 'open');
-              if (!exists) {
-                portfolio.positions.push({
-                  asset: trade.asset,
-                  side: trade.side,
-                  entryPrice: trade.entryPrice,
-                  currentPrice: trade.entryPrice,
-                  quantity: trade.quantity,
-                  leverage: trade.leverage,
-                  stopLoss: trade.stopLoss,
-                  takeProfit: trade.takeProfit,
-                  status: 'open',
-                  openedAt: new Date(),
-                  fees: trade.fees || 0,
-                });
+            // 1. Cancel remaining order on exchange
+            if (status === 'open') {
+              try {
+                await cancelOrder(trade.asset, trade.exchangeOrderId);
+                this.logger.info(`🧹 Cancelled remaining open portion of limit order ${trade.exchangeOrderId} for ${trade.asset}`);
+              } catch (cancelErr) {
+                this.logger.warn(`Could not cancel remaining portion of ${trade.exchangeOrderId}: ${cancelErr.message}`);
+              }
+            }
+
+            // 2. Fetch order status again to confirm final filled quantity
+            const finalOrder = await fetchOrder(trade.asset, trade.exchangeOrderId);
+            const finalFilled = finalOrder.filled || filled;
+
+            if (finalFilled > 0) {
+              const exitSide = trade.side === 'long' ? 'sell' : 'buy';
+              this.logger.info(`🚨 [LIQUIDATING PARTIAL FILL] Placing market order to exit ${finalFilled} units of ${trade.asset}`);
+              
+              // Place market order to liquidate/close the partial fill quantity
+              const closeOrder = await placeMarketOrder(trade.asset, exitSide, finalFilled);
+              const closePrice = closeOrder.average || closeOrder.price || trade.entryPrice;
+              
+              // Calculate final realized PnL
+              let pnl = 0;
+              if (trade.side === 'long') {
+                pnl = (closePrice - trade.entryPrice) * finalFilled;
+              } else {
+                pnl = (trade.entryPrice - closePrice) * finalFilled;
+              }
+
+              // Update trade status to closed
+              trade.status = 'closed';
+              trade.exitPrice = closePrice;
+              trade.pnl = pnl;
+              trade.quantity = finalFilled; // actual filled amount
+              trade.metadata = {
+                ...(trade.metadata || {}),
+                cancelReason: 'Partial execution cancelled & closed',
+                partialFillQty: finalFilled,
+                originalQty: amount
+              };
+              await trade.save();
+
+              // Refund the unused margin back to the portfolio available balance
+              const leverage = trade.leverage || 3;
+              const originalMarginReserved = (trade.entryPrice * amount) / leverage;
+              const actualMarginUsed = (trade.entryPrice * finalFilled) / leverage;
+              const marginRefund = originalMarginReserved - actualMarginUsed;
+
+              // Compute actual fees
+              let actualEntryFee = (trade.entryPrice * finalFilled) * 0.0002; // maker fee
+              let actualExitFee = (closePrice * finalFilled) * 0.0005; // taker fee
+              const totalActualFees = actualEntryFee + actualExitFee;
+
+              let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+              if (portfolio) {
+                // Refund unused margin, adjust availableBalance with net PnL and subtract fees
+                portfolio.availableBalance += (marginRefund + pnl - totalActualFees);
+                portfolio.totalPnl += (pnl - totalActualFees);
+                portfolio.dailyLossToday = (portfolio.dailyLossToday || 0) + (pnl - totalActualFees);
+                
+                if (pnl - totalActualFees >= 0) {
+                  portfolio.winningTrades += 1;
+                } else {
+                  portfolio.losingTrades += 1;
+                }
+                const totalClosed = (portfolio.winningTrades || 0) + (portfolio.losingTrades || 0);
+                portfolio.winRate = totalClosed > 0 ? portfolio.winningTrades / totalClosed : 0;
+                
+                await portfolio.save();
+                this.logger.info(`Refunded unused margin $${marginRefund.toFixed(2)} and adjusted for PnL ($${pnl.toFixed(2)}) minus fees ($${totalActualFees.toFixed(2)}) for ${trade.asset}`);
+              }
+
+              await sendTelegramMessage(
+                `🚨 <b>Partial Entry Closed & Cancelled</b>\n` +
+                `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
+                `<b>Action</b>: Limit order partially executed. Executed quantity (${finalFilled.toFixed(5)}) was immediately closed via market order. Remaining order portion was cancelled.\n` +
+                `<b>P&L</b>: $${(pnl - totalActualFees).toFixed(2)}`
+              );
+            } else {
+              // Final filled is 0
+              trade.status = 'cancelled';
+              trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Cancelled' };
+              await trade.save();
+              
+              // Refund full margin and fees
+              const leverage = trade.leverage || 3;
+              const marginReserved = (trade.entryPrice * amount) / leverage;
+              const feeReserved = trade.fees || 0;
+              
+              let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+              if (portfolio) {
+                portfolio.availableBalance += (marginReserved + feeReserved);
                 await portfolio.save();
               }
             }
             continue;
           }
 
-          trade.status = 'cancelled';
-          trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)' };
-          await trade.save();
-          
-          // Refund margin and fees
-          const leverage = trade.leverage || 3;
-          const marginReserved = (trade.entryPrice * trade.quantity) / leverage;
-          const feeReserved = trade.fees || 0;
-          
-          let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
-          if (portfolio) {
-            portfolio.availableBalance += (marginReserved + feeReserved);
-            await portfolio.save();
-            this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for expired trade on ${trade.asset}`);
+          // Case C: Unfilled and Expired
+          const isExpired = age >= EXPIRATION_TIMEOUT_MS;
+          if (isExpired && filled === 0) {
+            this.logger.info(`⏳ Unfilled pending trade for ${trade.asset} expired (5m old). Cancelling...`);
+            try {
+              await cancelOrder(trade.asset, trade.exchangeOrderId);
+            } catch (cancelErr) {
+              this.logger.warn(`Failed to cancel expired order ${trade.exchangeOrderId} on exchange: ${cancelErr.message}`);
+            }
+
+            trade.status = 'cancelled';
+            trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)' };
+            await trade.save();
+            
+            // Refund full margin and fees
+            const leverage = trade.leverage || 3;
+            const marginReserved = (trade.entryPrice * amount) / leverage;
+            const feeReserved = trade.fees || 0;
+            
+            let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+            if (portfolio) {
+              portfolio.availableBalance += (marginReserved + feeReserved);
+              await portfolio.save();
+              this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for expired trade on ${trade.asset}`);
+            }
+            
+            await sendTelegramMessage(
+              `⏳ <b>Limit Order Expired</b>\n` +
+              `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
+              `<b>Action</b>: ${trade.action} limit order was cancelled after 5 minutes of no fill.`
+            );
           }
-          
-          await sendTelegramMessage(
-            `⏳ <b>Limit Order Expired</b>\n` +
-            `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
-            `<b>Action</b>: ${trade.action} limit order was cancelled after 5 minutes of no fill.`
-          );
+
+        } catch (fetchErr) {
+          this.logger.error(`Error checking status of pending trade ${trade.exchangeOrderId} for ${trade.asset}: ${fetchErr.message}`);
         }
       }
     } catch (err) {
-      this.logger.error(`Error cleaning up expired pending orders: ${err.message}`);
+      this.logger.error(`Error scanning pending limit orders: ${err.message}`);
     }
 
     // 2. Fallback/sanity check interval execution: check last signals from FusionAgent
@@ -396,7 +486,7 @@ export default class ExecutionAgent extends BaseAgent {
     while (attempt < this.maxRetries) {
       try {
         attempt++;
-        order = await placeMarketOrder(signal.asset, side, quantity);
+        order = await placeLimitOrder(signal.asset, side, quantity, limitEntryPrice);
         break;
       } catch (err) {
         this.logger.warn(`Order attempt ${attempt}/${this.maxRetries} failed: ${err.message}`);
@@ -614,5 +704,78 @@ export default class ExecutionAgent extends BaseAgent {
       this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
     }
     return stopLossOrderId;
+  }
+
+  async transitionPendingToOpen(trade, order) {
+    const executionPrice = order.average || order.price || trade.entryPrice;
+    const executionQuantity = order.filled || order.amount || trade.quantity;
+
+    let actualFee = trade.fees || 0;
+    if (order.fee && order.fee.cost) {
+      actualFee = order.fee.cost;
+    } else {
+      actualFee = (executionPrice * executionQuantity) * 0.0002; // maker fee
+    }
+
+    trade.status = 'open';
+    trade.entryPrice = executionPrice;
+    trade.quantity = executionQuantity;
+    trade.fees = actualFee;
+    trade.executedAt = new Date(order.timestamp || Date.now());
+    await trade.save();
+
+    let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+    if (portfolio) {
+      const exists = portfolio.positions.some(p => p && p.asset === trade.asset && p.status === 'open');
+      if (!exists) {
+        // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
+        let stopLossOrderId = null;
+        if (order && order.id && !order.id.startsWith('mock_')) {
+          stopLossOrderId = await this.placeTriggerOrders(
+            { asset: trade.asset, stopLoss: trade.stopLoss, takeProfit: trade.takeProfit },
+            executionQuantity,
+            trade.side === 'long' ? 'buy' : 'sell'
+          );
+        }
+
+        portfolio.positions.push({
+          asset: trade.asset,
+          side: trade.side,
+          entryPrice: executionPrice,
+          currentPrice: executionPrice,
+          quantity: executionQuantity,
+          leverage: trade.leverage || 3,
+          stopLoss: trade.stopLoss,
+          takeProfit: trade.takeProfit,
+          stopLossOrderId,
+          status: 'open',
+          openedAt: new Date(),
+          fees: actualFee,
+        });
+
+        // Recalculate total balance
+        const marginValue = portfolio.positions
+          .filter((p) => p && p.status === 'open')
+          .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+        portfolio.totalBalance = portfolio.availableBalance + marginValue;
+
+        if (portfolio.totalBalance > portfolio.peakBalance) {
+          portfolio.peakBalance = portfolio.totalBalance;
+        }
+
+        await portfolio.save();
+      }
+    }
+
+    // Notify Telegram
+    await sendTelegramMessage(
+      `🔔 <b>Limit Order Filled! [Open]</b>\n` +
+      `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
+      `<b>Action</b>: ${trade.action} (${trade.side.toUpperCase()})\n` +
+      `<b>Price</b>: $${formatPrice(executionPrice)}\n` +
+      `<b>Quantity</b>: ${executionQuantity.toFixed(5)}\n` +
+      `<b>Stop Loss</b>: ${trade.stopLoss ? '$' + formatPrice(trade.stopLoss) : '—'}\n` +
+      `<b>Target</b>: ${trade.takeProfit ? '$' + formatPrice(trade.takeProfit) : '—'}`
+    );
   }
 }
