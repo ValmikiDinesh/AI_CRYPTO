@@ -232,7 +232,7 @@ export const fetchOrder = async (symbol, orderId) => {
 /**
  * Cancel an order.
  */
-export const cancelOrder = async (symbol, orderId) => {
+export const cancelOrder = async (symbol, orderId, params = {}) => {
   try {
     const exchange = getExchange();
     await exchange.loadMarkets();
@@ -248,7 +248,7 @@ export const cancelOrder = async (symbol, orderId) => {
       }
     }
     
-    return await exchange.cancelOrder(orderId, marketSymbol);
+    return await exchange.cancelOrder(orderId, marketSymbol, params);
   } catch (err) {
     logger.error(`cancelOrder(${orderId}, ${symbol}) error: ${err.message}`);
     throw err;
