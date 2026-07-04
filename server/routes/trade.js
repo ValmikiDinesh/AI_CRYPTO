@@ -16,6 +16,10 @@ router.get('/', async (req, res, next) => {
     if (status) filter.status = status;
     if (asset) filter.asset = asset;
 
+    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+      filter.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+    }
+
     const trades = await Trade.find(filter)
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
@@ -36,8 +40,13 @@ router.get('/', async (req, res, next) => {
 // GET /api/trades/stats — aggregated trade statistics
 router.get('/stats', async (req, res, next) => {
   try {
+    const matchStage = { status: 'closed' };
+    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+      matchStage.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+    }
+
     const [stats] = await Trade.aggregate([
-      { $match: { status: 'closed' } },
+      { $match: matchStage },
       {
         $group: {
           _id: null,
@@ -69,7 +78,11 @@ router.get('/stats', async (req, res, next) => {
 // GET /api/trades/performance-comparison — compare AI vs Local performance
 router.get('/performance-comparison', async (req, res, next) => {
   try {
-    const trades = await Trade.find({ status: 'closed' }).lean();
+    const filter = { status: 'closed' };
+    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+      filter.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+    }
+    const trades = await Trade.find(filter).lean();
 
     const stats = {
       ai: { count: 0, wins: 0, losses: 0, totalPnl: 0 },

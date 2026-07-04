@@ -47,18 +47,52 @@ router.get('/performance', async (req, res, next) => {
       });
     }
 
+    // Dynamic stats override since reset timestamp
+    let totalPnl = portfolio.totalPnl;
+    let winRate = portfolio.winRate;
+    let totalTrades = portfolio.totalTrades;
+    let winningTrades = portfolio.winningTrades;
+    let losingTrades = portfolio.losingTrades;
+    let totalPnlPercent = portfolio.totalPnlPercent;
+
+    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+      const resetDate = new Date(process.env.DASHBOARD_RESET_TIMESTAMP);
+      const Trade = (await import('../models/Trade.js')).default;
+      const trades = await Trade.find({
+        createdAt: { $gte: resetDate },
+        status: 'closed'
+      }).lean();
+
+      totalTrades = trades.length;
+      winningTrades = 0;
+      losingTrades = 0;
+      let netPnl = 0;
+
+      trades.forEach(t => {
+        const tradeNet = (t.pnl || 0) - (t.fees || 0);
+        netPnl += tradeNet;
+        if (tradeNet >= 0) winningTrades++;
+        else losingTrades++;
+      });
+
+      totalPnl = netPnl;
+      winRate = totalTrades > 0 ? winningTrades / totalTrades : 0;
+      // PnL % relative to the reset capital ($1000)
+      totalPnlPercent = (netPnl / 1000) * 100;
+    }
+
     res.json({
       success: true,
       data: {
         totalBalance: portfolio.totalBalance,
         availableBalance: portfolio.availableBalance,
-        totalPnl: portfolio.totalPnl,
-        totalPnlPercent: portfolio.totalPnlPercent,
+        totalPnl,
+        totalPnlPercent,
         dailyPnl: portfolio.dailyLossToday,
-        winRate: portfolio.winRate,
-        totalTrades: portfolio.totalTrades,
-        winningTrades: portfolio.winningTrades,
-        losingTrades: portfolio.losingTrades,
+        winRate,
+        totalTrades,
+        winningTrades,
+        losingTrades,
         drawdown: portfolio.currentDrawdown,
         peakBalance: portfolio.peakBalance,
         allocation: portfolio.allocationBreakdown,
