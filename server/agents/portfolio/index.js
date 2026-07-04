@@ -2,7 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
-import { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange } from '../../services/exchangeService.js';
+import { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange, checkAssetLiquidity } from '../../services/exchangeService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 
@@ -551,22 +551,43 @@ export default class PortfolioAgent extends BaseAgent {
     const manuallyDisabled = portfolio.manuallyDisabledAssets || [];
     const autoIgnored = portfolio.autoIgnoredAssets || [];
 
-    // Filter out open positions that are manually disabled or auto-ignored
-    const openPositions = portfolio.positions.filter(
-      (p) => p && p.status === 'open' && !manuallyDisabled.includes(p.asset) && !autoIgnored.includes(p.asset)
+    // All active open positions (not manually disabled)
+    const activeOpenPositions = portfolio.positions.filter(
+      (p) => p && p.status === 'open' && !manuallyDisabled.includes(p.asset)
+    );
+
+    // Dynamic Liquidity Check
+    const liquidPositions = [];
+    const illiquidPositions = [];
+
+    await Promise.all(
+      activeOpenPositions.map(async (pos) => {
+        // If it is already in autoIgnoredAssets, we classify it as illiquid
+        if (autoIgnored.includes(pos.asset)) {
+          illiquidPositions.push(pos);
+          return;
+        }
+
+        const isLiquid = await checkAssetLiquidity(pos.asset, pos.side);
+        if (isLiquid) {
+          liquidPositions.push(pos);
+        } else {
+          illiquidPositions.push(pos);
+        }
+      })
     );
 
     const basketTarget = parseFloat(process.env.BASKET_PROFIT_TARGET) || 20;
 
     if (portfolio.isSquaringOff) {
-      if (openPositions.length === 0) {
+      if (liquidPositions.length === 0) {
         portfolio.isSquaringOff = false;
         await portfolio.save();
-        this.logger.info(`[BASKET EXIT] All positions closed successfully. Resetting square-off cooldown.`);
-        await sendTelegramMessage(`🔄 <b>Basket Profit Reset</b>\nAll positions successfully closed. Cooldown ended, fresh trades can now begin!`);
+        this.logger.info(`[BASKET EXIT] All liquid positions closed successfully. Resetting square-off cooldown.`);
+        await sendTelegramMessage(`🔄 <b>Basket Profit Reset</b>\nAll liquid positions successfully closed. Cooldown ended, fresh trades can now begin!`);
       } else {
-        this.logger.info(`[BASKET EXIT] Square-off active. Closing remaining ${openPositions.length} positions.`);
-        for (const position of openPositions) {
+        this.logger.info(`[BASKET EXIT] Square-off active. Closing remaining ${liquidPositions.length} liquid positions.`);
+        for (const position of liquidPositions) {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
           await this.closePosition(portfolio, position, currentPrice, `Basket Square-Off Active (+$${basketTarget} target reached)`, false);
         }
@@ -574,18 +595,18 @@ export default class PortfolioAgent extends BaseAgent {
       return;
     }
 
-    const totalUnrealizedPnl = openPositions.reduce((sum, p) => sum + (p.unrealizedPnl || 0), 0);
+    const totalUnrealizedPnl = liquidPositions.reduce((sum, p) => sum + (p.unrealizedPnl || 0), 0);
     if (totalUnrealizedPnl >= basketTarget) {
-      this.logger.info(`[BASKET EXIT] Total unrealized profit reached $${totalUnrealizedPnl.toFixed(2)} (>= $${basketTarget}). Triggering emergency square-off!`);
+      this.logger.info(`[BASKET EXIT] Total liquid unrealized profit reached $${totalUnrealizedPnl.toFixed(2)} (>= $${basketTarget}). Triggering square-off!`);
       portfolio.isSquaringOff = true;
       await portfolio.save();
 
       await sendTelegramMessage(
         `🎯 <b>Basket Take-Profit Reached! [+$${totalUnrealizedPnl.toFixed(2)}]</b>\n` +
-        `Total unrealized profit reached $${totalUnrealizedPnl.toFixed(2)}. Pausing new trades and squaring off all ${openPositions.length} active positions.`
+        `Total liquid unrealized profit reached $${totalUnrealizedPnl.toFixed(2)}. Pausing new trades and squaring off all ${liquidPositions.length} liquid positions.`
       );
 
-      for (const position of openPositions) {
+      for (const position of liquidPositions) {
         let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
         await this.closePosition(portfolio, position, currentPrice, `Basket Take Profit reached (+$${basketTarget} target)`, false);
       }
@@ -1069,15 +1090,40 @@ export default class PortfolioAgent extends BaseAgent {
 
   async checkProfitTarget(portfolio) {
     const target = portfolio.targetProfitThreshold || 1100;
-    if (portfolio.totalBalance >= target && !portfolio.tradingPaused) {
-      this.logger.warn(`🚨 [PROFIT TARGET MET] Net worth has reached $${portfolio.totalBalance.toFixed(2)} (Target: $${target}). Initiating automatic square-off...`);
+    
+    // Calculate liquid total balance (excluding illiquid positions P&L)
+    const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
+    let liquidOpenExposure = 0;
+    let liquidOpenUnrealized = 0;
+    
+    for (const pos of openPositions) {
+      const isLiquid = await checkAssetLiquidity(pos.asset, pos.side);
+      if (isLiquid && !portfolio.autoIgnoredAssets?.includes(pos.asset)) {
+        const leverage = pos.leverage && pos.leverage > 1 ? pos.leverage : 10;
+        const exposure = pos.entryPrice * pos.quantity;
+        const margin = exposure / leverage;
+        liquidOpenExposure += margin;
+        liquidOpenUnrealized += pos.unrealizedPnl;
+      }
+    }
+    
+    // Liquid total balance = availableBalance + liquid margin + liquid unrealized
+    const liquidTotalBalance = portfolio.availableBalance + liquidOpenExposure + liquidOpenUnrealized;
+    
+    if (liquidTotalBalance >= target && !portfolio.tradingPaused) {
+      this.logger.warn(`🚨 [PROFIT TARGET MET] Liquid net worth has reached $${liquidTotalBalance.toFixed(2)} (Target: $${target}). Initiating automatic square-off...`);
       
       portfolio.tradingPaused = true;
       await portfolio.save();
 
-      const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
-      this.logger.info(`🚨 Closing all ${openPositions.length} active positions on Binance...`);
+      // Only close liquid positions!
+      this.logger.info(`🚨 Closing all active liquid positions on Binance...`);
       for (const position of openPositions) {
+        const isLiquid = await checkAssetLiquidity(position.asset, position.side);
+        if (!isLiquid || portfolio.autoIgnoredAssets?.includes(position.asset)) {
+          this.logger.info(`ℹ️ Skipping square-off close for illiquid position: ${position.asset}`);
+          continue;
+        }
         try {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || position.entryPrice || 0;
           await this.closePosition(portfolio, position, currentPrice, 'Profit Target Met (Auto-Squareoff)', false);
@@ -1087,7 +1133,13 @@ export default class PortfolioAgent extends BaseAgent {
       }
 
       const baseCap = portfolio.baseTradingCapital || 1000;
-      const excessProfit = portfolio.totalBalance - baseCap;
+      // Recalculate true balance after liquid positions have been closed
+      const marginValue = portfolio.positions
+        .filter((p) => p && p.status === 'open')
+        .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+      const postCloseTotalBalance = portfolio.availableBalance + marginValue;
+
+      const excessProfit = postCloseTotalBalance - baseCap;
       
       if (excessProfit > 0) {
         portfolio.walletBalance = (portfolio.walletBalance || 0) + excessProfit;
@@ -1095,20 +1147,19 @@ export default class PortfolioAgent extends BaseAgent {
         portfolio.availableBalance = baseCap;
         portfolio.peakBalance = baseCap;
         
-        this.logger.info(`💰 [PROFIT SWEEP] Swept $${excessProfit.toFixed(2)} of excess profit to the secure wallet. New wallet balance: $${portfolio.walletBalance.toFixed(2)}`);
+        this.logger.info(`💰 [PROFIT SWEEP] Swept $${excessProfit.toFixed(2)} of excess profit to the secure wallet. New wallet balance: ${portfolio.walletBalance.toFixed(2)}`);
         
         await sendTelegramMessage(
           `🎯 <b>Profit Target Achieved!</b>\n\n` +
           `• Net Worth reached: $${(baseCap + excessProfit).toFixed(2)} (Target: $${target.toFixed(2)})\n` +
           `• Swept Profit to Local Vault: $${excessProfit.toFixed(2)}\n` +
           `• Total Vault Balance: $${portfolio.walletBalance.toFixed(2)}\n` +
-          `• Trading bot has been <b>PAUSED</b> and all positions squared off.\n\n` +
+          `• Trading bot has been <b>PAUSED</b> and all liquid positions squared off.\n\n` +
           `Please restart the bot manually from the dashboard when ready.`
         );
       } else {
-        this.logger.warn(`[PROFIT SWEEP] Net worth is not above base capital after closing positions. No sweep performed.`);
+        this.logger.warn(`[PROFIT SWEEP] Net worth is not above base capital after closing liquid positions. No sweep performed.`);
       }
-
       await portfolio.save();
     }
   }

@@ -322,6 +322,45 @@ export const fetchPositions = async (symbol) => {
   }
 };
 
+/**
+ * Check if an asset has enough order book liquidity to execute a market close order.
+ */
+export const checkAssetLiquidity = async (symbol, side) => {
+  try {
+    const exchange = getExchange();
+    
+    // Resolve unified CCXT symbol if raw asset string is passed
+    let marketSymbol = symbol;
+    if (!symbol.includes('/')) {
+      if (symbol.startsWith('1000')) {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      } else if (symbol === 'BONKUSDT' || symbol === 'SHIBUSDT' || symbol === 'PEPEUSDT' || symbol === 'FLOKIUSDT') {
+        marketSymbol = '1000' + symbol.replace('USDT', '/USDT:USDT');
+      } else {
+        marketSymbol = symbol.replace('USDT', '/USDT:USDT');
+      }
+    }
+
+    const orderBook = await exchange.fetchOrderBook(marketSymbol, 5);
+    
+    // Long position needs to Sell -> needs Bids (buyers)
+    // Short position needs to Buy -> needs Asks (sellers)
+    if (side === 'long' || side === 'sell') {
+      if (!orderBook.bids || orderBook.bids.length === 0 || orderBook.bids[0][1] <= 0.001) {
+        return false;
+      }
+    } else {
+      if (!orderBook.asks || orderBook.asks.length === 0 || orderBook.asks[0][1] <= 0.001) {
+        return false;
+      }
+    }
+    return true;
+  } catch (err) {
+    logger.warn(`⚠️ [LIQUIDITY CHECK FAILED] Failed to check liquidity for ${symbol}: ${err.message}. Assuming no liquidity.`);
+    return false;
+  }
+};
+
 export default {
   getExchange,
   fetchCandles,
@@ -334,4 +373,5 @@ export default {
   cancelAllOrders,
   fetchBalance,
   fetchPositions,
+  checkAssetLiquidity,
 };
