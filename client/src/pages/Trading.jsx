@@ -162,7 +162,22 @@ export default function Trading() {
     }
   };
 
-  // Selected asset signals are retrieved directly via Zustand selectors above
+  const handleToggleAsset = async () => {
+    try {
+      const res = await axiosActual.post('/api/portfolio/toggle-asset', {
+        asset: selectedAsset,
+        enabled: portfolio?.manuallyDisabledAssets?.includes(selectedAsset) ? true : false
+      });
+      if (res.data.success) {
+        usePortfolioStore.getState().setPortfolio(res.data.data);
+      }
+    } catch (err) {
+      console.error("Failed to toggle asset:", err);
+    }
+  };
+
+  const isAssetDisabled = portfolio?.manuallyDisabledAssets?.includes(selectedAsset) || false;
+  const isAssetIgnored = portfolio?.autoIgnoredAssets?.includes(selectedAsset) || false;
 
   return (
     <div className="page-layout">
@@ -239,13 +254,43 @@ export default function Trading() {
           {/* Main Chart */}
           <div className="glass-panel relative overflow-hidden bg-[#1c1c1e]">
             <div className="flex items-center justify-between mb-5">
-              <div>
+              <div className="flex items-center gap-3">
                 <span className="text-base font-semibold tracking-tight text-[#f5f5f7] font-mono">
                   {selectedAsset.replace('1000', '').replace('USDT', '')}/USDT
                 </span>
-                <span className="text-2xl font-bold text-[#f5f5f7] ml-4 font-mono">
+                <span className="text-2xl font-bold text-[#f5f5f7] mr-4 font-mono">
                   {price ? (price >= 1 ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${price.toFixed(6)}`) : '—'}
                 </span>
+                
+                {/* Status Badge */}
+                {isAssetIgnored ? (
+                  <span className="px-2 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-500 text-[9px] font-bold uppercase tracking-wider font-mono">
+                    ⚠️ Auto-Ignored
+                  </span>
+                ) : isAssetDisabled ? (
+                  <span className="px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-500 text-[9px] font-bold uppercase tracking-wider font-mono">
+                    🔴 Disabled
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 text-[9px] font-bold uppercase tracking-wider font-mono">
+                    🟢 Active
+                  </span>
+                )}
+
+                {/* Toggle Switch */}
+                <button
+                  type="button"
+                  onClick={handleToggleAsset}
+                  className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    isAssetDisabled ? 'bg-zinc-700' : 'bg-[#30d158]'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      isAssetDisabled ? 'translate-x-0' : 'translate-x-4'
+                    }`}
+                  />
+                </button>
               </div>
               {signal && (
                 <span className={`px-3 py-1 rounded-full text-[9px] font-bold border uppercase tracking-wider font-mono ${

@@ -52,6 +52,8 @@ const portfolioSchema = new mongoose.Schema({
   isSquaringOff: { type: Boolean, default: false },
   targetProfitThreshold: { type: Number, default: 1100 },
   baseTradingCapital: { type: Number, default: 1000 },
+  manuallyDisabledAssets: { type: [String], default: [] },
+  autoIgnoredAssets: { type: [String], default: [] },
   lastRebalancedAt: { type: Date },
   lastDailyDigestDate: { type: String },
 }, {

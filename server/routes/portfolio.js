@@ -158,4 +158,39 @@ router.post('/resume', async (req, res, next) => {
   }
 });
 
+// POST /api/portfolio/toggle-asset — toggle manual asset enabled/disabled state
+router.post('/toggle-asset', async (req, res, next) => {
+  try {
+    const { asset, enabled } = req.body;
+    if (!asset) {
+      return res.status(400).json({ success: false, message: 'Asset is required' });
+    }
+
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (!portfolio) {
+      return res.status(404).json({ success: false, message: 'Portfolio not found' });
+    }
+
+    if (!portfolio.manuallyDisabledAssets) {
+      portfolio.manuallyDisabledAssets = [];
+    }
+
+    if (enabled) {
+      // Re-enable asset: remove from manuallyDisabledAssets array
+      portfolio.manuallyDisabledAssets = portfolio.manuallyDisabledAssets.filter(a => a !== asset);
+    } else {
+      // Disable asset: add to manuallyDisabledAssets array
+      if (!portfolio.manuallyDisabledAssets.includes(asset)) {
+        portfolio.manuallyDisabledAssets.push(asset);
+      }
+    }
+
+    await portfolio.save();
+
+    res.json({ success: true, message: `Asset ${asset} status updated`, data: portfolio });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

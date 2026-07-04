@@ -381,6 +381,13 @@ export default class PortfolioAgent extends BaseAgent {
           continue;
         }
 
+        // Skip assets manually disabled or auto-ignored (unless already tracked in DB as open)
+        const manuallyDisabled = portfolio.manuallyDisabledAssets || [];
+        const autoIgnored = portfolio.autoIgnoredAssets || [];
+        if (manuallyDisabled.includes(asset) || autoIgnored.includes(asset)) {
+          continue;
+        }
+
         const dbPosition = portfolio.positions.find((p) => p && p.asset === asset && p.status === 'open');
 
         if (!dbPosition) {
@@ -541,8 +548,13 @@ export default class PortfolioAgent extends BaseAgent {
   }
 
   async checkExits(portfolio) {
-    // ─── Basket Take-Profit & Square-Off ($100 Target) ───────────────────
-    const openPositions = portfolio.positions.filter((p) => p && p.status === 'open');
+    const manuallyDisabled = portfolio.manuallyDisabledAssets || [];
+    const autoIgnored = portfolio.autoIgnoredAssets || [];
+
+    // Filter out open positions that are manually disabled or auto-ignored
+    const openPositions = portfolio.positions.filter(
+      (p) => p && p.status === 'open' && !manuallyDisabled.includes(p.asset) && !autoIgnored.includes(p.asset)
+    );
 
     const basketTarget = parseFloat(process.env.BASKET_PROFIT_TARGET) || 20;
 
@@ -585,6 +597,7 @@ export default class PortfolioAgent extends BaseAgent {
 
     for (const position of portfolio.positions) {
       if (!position || position.status !== 'open') continue;
+      if (manuallyDisabled.includes(position.asset) || autoIgnored.includes(position.asset)) continue;
 
       if (processedAssets.has(position.asset)) {
         this.logger.warn(`Duplicate open position found for ${position.asset} in exit loop — self-healing by marking it closed.`);
@@ -666,8 +679,51 @@ export default class PortfolioAgent extends BaseAgent {
           }
         }
       } catch (err) {
-        this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Binance Demo for ${position.asset}: ${err.message}. Aborting position closure.`);
-        // Abort local closure so that the position stays open and we retry in the next cycle
+        this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Binance Demo for ${position.asset}: ${err.message}. Initiating auto-ignore with limit order fallback.`);
+        
+        try {
+          const exchange = getExchange();
+          const symbol = position.asset.endsWith('USDT') ? `${position.asset.replace('USDT', '')}/USDT:USDT` : position.asset;
+          
+          // 1. Cancel trigger orders to unlock
+          try {
+            await cancelAllOrders(position.asset);
+            this.logger.info(`🧹 [AUTO-IGNORE CLEANUP] Cancelled open trigger orders for ${position.asset}`);
+          } catch (cancelErr) {
+            this.logger.warn(`Failed to clean up trigger orders during auto-ignore: ${cancelErr.message}`);
+          }
+
+          // 2. Fetch ticker last price
+          let ticker = await exchange.fetchTicker(symbol);
+          const limitPrice = ticker.last || closePrice;
+
+          // 3. Place Limit Order
+          const exitSide = position.side === 'long' ? 'sell' : 'buy';
+          this.logger.info(`🚨 [AUTO-IGNORE FALLBACK] Placing Limit ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} at $${limitPrice}`);
+          const limitOrder = await exchange.createOrder(symbol, 'limit', exitSide, position.quantity, limitPrice, { reduceOnly: true });
+          this.logger.info(`✅ [AUTO-IGNORE LIMIT PLACED] Order ID: ${limitOrder.id}, status: ${limitOrder.status}`);
+
+          // 4. Add to autoIgnoredAssets in Portfolio
+          if (!portfolio.autoIgnoredAssets) {
+            portfolio.autoIgnoredAssets = [];
+          }
+          if (!portfolio.autoIgnoredAssets.includes(position.asset)) {
+            portfolio.autoIgnoredAssets.push(position.asset);
+            await portfolio.save();
+          }
+
+          // 5. Send Telegram alert
+          await sendTelegramMessage(
+            `⚠️ <b>Market Exit Failed! [Auto-Ignored]</b>\n` +
+            `• Market order failed for <b>${position.asset.replace('USDT', '')}/USDT</b>: ${err.message.substring(0, 120)}...\n` +
+            `• Automatically placed <b>Limit Close Order</b> at $${limitPrice.toFixed(4)}\n` +
+            `• Bot has <b>auto-ignored</b> this asset to unblock all other trading.`
+          );
+        } catch (fallbackErr) {
+          this.logger.error(`❌ [AUTO-IGNORE FALLBACK FAILED] Failed to place limit fallback for ${position.asset}: ${fallbackErr.message}`);
+        }
+        
+        // Abort local closure so that the position stays open and we check it on exchange fill
         return;
       }
     }
@@ -785,6 +841,16 @@ export default class PortfolioAgent extends BaseAgent {
       pnl: position.realizedPnl,
       reason,
     });
+
+    // Auto-Ignored cleanup
+    if (portfolio.autoIgnoredAssets && portfolio.autoIgnoredAssets.includes(position.asset)) {
+      portfolio.autoIgnoredAssets = portfolio.autoIgnoredAssets.filter(a => a !== position.asset);
+      await portfolio.save();
+      await sendTelegramMessage(
+        `✅ <b>Asset Re-Enabled!</b>\n` +
+        `The auto-ignored position for <b>${position.asset.replace('USDT', '')}/USDT</b> has successfully closed on Binance. Re-enabling the asset for normal trading.`
+      );
+    }
   }
 
   /** Update aggregate portfolio metrics. */

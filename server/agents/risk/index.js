@@ -78,7 +78,19 @@ export default class RiskAgent extends BaseAgent {
 
     // 1.5. Basket square-off check
     if (portfolio && portfolio.isSquaringOff) {
-      return this.reject('Portfolio is squaring off all positions after reaching $100 profit target', 'portfolio_square_off', signal);
+      return this.reject('Portfolio is squaring off all positions after reaching profit target', 'portfolio_square_off', signal);
+    }
+
+    // 1.6. Asset Disabled check
+    if (portfolio) {
+      const manuallyDisabled = portfolio.manuallyDisabledAssets || [];
+      const autoIgnored = portfolio.autoIgnoredAssets || [];
+      if (manuallyDisabled.includes(signal.asset)) {
+        return this.reject(`Asset ${signal.asset} is manually disabled by the user`, 'asset_disabled', signal);
+      }
+      if (autoIgnored.includes(signal.asset)) {
+        return this.reject(`Asset ${signal.asset} is auto-ignored due to pending exchange exit order`, 'asset_ignored_closing', signal);
+      }
     }
 
     // 2. Confidence threshold
