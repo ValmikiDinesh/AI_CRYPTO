@@ -40,44 +40,8 @@ export async function generateBatchPredictions(assetsData) {
     const promptText = buildPrompt(chunk);
     let chunkSuccess = false;
 
-    // 1. Try Gemini if key is present (Primary AI)
-    if (geminiKeys.length > 0) {
-      const currentGeminiKey = geminiKeys[index % geminiKeys.length];
-      const geminiModels = ['gemini-3.1-flash-lite'];
-      
-      for (const modelName of geminiModels) {
-        try {
-          logger.info(`AI Service: Querying Google Gemini (${modelName}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
-          const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentGeminiKey}`,
-            {
-              contents: [{ parts: [{ text: promptText }] }],
-              generationConfig: { responseMimeType: 'application/json' }
-            },
-            { headers: { 'Content-Type': 'application/json' }, timeout: 30_000 }
-          );
-
-          const resultText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!resultText) throw new Error('Empty content returned from Gemini API');
-
-          const parsed = JSON.parse(resultText);
-          if (parsed && Array.isArray(parsed.predictions)) {
-            parsed.predictions.forEach(p => p.sourceModel = 'ai_gemini');
-            allPredictions = allPredictions.concat(parsed.predictions);
-            chunkSuccess = true;
-            break; // Success! Break out of the models loop
-          } else {
-            throw new Error('Response did not contain the "predictions" array matching schema');
-          }
-        } catch (err) {
-          const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-          logger.warn(`AI Service: Gemini API call failed for model ${modelName} on chunk ${index + 1}: ${errorDetail}`);
-        }
-      }
-    }
-
-    // 2. Try Groq if Gemini failed or key was absent (Secondary AI / Fallback)
-    if (!chunkSuccess && groqKey) {
+    // 1. Try Groq if key is present (Primary AI)
+    if (groqKey) {
       try {
         logger.info(`AI Service: Querying Groq (${groqModel}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
         const response = await axios.post(
@@ -116,6 +80,42 @@ export async function generateBatchPredictions(assetsData) {
       } catch (err) {
         const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
         logger.warn(`AI Service: Groq API call failed for chunk ${index + 1}: ${errorDetail}`);
+      }
+    }
+
+    // 2. Try Gemini if Groq failed or key was absent (Secondary AI / Fallback)
+    if (!chunkSuccess && geminiKeys.length > 0) {
+      const currentGeminiKey = geminiKeys[index % geminiKeys.length];
+      const geminiModels = ['gemini-3.1-flash-lite'];
+      
+      for (const modelName of geminiModels) {
+        try {
+          logger.info(`AI Service: Querying Google Gemini (${modelName}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
+          const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentGeminiKey}`,
+            {
+              contents: [{ parts: [{ text: promptText }] }],
+              generationConfig: { responseMimeType: 'application/json' }
+            },
+            { headers: { 'Content-Type': 'application/json' }, timeout: 30_000 }
+          );
+
+          const resultText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!resultText) throw new Error('Empty content returned from Gemini API');
+
+          const parsed = JSON.parse(resultText);
+          if (parsed && Array.isArray(parsed.predictions)) {
+            parsed.predictions.forEach(p => p.sourceModel = 'ai_gemini');
+            allPredictions = allPredictions.concat(parsed.predictions);
+            chunkSuccess = true;
+            break; // Success! Break out of the models loop
+          } else {
+            throw new Error('Response did not contain the "predictions" array matching schema');
+          }
+        } catch (err) {
+          const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+          logger.warn(`AI Service: Gemini API call failed for model ${modelName} on chunk ${index + 1}: ${errorDetail}`);
+        }
       }
     }
 

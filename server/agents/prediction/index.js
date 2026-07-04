@@ -76,12 +76,14 @@ export default class PredictionAgent extends BaseAgent {
       if (aiPredictions) {
         const aiPred = aiPredictions.find(p => p.asset === asset);
         if (aiPred && ['up', 'down', 'neutral', 'hold'].includes(aiPred.direction.toLowerCase())) {
-          const isGemini = !!process.env.GEMINI_API_KEY;
+          const isGroq = !!process.env.GROQ_API_KEY;
+          const isGemini = !isGroq && (!!process.env.GEMINI_API_KEY || !!process.env.GEMINI_API_KEYS);
+          const defaultModel = isGroq ? 'ai_groq' : (isGemini ? 'ai_gemini' : 'ai_openai');
           const normalizedDirection = aiPred.direction.toLowerCase() === 'hold' ? 'neutral' : aiPred.direction.toLowerCase();
           
           prediction = {
             asset,
-            model: aiPred.sourceModel || (isGemini ? 'ai_gemini' : 'ai_openai'),
+            model: aiPred.sourceModel || defaultModel,
             horizon: '1h',
             direction: normalizedDirection,
             probability: aiPred.probability || 0.5,
