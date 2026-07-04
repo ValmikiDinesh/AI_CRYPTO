@@ -6,10 +6,10 @@ dotenv.config();
 
 async function run() {
   await connectDB();
-  const events = await RiskEvent.find({}).sort({ createdAt: -1 }).limit(5);
+  const events = await RiskEvent.find({}).sort({ createdAt: -1 }).limit(10);
   console.log("Recent Risk Events:");
   events.forEach(e => {
-    console.log(`[${e.createdAt.toISOString()}] Asset: ${e.asset || 'N/A'}, Rule: ${e.rule}, Reason: ${e.reason}`);
+    console.log(`[${e.createdAt.toISOString()}] Asset: ${e.asset || 'N/A'}, Type: ${e.type}, Message: ${e.message}`);
   });
   await mongoose.connection.close();
 }
