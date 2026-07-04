@@ -99,21 +99,27 @@ async function run() {
     const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (portfolio) {
       const oldBalance = portfolio.totalBalance;
-      portfolio.totalBalance += totalPnL;
-      portfolio.availableBalance = portfolio.totalBalance; // Ensure available matches total since positions are empty
+      const newBalance = oldBalance + totalPnL;
       
-      // Update statistics
-      portfolio.totalPnl = (portfolio.totalPnl || 0) + totalPnL;
-      const winning = totalPnL > 0;
-      if (winning) {
-        portfolio.winningTrades = (portfolio.winningTrades || 0) + 1;
-      } else {
-        portfolio.losingTrades = (portfolio.losingTrades || 0) + 1;
-      }
-      portfolio.totalTrades = (portfolio.totalTrades || 0) + trades.length;
+      const result = await Portfolio.updateOne(
+        { userId: SYSTEM_USER_ID },
+        { 
+          $set: { 
+            totalBalance: newBalance,
+            availableBalance: newBalance,
+            positions: [] // Force clear positions to empty array
+          },
+          $inc: {
+            totalPnl: totalPnL,
+            totalTrades: trades.length,
+            winningTrades: totalPnL > 0 ? 1 : 0,
+            losingTrades: totalPnL > 0 ? 0 : 1
+          }
+        }
+      );
       
-      await portfolio.save();
-      console.log(`Portfolio Balance updated from $${oldBalance.toFixed(2)} to $${portfolio.totalBalance.toFixed(2)}.`);
+      console.log(`Portfolio Balance updated from $${oldBalance.toFixed(2)} to $${newBalance.toFixed(2)}.`);
+      console.log("Mongoose updateOne result:", result);
     }
   } catch (err) {
     console.error("Failed to update portfolio balance:", err.message);
