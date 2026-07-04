@@ -342,6 +342,10 @@ export const checkAssetLiquidity = async (symbol, side) => {
     }
 
     const orderBook = await exchange.fetchOrderBook(marketSymbol, 5);
+    const ticker = await exchange.fetchTicker(marketSymbol);
+    const markPrice = ticker.last || ticker.markPrice || ticker.close || 0;
+
+    if (markPrice <= 0) return false;
     
     // Long position needs to Sell -> needs Bids (buyers)
     // Short position needs to Buy -> needs Asks (sellers)
@@ -349,9 +353,17 @@ export const checkAssetLiquidity = async (symbol, side) => {
       if (!orderBook.bids || orderBook.bids.length === 0 || orderBook.bids[0][1] <= 0.001) {
         return false;
       }
+      const bestBid = orderBook.bids[0][0];
+      if (Math.abs(bestBid - markPrice) / markPrice > 0.09) {
+        return false; // Price deviation too large, PERCENT_PRICE filter will reject market order
+      }
     } else {
       if (!orderBook.asks || orderBook.asks.length === 0 || orderBook.asks[0][1] <= 0.001) {
         return false;
+      }
+      const bestAsk = orderBook.asks[0][0];
+      if (Math.abs(bestAsk - markPrice) / markPrice > 0.09) {
+        return false; // Price deviation too large, PERCENT_PRICE filter will reject market order
       }
     }
     return true;
