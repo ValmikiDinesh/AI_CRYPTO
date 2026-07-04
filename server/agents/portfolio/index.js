@@ -878,10 +878,19 @@ export default class PortfolioAgent extends BaseAgent {
       const startOfToday = new Date(`${todayStr}T00:00:00.000+05:30`);
       const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
 
-      const closedTradesToday = await Trade.find({
+      const filter = {
         status: 'closed',
         closedAt: { $gte: startOfToday, $lt: endOfToday },
-      });
+      };
+
+      if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+        const resetDate = new Date(process.env.DASHBOARD_RESET_TIMESTAMP);
+        if (resetDate > startOfToday) {
+          filter.closedAt.$gte = resetDate;
+        }
+      }
+
+      const closedTradesToday = await Trade.find(filter);
 
       const totalCommissions = closedTradesToday.reduce((sum, t) => sum + (t.fees || 0), 0);
       const grossProfit = closedTradesToday.reduce((sum, t) => sum + (t.pnl || 0), 0);
