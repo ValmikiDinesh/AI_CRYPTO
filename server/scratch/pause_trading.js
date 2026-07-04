@@ -7,12 +7,16 @@ dotenv.config();
 
 async function run() {
   await connectDB();
-  const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
-  if (portfolio) {
-    portfolio.tradingPaused = true;
-    await portfolio.save();
-    console.log("Trading successfully PAUSED in database.");
-  }
+  
+  // Use updateOne to bypass mongoose validation in case of old/corrupted document properties
+  const result = await Portfolio.updateOne(
+    { userId: SYSTEM_USER_ID },
+    { $set: { positions: [], tradingPaused: true } }
+  );
+  
+  console.log("Portfolio updated successfully:", result);
+  console.log("Trading successfully PAUSED and positions list cleared.");
+  
   await mongoose.connection.close();
 }
 
