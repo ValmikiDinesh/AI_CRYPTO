@@ -799,7 +799,11 @@ export default class PortfolioAgent extends BaseAgent {
 
     try {
       // 1. Calculate true closed PnL and trade counters from Trade collection (source of truth)
-      const closedTrades = await Trade.find({ status: 'closed' });
+      const filter = { status: 'closed' };
+      if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+        filter.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+      }
+      const closedTrades = await Trade.find(filter);
       let trueTotalPnl = 0;
       let winners = 0;
       let losers = 0;
