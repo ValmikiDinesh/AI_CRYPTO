@@ -54,6 +54,7 @@ router.get('/performance', async (req, res, next) => {
     let winningTrades = portfolio.winningTrades;
     let losingTrades = portfolio.losingTrades;
     let totalPnlPercent = portfolio.totalPnlPercent;
+    let dailyPnl = portfolio.dailyLossToday;
 
     if (process.env.DASHBOARD_RESET_TIMESTAMP) {
       const resetDate = new Date(process.env.DASHBOARD_RESET_TIMESTAMP);
@@ -67,18 +68,29 @@ router.get('/performance', async (req, res, next) => {
       winningTrades = 0;
       losingTrades = 0;
       let netPnl = 0;
+      let netDailyPnl = 0;
+
+      // Get starting of today in IST (UTC+5.5) just like the agents do
+      const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const startOfToday = new Date(`${todayStr}T00:00:00.000+05:30`);
 
       trades.forEach(t => {
         const tradeNet = (t.pnl || 0) - (t.fees || 0);
         netPnl += tradeNet;
         if (tradeNet >= 0) winningTrades++;
         else losingTrades++;
+
+        // If trade was closed today, add to daily PnL
+        if (t.closedAt && new Date(t.closedAt) >= startOfToday) {
+          netDailyPnl += tradeNet;
+        }
       });
 
       totalPnl = netPnl;
       winRate = totalTrades > 0 ? winningTrades / totalTrades : 0;
       // PnL % relative to the reset capital ($1000)
       totalPnlPercent = (netPnl / 1000) * 100;
+      dailyPnl = netDailyPnl;
     }
 
     res.json({
@@ -88,7 +100,7 @@ router.get('/performance', async (req, res, next) => {
         availableBalance: portfolio.availableBalance,
         totalPnl,
         totalPnlPercent,
-        dailyPnl: portfolio.dailyLossToday,
+        dailyPnl,
         winRate,
         totalTrades,
         winningTrades,
