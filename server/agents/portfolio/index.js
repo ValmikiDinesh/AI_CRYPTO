@@ -562,12 +562,6 @@ export default class PortfolioAgent extends BaseAgent {
 
     await Promise.all(
       activeOpenPositions.map(async (pos) => {
-        // If it is already in autoIgnoredAssets, we classify it as illiquid
-        if (autoIgnored.includes(pos.asset)) {
-          illiquidPositions.push(pos);
-          return;
-        }
-
         const isLiquid = await checkAssetLiquidity(pos.asset, pos.side);
         if (isLiquid) {
           liquidPositions.push(pos);
@@ -1098,7 +1092,7 @@ export default class PortfolioAgent extends BaseAgent {
     
     for (const pos of openPositions) {
       const isLiquid = await checkAssetLiquidity(pos.asset, pos.side);
-      if (isLiquid && !portfolio.autoIgnoredAssets?.includes(pos.asset)) {
+      if (isLiquid) {
         const leverage = pos.leverage && pos.leverage > 1 ? pos.leverage : 10;
         const exposure = pos.entryPrice * pos.quantity;
         const margin = exposure / leverage;
@@ -1120,7 +1114,7 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.info(`🚨 Closing all active liquid positions on Binance...`);
       for (const position of openPositions) {
         const isLiquid = await checkAssetLiquidity(position.asset, position.side);
-        if (!isLiquid || portfolio.autoIgnoredAssets?.includes(position.asset)) {
+        if (!isLiquid) {
           this.logger.info(`ℹ️ Skipping square-off close for illiquid position: ${position.asset}`);
           continue;
         }
