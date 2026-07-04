@@ -6,11 +6,12 @@ dotenv.config();
 
 async function run() {
   await connectDB();
-  const trades = await Trade.find({ asset: { $regex: 'PEPE', $options: 'i' } }).sort({ createdAt: -1 }).limit(5);
-  console.log("Recent PEPE Trades:");
-  trades.forEach(t => {
-    console.log(`- ID: ${t._id}, Status: ${t.status}, Action: ${t.action}, Qty: ${t.quantity}, Price: ${t.entryPrice}, CreatedAt: ${t.createdAt}`);
-  });
+  const trade = await Trade.findById('6a48b7db3ed65263b1a557fb');
+  if (trade) {
+    console.log("PEPE Trade Metadata:", JSON.stringify(trade.metadata, null, 2));
+  } else {
+    console.log("Trade not found");
+  }
   await mongoose.connection.close();
 }
 
