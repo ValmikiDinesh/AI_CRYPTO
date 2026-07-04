@@ -59,21 +59,41 @@ export default class PredictionAgent extends BaseAgent {
       return;
     }
 
-    // 2. Call AI Service for batched predictions
-    let aiPredictions = null;
-    try {
-      aiPredictions = await generateBatchPredictions(assetsData);
-    } catch (err) {
-      this.logger.warn(`AI Service batched call failed: ${err.message}`);
+    // 2. Run local mathematical model as primary for all assets
+    const fallbackAssetsData = [];
+    const localPredictions = {};
+
+    for (const data of assetsData) {
+      const { asset } = data;
+      const candles = candleMap[asset];
+      const localPred = this.predictLocalFallback(asset, candles, data.indicators);
+      
+      localPredictions[asset] = localPred;
+
+      // If local model is forced to fall back to 'statistical_baseline' due to insufficient indicator data,
+      // we queue it for LLM fallback.
+      if (localPred.model === 'statistical_baseline') {
+        fallbackAssetsData.push(data);
+      }
     }
 
-    // 3. Process results, fallback if needed
+    // 3. Query external AI Services ONLY for assets needing fallback (insufficient indicator data)
+    let aiPredictions = null;
+    if (fallbackAssetsData.length > 0) {
+      try {
+        this.logger.info(`AI Service: Querying LLM fallback for ${fallbackAssetsData.length} assets with insufficient indicator data`);
+        aiPredictions = await generateBatchPredictions(fallbackAssetsData);
+      } catch (err) {
+        this.logger.warn(`AI Service fallback call failed: ${err.message}`);
+      }
+    }
+
+    // 4. Process results and override baseline predictions if AI prediction succeeded
     for (const data of assetsData) {
       const { asset, currentPrice } = data;
-      const candles = candleMap[asset];
-      let prediction = null;
+      let prediction = localPredictions[asset];
 
-      if (aiPredictions) {
+      if (aiPredictions && prediction.model === 'statistical_baseline') {
         const aiPred = aiPredictions.find(p => p.asset === asset);
         if (aiPred && ['up', 'down', 'neutral', 'hold'].includes(aiPred.direction.toLowerCase())) {
           const isGroq = !!process.env.GROQ_API_KEY;
@@ -102,11 +122,6 @@ export default class PredictionAgent extends BaseAgent {
             }
           };
         }
-      }
-
-      // Fallback if AI prediction is unavailable
-      if (!prediction) {
-        prediction = this.predictLocalFallback(asset, candles, data.indicators);
       }
 
       this.predictions[asset] = prediction;
