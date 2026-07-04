@@ -83,6 +83,20 @@ export default function Trading() {
   }, [selectedAsset]);
 
   useEffect(() => {
+    const fetchPortfolio = async () => {
+      try {
+        const res = await axiosActual.get('/api/portfolio');
+        if (res.data.success) {
+          usePortfolioStore.getState().setPortfolio(res.data.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch initial portfolio state:", err);
+      }
+    };
+    fetchPortfolio();
+  }, []);
+
+  useEffect(() => {
     const fetchPositions = async () => {
       try {
         const res = await axiosActual.get('/api/portfolio/positions');

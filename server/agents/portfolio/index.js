@@ -1062,6 +1062,8 @@ export default class PortfolioAgent extends BaseAgent {
       tradingPaused: portfolio.tradingPaused || false,
       targetProfitThreshold: portfolio.targetProfitThreshold || 1100,
       baseTradingCapital: portfolio.baseTradingCapital || 1000,
+      manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
+      autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
     });
   }
 
