@@ -1,14 +1,19 @@
-import mongoose from 'mongoose';
 import connectDB from '../config/db.js';
 import Trade from '../models/Trade.js';
+import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
 
 async function run() {
   await connectDB();
-  const trades = await Trade.find({ status: 'closed' }).lean();
-  console.log(`Found ${trades.length} closed trades:`);
+  const resetDate = new Date(process.env.DASHBOARD_RESET_TIMESTAMP);
   
+  const trades = await Trade.find({
+    status: 'closed',
+    createdAt: { $gte: resetDate }
+  }).lean();
+
+  console.log(`Checking ${trades.length} closed trades since reset...`);
   trades.forEach(t => {
     const source = t.metadata?.sourceModel || 'none';
     let category = 'unknown';
@@ -17,23 +22,21 @@ async function run() {
     } else if (source.includes('fallback') || source.includes('statistical')) {
       category = 'fallback';
     }
-
-    const netPnl = (t.pnl || 0) - (t.fees || 0);
-
+    
     if (category === 'unknown') {
-      console.log(`[UNKNOWN CATEGORY]`);
-      console.log(`- _id: ${t._id}`);
-      console.log(`- asset: ${t.asset}`);
-      console.log(`- action: ${t.action}`);
-      console.log(`- side: ${t.side}`);
-      console.log(`- quantity: ${t.quantity}`);
-      console.log(`- entryPrice: ${t.entryPrice}`);
-      console.log(`- exitPrice: ${t.exitPrice}`);
-      console.log(`- pnl: ${t.pnl}`);
-      console.log(`- fees: ${t.fees}`);
-      console.log(`- netPnl: ${netPnl}`);
-      console.log(`- metadata: ${JSON.stringify(t.metadata)}`);
-      console.log(`- closedAt: ${t.closedAt}`);
+      console.log("\nFound Unknown Trade:");
+      console.log(`- ID: ${t._id}`);
+      console.log(`- Asset: ${t.asset}`);
+      console.log(`- Action: ${t.action}`);
+      console.log(`- Qty: ${t.quantity}`);
+      console.log(`- Entry: ${t.entryPrice}`);
+      console.log(`- Exit: ${t.exitPrice}`);
+      console.log(`- Gross PnL: ${t.pnl}`);
+      console.log(`- Fees: ${t.fees}`);
+      console.log(`- Net PnL: ${(t.pnl || 0) - (t.fees || 0)}`);
+      console.log(`- CreatedAt: ${t.createdAt.toISOString()}`);
+      console.log(`- ClosedAt: ${t.closedAt ? t.closedAt.toISOString() : 'N/A'}`);
+      console.log(`- Metadata:`, JSON.stringify(t.metadata, null, 2));
     }
   });
 
