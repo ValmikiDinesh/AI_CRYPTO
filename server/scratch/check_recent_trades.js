@@ -6,12 +6,23 @@ dotenv.config();
 
 async function run() {
   await connectDB();
-  const resetDate = new Date(process.env.DASHBOARD_RESET_TIMESTAMP);
-  const trades = await Trade.find({ createdAt: { $gte: resetDate } }).sort({ createdAt: -1 });
-  console.log(`Trades since reset (${trades.length}):`);
+  
+  const halfHourAgo = new Date(Date.now() - 30 * 60 * 1000);
+  const trades = await Trade.find({ status: 'closed', closedAt: { $gte: halfHourAgo } }).sort({ closedAt: -1 }).lean();
+  
+  console.log(`Found ${trades.length} closed trades in the last 30 minutes:\n`);
+  
   trades.forEach(t => {
-    console.log(`- ID: ${t._id}, Status: ${t.status}, Asset: ${t.asset}, Action: ${t.action}, Price: ${t.entryPrice}, CreatedAt: ${t.createdAt.toISOString()}`);
+    console.log(`- Asset: ${t.asset}`);
+    console.log(`  Action: ${t.action}`);
+    console.log(`  Qty: ${t.quantity}`);
+    console.log(`  Entry: $${t.entryPrice}, Exit: $${t.exitPrice}`);
+    console.log(`  Net PnL: $${(t.pnl || 0) - (t.fees || 0)}`);
+    console.log(`  Reason: ${t.metadata?.closeReason || 'N/A'}`);
+    console.log(`  ClosedAt: ${t.closedAt.toISOString()}`);
+    console.log(`-----------------------------------`);
   });
+
   await mongoose.connection.close();
 }
 
