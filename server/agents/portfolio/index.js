@@ -571,6 +571,9 @@ export default class PortfolioAgent extends BaseAgent {
       })
     );
 
+    // Sort liquid positions by absolute unrealized PnL descending
+    liquidPositions.sort((a, b) => Math.abs(b.unrealizedPnl || 0) - Math.abs(a.unrealizedPnl || 0));
+
     const basketTarget = parseFloat(process.env.BASKET_PROFIT_TARGET) || 20;
 
     if (portfolio.isSquaringOff) {
@@ -1112,12 +1115,20 @@ export default class PortfolioAgent extends BaseAgent {
 
       // Only close liquid positions!
       this.logger.info(`🚨 Closing all active liquid positions on Binance...`);
+      const liquidPositionsToClose = [];
       for (const position of openPositions) {
         const isLiquid = await checkAssetLiquidity(position.asset, position.side);
-        if (!isLiquid) {
+        if (isLiquid) {
+          liquidPositionsToClose.push(position);
+        } else {
           this.logger.info(`ℹ️ Skipping square-off close for illiquid position: ${position.asset}`);
-          continue;
         }
+      }
+
+      // Sort liquid positions by absolute unrealized PnL descending
+      liquidPositionsToClose.sort((a, b) => Math.abs(b.unrealizedPnl || 0) - Math.abs(a.unrealizedPnl || 0));
+
+      for (const position of liquidPositionsToClose) {
         try {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || position.entryPrice || 0;
           await this.closePosition(portfolio, position, currentPrice, 'Profit Target Met (Auto-Squareoff)', false);
