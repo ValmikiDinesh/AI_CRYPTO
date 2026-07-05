@@ -592,20 +592,27 @@ export default class PortfolioAgent extends BaseAgent {
       return;
     }
 
-    const totalUnrealizedPnl = liquidPositions.reduce((sum, p) => sum + (p.unrealizedPnl || 0), 0);
-    if (totalUnrealizedPnl >= basketTarget) {
-      this.logger.info(`[BASKET EXIT] Total liquid unrealized profit reached $${totalUnrealizedPnl.toFixed(2)} (>= $${basketTarget}). Triggering square-off!`);
+    const totalNetUnrealizedPnl = liquidPositions.reduce((sum, p) => {
+      const openFee = p.fees || (p.entryPrice * p.quantity * 0.0005);
+      const curPrice = p.currentPrice || p.entryPrice || 0;
+      const closeFee = curPrice * p.quantity * 0.0005;
+      const netPnl = (p.unrealizedPnl || 0) - openFee - closeFee;
+      return sum + netPnl;
+    }, 0);
+
+    if (totalNetUnrealizedPnl >= basketTarget) {
+      this.logger.info(`[BASKET EXIT] Total liquid net unrealized profit reached $${totalNetUnrealizedPnl.toFixed(2)} after fees (>= $${basketTarget}). Triggering square-off!`);
       portfolio.isSquaringOff = true;
       await portfolio.save();
 
       await sendTelegramMessage(
-        `🎯 <b>Basket Take-Profit Reached! [+$${totalUnrealizedPnl.toFixed(2)}]</b>\n` +
-        `Total liquid unrealized profit reached $${totalUnrealizedPnl.toFixed(2)}. Pausing new trades and squaring off all ${liquidPositions.length} liquid positions.`
+        `🎯 <b>Basket Take-Profit Reached! [+$${totalNetUnrealizedPnl.toFixed(2)} Net]</b>\n` +
+        `Total liquid net profit after fees reached $${totalNetUnrealizedPnl.toFixed(2)}. Pausing new trades and squaring off all ${liquidPositions.length} liquid positions.`
       );
 
       for (const position of liquidPositions) {
         let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
-        await this.closePosition(portfolio, position, currentPrice, `Basket Take Profit reached (+$${basketTarget} target)`, false);
+        await this.closePosition(portfolio, position, currentPrice, `Basket Take Profit reached (+$${basketTarget} net target)`, false);
       }
       return;
     }
