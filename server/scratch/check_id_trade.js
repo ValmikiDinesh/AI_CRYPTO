@@ -27,8 +27,7 @@ async function run() {
     console.log("- Take Profit:", trade.takeProfit);
     console.log("- Opened At:", trade.createdAt ? trade.createdAt.toISOString() : 'N/A');
     console.log("- Closed At:", trade.closedAt ? trade.closedAt.toISOString() : 'N/A');
-    console.log("- Close Reason:", trade.metadata?.closeReason || 'N/A');
-    console.log("- Exit Order ID:", trade.metadata?.exitOrderId || 'N/A');
+    console.log("- Metadata:", JSON.stringify(trade.metadata, null, 2));
   }
 
   await mongoose.connection.close();
