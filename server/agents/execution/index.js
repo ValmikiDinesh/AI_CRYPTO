@@ -456,7 +456,7 @@ export default class ExecutionAgent extends BaseAgent {
       quantity,
       positionSize: (positionValue / portfolio.totalBalance) * 100,
       stopLoss: signal.stopLoss,
-      takeProfit: finalTakeProfit,
+      takeProfit: signal.takeProfit,
       leverage,
       confidence: signal.confidence,
       riskScore: signal.riskScore,
