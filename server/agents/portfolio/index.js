@@ -720,7 +720,7 @@ export default class PortfolioAgent extends BaseAgent {
       return sum + netPnl;
     }, 0);
 
-    if (totalNetUnrealizedPnl >= basketTarget) {
+    if (liquidPositions.length > 0 && totalNetUnrealizedPnl >= basketTarget) {
       this.logger.info(`[BASKET EXIT] Total liquid net unrealized profit reached $${totalNetUnrealizedPnl.toFixed(2)} after fees (>= $${basketTarget.toFixed(2)}). Triggering square-off!`);
       portfolio.isSquaringOff = true;
       await portfolio.save();
