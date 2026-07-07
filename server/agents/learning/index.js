@@ -1,7 +1,10 @@
 import BaseAgent from '../base/BaseAgent.js';
-import { AGENT_NAMES } from '../../config/constants.js';
+import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import Trade from '../../models/Trade.js';
 import Strategy from '../../models/Strategy.js';
+import VolatilityHistory from '../../models/VolatilityHistory.js';
+import { fetchCandles } from '../../services/exchangeService.js';
+import { computeIndicators } from '../../services/indicatorService.js';
 
 /**
  * Learning Agent
@@ -14,10 +17,18 @@ export default class LearningAgent extends BaseAgent {
   constructor(fusionAgent) {
     super(AGENT_NAMES.LEARNING);
     this.fusionAgent = fusionAgent;
+    this.lastDailyUpdateDate = null;
   }
 
   async execute() {
     try {
+      // 1. Run Daily Weekday Volatility Tracker (once a day in IST)
+      const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
+      if (this.lastDailyUpdateDate !== todayStr) {
+        await this.updateDailyVolatilityHistory();
+        this.lastDailyUpdateDate = todayStr;
+      }
+
       // Analyze last 50 closed trades
       const closedTrades = await Trade.find({ status: 'closed' })
         .sort({ closedAt: -1 })
@@ -44,6 +55,63 @@ export default class LearningAgent extends BaseAgent {
       this.logger.error(`Learning cycle error: ${err.message}`);
     }
   }
+
+  /**
+   * Fetch the latest daily candle from Binance for all supported assets 
+   * and update the VolatilityHistory weekday averages database.
+   */
+  async updateDailyVolatilityHistory() {
+    this.logger.info('📊 Starting daily Day-of-Week Volatility tracking cycle...');
+    const dayOfWeek = new Date().getDay(); // 0 = Sunday, 6 = Saturday
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    for (const asset of SUPPORTED_ASSETS) {
+      try {
+        // Fetch last 2 daily candles to get the most recent completed day's volatility data
+        const candles = await fetchCandles(asset, '1d', 2);
+        if (!candles || candles.length === 0) continue;
+
+        const lastCandle = candles[candles.length - 1];
+        
+        // Also fetch 5m candles to calculate current ATR
+        const raw5mCandles = await fetchCandles(asset, '5m', 50);
+        let currentAtr = 0;
+        if (raw5mCandles && raw5mCandles.length >= 30) {
+          const indicators = computeIndicators(raw5mCandles);
+          currentAtr = indicators && !indicators.error ? indicators.atr : 0;
+        }
+
+        const high = lastCandle.high || lastCandle.close || 0;
+        const low = lastCandle.low || lastCandle.close || 0;
+        const close = lastCandle.close || 0;
+        
+        const range = high - low;
+        const rangePct = close > 0 ? (range / close) * 100 : 0;
+
+        await VolatilityHistory.findOneAndUpdate(
+          { asset, date: todayStart },
+          {
+            asset,
+            date: todayStart,
+            dayOfWeek,
+            highPrice: high,
+            lowPrice: low,
+            closePrice: close,
+            dailyRange: range,
+            dailyRangePct: rangePct,
+            avgATR: currentAtr,
+            volume: lastCandle.volume || 0,
+          },
+          { upsert: true, new: true }
+        );
+      } catch (err) {
+        this.logger.warn(`Failed to update daily volatility history for ${asset}: ${err.message}`);
+      }
+    }
+    this.logger.info('📊 Daily Day-of-Week Volatility tracking completed successfully.');
+  }
+
 
   analyzeTrades(trades) {
     const winners = trades.filter((t) => t.pnl > 0);

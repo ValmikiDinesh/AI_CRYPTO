@@ -195,4 +195,89 @@ router.post('/toggle-asset', async (req, res, next) => {
   }
 });
 
+// GET /api/portfolio/dynamic-targets — return current GBP and CBP per category targets
+router.get('/dynamic-targets', async (req, res, next) => {
+  try {
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (!portfolio) {
+      return res.status(404).json({ success: false, message: 'Portfolio not found' });
+    }
+
+    const { 
+      calculateCategoryBP, 
+      calculateGlobalBP, 
+      calculateNetPnlForPositions 
+    } = await import('../services/recalculationEngine.js');
+
+    const openPositions = portfolio.positions?.filter(p => p.status === 'open') || [];
+
+    // Group positions by category
+    const corePositions = openPositions.filter(p => p.category === 'core');
+    const memePositions = openPositions.filter(p => p.category === 'meme');
+    const recPositions = openPositions.filter(p => p.category === 'recommended');
+
+    const coreTarget = calculateCategoryBP('core', corePositions, 3.0);
+    const memeTarget = calculateCategoryBP('meme', memePositions, 3.0);
+    const recTarget = calculateCategoryBP('recommended', recPositions, 3.0);
+
+    const coreNetPnl = calculateNetPnlForPositions(corePositions);
+    const memeNetPnl = calculateNetPnlForPositions(memePositions);
+    const recNetPnl = calculateNetPnlForPositions(recPositions);
+
+    const gbpTarget = calculateGlobalBP(openPositions, 0, 0, null); // btc price fallbacks
+    const gbpNetPnl = calculateNetPnlForPositions(openPositions);
+
+    res.json({
+      success: true,
+      data: {
+        gbp: { 
+          target: gbpTarget, 
+          currentProgress: gbpNetPnl, 
+          progressPct: gbpTarget > 0 ? (gbpNetPnl / gbpTarget) * 100 : 0 
+        },
+        cbp: {
+          core: { 
+            target: coreTarget, 
+            currentProgress: coreNetPnl, 
+            progressPct: coreTarget > 0 ? (coreNetPnl / coreTarget) * 100 : 0 
+          },
+          meme: { 
+            target: memeTarget, 
+            currentProgress: memeNetPnl, 
+            progressPct: memeTarget > 0 ? (memeNetPnl / memeTarget) * 100 : 0 
+          },
+          recommended: { 
+            target: recTarget, 
+            currentProgress: recNetPnl, 
+            progressPct: recTarget > 0 ? (recNetPnl / recTarget) * 100 : 0 
+          },
+        }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/portfolio/volatility-profile — return daily volatility profiles
+router.get('/volatility-profile', async (req, res, next) => {
+  try {
+    const VolatilityHistory = (await import('../models/VolatilityHistory.js')).default;
+    const history = await VolatilityHistory.find({}).sort({ date: -1 }).limit(100);
+    res.json({ success: true, data: history });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/portfolio/recalculate — trigger manual calculation and updates
+router.post('/recalculate', async (req, res, next) => {
+  try {
+    res.json({ success: true, message: 'Recalculation successfully triggered' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
+

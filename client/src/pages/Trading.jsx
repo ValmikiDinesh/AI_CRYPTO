@@ -538,6 +538,41 @@ export default function Trading() {
                     </div>
                   </div>
 
+                  {/* Dynamic Profit Engine Info */}
+                  {(activePosition.dynamicTrailingPct || activePosition.lockedMinProfit || activePosition.maxProfitReached) && (
+                    <div className="bg-black/40 p-4 rounded-xl border border-[#2c2c2e]/60 space-y-3 mt-3">
+                      <span className="block text-[9px] text-[#bf5af2] uppercase tracking-widest font-bold font-mono border-b border-[#2c2c2e]/40 pb-2">
+                        Dynamic Recalculation Engine
+                      </span>
+                      
+                      <div className="grid grid-cols-2 gap-3 text-[10px] font-mono leading-relaxed font-semibold">
+                        <div>
+                          <span className="block text-[8px] text-[#86868b] uppercase tracking-widest font-bold">Category</span>
+                          <span className="text-[#f5f5f7] uppercase font-bold">{activePosition.category || 'other'}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[8px] text-[#86868b] uppercase tracking-widest font-bold">Dynamic Trailing</span>
+                          <span className="text-[#bf5af2] font-bold">
+                            {activePosition.dynamicTrailingPct ? `${(activePosition.dynamicTrailingPct * 100).toFixed(2)}%` : '—'}
+                          </span>
+                        </div>
+                        <div className="mt-1">
+                          <span className="block text-[8px] text-[#86868b] uppercase tracking-widest font-bold">Locked Profit</span>
+                          <span className={activePosition.lockedMinProfit ? "text-[#30d158] font-bold" : "text-zinc-500 font-bold"}>
+                            {activePosition.lockedMinProfit ? `$${activePosition.lockedMinProfit.toFixed(4)}` : 'No (Unprotected)'}
+                          </span>
+                        </div>
+                        <div className="mt-1">
+                          <span className="block text-[8px] text-[#86868b] uppercase tracking-widest font-bold">MFE (Peak PnL)</span>
+                          <span className="text-[#30d158] font-bold">
+                            {activePosition.maxProfitReached !== undefined ? `+$${activePosition.maxProfitReached.toFixed(2)}` : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+
                   <button
                     onClick={handleClosePosition}
                     className="w-full py-2.5 bg-transparent text-[#ff453a] border border-[#ff453a]/30 hover:border-[#ff453a]/50 hover:bg-[#ff453a]/10 font-bold rounded-full text-xs uppercase cursor-pointer transition-all duration-300 mt-2"

@@ -5,6 +5,12 @@ import { placeMarketOrder, placeLimitOrder, fetchOrder, cancelOrder, getExchange
 import { sendTelegramMessage, formatPrice } from '../../services/telegramService.js';
 import Trade from '../../models/Trade.js';
 import Portfolio from '../../models/Portfolio.js';
+import { computeIndicators } from '../../services/indicatorService.js';
+import { 
+  getCategoryForAsset, 
+  calculateDynamicTrailingPct, 
+  calculatePositionSize 
+} from '../../services/recalculationEngine.js';
 
 /**
  * Execution Agent
@@ -217,9 +223,25 @@ export default class ExecutionAgent extends BaseAgent {
 
           if (finalFilled > 0) {
             this.logger.info(`🔄 Pending order ${pendingTrade.exchangeOrderId} for ${asset} had a partial fill of ${finalFilled} units. Transitioning to open with executed quantity.`);
+            
+            const isDynamicAssetTp = process.env.DYNAMIC_ASSET_TP_ENABLED === 'true';
+            let dynamicTrailingPct = undefined;
+            const category = getCategoryForAsset(asset);
+            if (isDynamicAssetTp) {
+              const candles = this.marketAgent.getCandles(asset);
+              const indicators = candles && candles.length >= 30 ? computeIndicators(candles) : null;
+              const atr = indicators && !indicators.error ? indicators.atr : null;
+              if (atr) {
+                dynamicTrailingPct = calculateDynamicTrailingPct(asset, atr, pendingTrade.entryPrice);
+              }
+            }
+
             pendingTrade.status = 'open';
             pendingTrade.quantity = finalFilled;
             pendingTrade.executedAt = new Date();
+            if (isDynamicAssetTp && dynamicTrailingPct) {
+              pendingTrade.dynamicTrailingPct = dynamicTrailingPct;
+            }
             await pendingTrade.save();
             
             // Add to portfolio active positions
@@ -250,6 +272,11 @@ export default class ExecutionAgent extends BaseAgent {
                   status: 'open',
                   openedAt: new Date(),
                   fees: pendingTrade.fees || 0,
+                  // Dynamic Profit Engine fields
+                  dynamicTrailingPct: isDynamicAssetTp ? dynamicTrailingPct : undefined,
+                  category,
+                  maxProfitReached: 0,
+                  maxDrawdownReached: 0,
                 });
 
                 // Refund the unused margin portion
@@ -333,6 +360,11 @@ export default class ExecutionAgent extends BaseAgent {
 
     const limitEntryPrice = signal.limitEntryPrice || currentPrice;
 
+    // Fetch candles and calculate indicators for ATR-based sizer and trailing Stop Loss
+    const candles = this.marketAgent.getCandles(signal.asset);
+    const indicators = candles && candles.length >= 30 ? computeIndicators(candles) : null;
+    const atr = indicators && !indicators.error ? indicators.atr : null;
+
     // Calculate targeted risk amount (e.g. positionPct of available balance)
     const positionPct = parseFloat(signal.positionSize) / 100;
     const riskAmount = portfolio.availableBalance * positionPct;
@@ -342,6 +374,12 @@ export default class ExecutionAgent extends BaseAgent {
     
     // Position Value based on Volatility (Risk Parity): positionValue = riskAmount / slPercent
     let positionValue = slPercent > 0.001 ? (riskAmount / slPercent) : (riskAmount / 0.05);
+
+    // Apply Dynamic Position Sizer if Phase 3 is enabled and ATR is available
+    if (process.env.DYNAMIC_GBP_ENABLED === 'true' && atr) {
+      positionValue = calculatePositionSize(signal.asset, atr, portfolio.availableBalance);
+      this.logger.info(`[DYNAMIC SIZING] Volatility sizer adjusted position size for ${signal.asset} to $${positionValue.toFixed(2)} based on ATR: ${atr.toFixed(4)}`);
+    }
 
     // Enforce safety limits: cap the maximum margin used for a single trade to 35% of total balance (aggressive)
     const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 3;
@@ -401,9 +439,11 @@ export default class ExecutionAgent extends BaseAgent {
 
     const side = signal.action === ACTIONS.BUY ? 'buy' : 'sell';
 
-    let finalTakeProfit = signal.takeProfit;
-
-
+    const isDynamicAssetTp = process.env.DYNAMIC_ASSET_TP_ENABLED === 'true';
+    const dynamicTrailingPct = isDynamicAssetTp && atr
+      ? calculateDynamicTrailingPct(signal.asset, atr, limitEntryPrice)
+      : undefined;
+    const category = getCategoryForAsset(signal.asset);
 
     // Create trade record
     const trade = await Trade.create({
@@ -424,6 +464,7 @@ export default class ExecutionAgent extends BaseAgent {
       status: 'pending',
       exchange: 'binance_testnet',
       metadata: signal.metadata || {},
+      dynamicTrailingPct,
     });
 
     // Attempt order placement with retries
@@ -477,6 +518,9 @@ export default class ExecutionAgent extends BaseAgent {
       trade.exchangeOrderId = order?.id;
       trade.executedAt = new Date(order.timestamp || Date.now());
       trade.fees = actualFee;
+      if (isDynamicAssetTp && dynamicTrailingPct) {
+        trade.dynamicTrailingPct = dynamicTrailingPct;
+      }
       await trade.save();
 
       // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
@@ -503,6 +547,11 @@ export default class ExecutionAgent extends BaseAgent {
         trailingPct: signal.trailingPct || 0.03,
         status: 'open',
         fees: actualFee,
+        // Dynamic Profit Engine fields
+        dynamicTrailingPct: isDynamicAssetTp ? dynamicTrailingPct : undefined,
+        category,
+        maxProfitReached: 0,
+        maxDrawdownReached: 0,
       });
 
       // Recalculate total balance using leverage-adjusted universal equity formula
@@ -664,11 +713,26 @@ export default class ExecutionAgent extends BaseAgent {
       actualFee = (executionPrice * executionQuantity) * 0.0002; // maker fee
     }
 
+    const isDynamicAssetTp = process.env.DYNAMIC_ASSET_TP_ENABLED === 'true';
+    let dynamicTrailingPct = undefined;
+    const category = getCategoryForAsset(trade.asset);
+    if (isDynamicAssetTp) {
+      const candles = this.marketAgent.getCandles(trade.asset);
+      const indicators = candles && candles.length >= 30 ? computeIndicators(candles) : null;
+      const atr = indicators && !indicators.error ? indicators.atr : null;
+      if (atr) {
+        dynamicTrailingPct = calculateDynamicTrailingPct(trade.asset, atr, executionPrice);
+      }
+    }
+
     trade.status = 'open';
     trade.entryPrice = executionPrice;
     trade.quantity = executionQuantity;
     trade.fees = actualFee;
     trade.executedAt = new Date(order.timestamp || Date.now());
+    if (isDynamicAssetTp && dynamicTrailingPct) {
+      trade.dynamicTrailingPct = dynamicTrailingPct;
+    }
     await trade.save();
 
     let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
@@ -698,6 +762,11 @@ export default class ExecutionAgent extends BaseAgent {
           status: 'open',
           openedAt: new Date(),
           fees: actualFee,
+          // Dynamic Profit Engine fields
+          dynamicTrailingPct: isDynamicAssetTp ? dynamicTrailingPct : undefined,
+          category,
+          maxProfitReached: 0,
+          maxDrawdownReached: 0,
         });
 
         // Recalculate total balance

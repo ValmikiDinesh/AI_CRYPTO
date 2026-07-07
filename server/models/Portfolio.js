@@ -20,6 +20,12 @@ const positionSchema = new mongoose.Schema({
   openedAt: { type: Date, default: Date.now },
   closedAt: { type: Date },
   status: { type: String, enum: ['open', 'closed'], default: 'open' },
+  // Dynamic Profit Engine fields
+  maxProfitReached: { type: Number, default: 0 },       // MFE: highest unrealized profit during position lifetime
+  maxDrawdownReached: { type: Number, default: 0 },     // MAE: deepest unrealized loss during position lifetime
+  lockedMinProfit: { type: Number },                     // price level where SL was moved to guarantee profit
+  dynamicTrailingPct: { type: Number },                  // ATR-based trailing distance for this position
+  category: { type: String, enum: ['core', 'meme', 'recommended', 'other'], default: 'other' },
 }, { _id: true });
 
 const portfolioSchema = new mongoose.Schema({

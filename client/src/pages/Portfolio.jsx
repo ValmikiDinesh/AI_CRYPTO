@@ -602,6 +602,110 @@ export default function Portfolio() {
 
       {activeTab === 'overview' ? (
         <>
+          {/* Dynamic Profit Targets (CBP & GBP) */}
+          {portfolio.dynamicTargets && (portfolio.dynamicTargets.gbp?.enabled || portfolio.dynamicTargets.cbp?.enabled) && (
+            <div className="glass-panel bg-[#1c1c1e] mb-6">
+              <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
+                <Target size={14} className="text-[#bf5af2]" />
+                Dynamic Profit Targets (CBP & GBP)
+              </h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {/* Global Basket Profit (GBP) Card */}
+                {portfolio.dynamicTargets.gbp?.enabled && (
+                  <div className="glass-panel bg-black/40 py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#bf5af2]" />
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">GLOBAL BASKET (GBP)</span>
+                      <span className="text-[10px] font-mono font-extrabold text-[#bf5af2]">
+                        {portfolio.dynamicTargets.gbp.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.gbp.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.gbp.target.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
+                      <div 
+                        className="h-full bg-gradient-to-r from-[#bf5af2] to-[#ff453a] transition-all duration-500" 
+                        style={{ width: `${Math.max(0, Math.min(100, portfolio.dynamicTargets.gbp.progressPct))}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-[8px] font-mono text-[#86868b]">
+                      <span>Progress</span>
+                      <span className="font-bold">{portfolio.dynamicTargets.gbp.progressPct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Core CBP Card */}
+                {portfolio.dynamicTargets.cbp?.enabled && (
+                  <div className="glass-panel bg-black/40 py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#0071e3]" />
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">CORE BASKET (CBP)</span>
+                      <span className="text-[10px] font-mono font-extrabold text-[#0071e3]">
+                        {portfolio.dynamicTargets.cbp.core.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.cbp.core.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.cbp.core.target.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
+                      <div 
+                        className="h-full bg-[#0071e3] transition-all duration-500" 
+                        style={{ width: `${Math.max(0, Math.min(100, portfolio.dynamicTargets.cbp.core.progressPct))}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-[8px] font-mono text-[#86868b]">
+                      <span>Progress</span>
+                      <span className="font-bold">{portfolio.dynamicTargets.cbp.core.progressPct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Meme CBP Card */}
+                {portfolio.dynamicTargets.cbp?.enabled && (
+                  <div className="glass-panel bg-black/40 py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#30d158]" />
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">MEME BASKET (CBP)</span>
+                      <span className="text-[10px] font-mono font-extrabold text-[#30d158]">
+                        {portfolio.dynamicTargets.cbp.meme.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.cbp.meme.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.cbp.meme.target.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
+                      <div 
+                        className="h-full bg-[#30d158] transition-all duration-500" 
+                        style={{ width: `${Math.max(0, Math.min(100, portfolio.dynamicTargets.cbp.meme.progressPct))}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-[8px] font-mono text-[#86868b]">
+                      <span>Progress</span>
+                      <span className="font-bold">{portfolio.dynamicTargets.cbp.meme.progressPct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recommended CBP Card */}
+                {portfolio.dynamicTargets.cbp?.enabled && (
+                  <div className="glass-panel bg-black/40 py-4 px-5 flex flex-col justify-between min-h-[112px] gap-3 relative overflow-hidden group">
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#ff9f0a]" />
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">RECS BASKET (CBP)</span>
+                      <span className="text-[10px] font-mono font-extrabold text-[#ff9f0a]">
+                        {portfolio.dynamicTargets.cbp.recommended.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.cbp.recommended.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.cbp.recommended.target.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
+                      <div 
+                        className="h-full bg-[#ff9f0a] transition-all duration-500" 
+                        style={{ width: `${Math.max(0, Math.min(100, portfolio.dynamicTargets.cbp.recommended.progressPct))}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-[8px] font-mono text-[#86868b]">
+                      <span>Progress</span>
+                      <span className="font-bold">{portfolio.dynamicTargets.cbp.recommended.progressPct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Charts Row */}
           <div className="grid-layout-2">
             {/* Allocation Pie Chart */}

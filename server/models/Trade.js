@@ -34,6 +34,11 @@ const tradeSchema = new mongoose.Schema({
   executedAt: { type: Date },
   closedAt: { type: Date },
   metadata: { type: mongoose.Schema.Types.Mixed },
+  // Dynamic Profit Engine fields
+  maxProfitReached: { type: Number, default: 0 },       // MFE: highest unrealized profit during trade lifetime
+  maxDrawdownReached: { type: Number, default: 0 },     // MAE: deepest unrealized loss during trade lifetime
+  lockedMinProfit: { type: Number },                     // price level where SL was moved to guarantee profit
+  dynamicTrailingPct: { type: Number },                  // ATR-based trailing % active on this trade
 }, {
   timestamps: true,
 });
