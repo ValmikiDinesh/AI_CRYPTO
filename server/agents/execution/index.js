@@ -375,8 +375,10 @@ export default class ExecutionAgent extends BaseAgent {
     // Position Value based on Volatility (Risk Parity): positionValue = riskAmount / slPercent
     let positionValue = slPercent > 0.001 ? (riskAmount / slPercent) : (riskAmount / 0.05);
 
-    // Apply Dynamic Position Sizer if Phase 3 is enabled and ATR is available
-    if (process.env.DYNAMIC_GBP_ENABLED === 'true' && atr) {
+    // Apply Dynamic Position Sizer if DYNAMIC_POSITION_SIZING_ENABLED is true and ATR is available
+    // NOTE: This is intentionally separate from DYNAMIC_GBP_ENABLED (basket profit target).
+    //       GBP controls WHEN to close all trades. Position sizing controls HOW MUCH to allocate per trade.
+    if (process.env.DYNAMIC_POSITION_SIZING_ENABLED === 'true' && atr) {
       positionValue = calculatePositionSize(signal.asset, atr, portfolio.availableBalance);
       this.logger.info(`[DYNAMIC SIZING] Volatility sizer adjusted position size for ${signal.asset} to $${positionValue.toFixed(2)} based on ATR: ${atr.toFixed(4)}`);
     }
