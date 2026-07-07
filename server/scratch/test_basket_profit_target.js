@@ -73,6 +73,7 @@ async function run() {
     console.log(`  [Mocked Close] Position ${pos.asset} closed at $${closePrice}. Reason: ${reason}`);
     pos.status = 'closed';
     closedCount++;
+    return { success: true, netPnl: pos.unrealizedPnl || 0 };
   };
 
   // Mock save to avoid DB call in memory

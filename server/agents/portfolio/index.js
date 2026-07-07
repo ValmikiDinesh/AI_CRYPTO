@@ -605,15 +605,21 @@ export default class PortfolioAgent extends BaseAgent {
       portfolio.isSquaringOff = true;
       await portfolio.save();
 
-      await sendTelegramMessage(
-        `🎯 <b>Basket Take-Profit Reached! [+$${totalNetUnrealizedPnl.toFixed(2)} Net]</b>\n` +
-        `Total liquid net profit after fees reached $${totalNetUnrealizedPnl.toFixed(2)}. Pausing new trades and squaring off all ${liquidPositions.length} liquid positions.`
-      );
-
+      const closedResults = [];
       for (const position of liquidPositions) {
         let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
-        await this.closePosition(portfolio, position, currentPrice, `Basket Take Profit reached (+$${basketTarget} net target)`, false);
+        const res = await this.closePosition(portfolio, position, currentPrice, `Basket Take Profit reached (+$${basketTarget} net target)`, false);
+        if (res && res.success) {
+          closedResults.push(res);
+        }
       }
+
+      const totalActualNetPnL = closedResults.reduce((sum, r) => sum + r.netPnl, 0);
+
+      await sendTelegramMessage(
+        `🎯 <b>Basket Take-Profit Reached! [+$${totalActualNetPnL.toFixed(2)} Net]</b>\n` +
+        `Total liquid net profit after fees reached $${totalActualNetPnL.toFixed(2)}. Pausing new trades and squared off all ${closedResults.length} liquid positions.`
+      );
       return;
     }
     // ──────────────────────────────────────────────────────────────────────
@@ -749,7 +755,7 @@ export default class PortfolioAgent extends BaseAgent {
         }
         
         // Abort local closure so that the position stays open and we check it on exchange fill
-        return;
+        return { success: false };
       }
     }
 
@@ -876,6 +882,13 @@ export default class PortfolioAgent extends BaseAgent {
         `The auto-ignored position for <b>${position.asset.replace('USDT', '')}/USDT</b> has successfully closed on Binance. Re-enabling the asset for normal trading.`
       );
     }
+
+    return {
+      success: true,
+      realizedPnl: position.realizedPnl,
+      fees: totalPositionFees,
+      netPnl: position.realizedPnl - totalPositionFees
+    };
   }
 
   /** Update aggregate portfolio metrics. */

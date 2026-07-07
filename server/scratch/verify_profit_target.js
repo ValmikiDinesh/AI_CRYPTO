@@ -67,12 +67,12 @@ async function run() {
     };
     const agent = new PortfolioAgent(marketAgentMock, null);
 
-    // Mock closePosition to simulate CCXT close execution locally (break-even)
     agent.closePosition = async (port, position, closePrice, reason, isRecon) => {
       console.log(`[MOCK] closePosition called for ${position.asset}. Reason: ${reason}`);
       position.status = 'closed';
       position.closedAt = new Date();
       // Total balance remains 1105.50 after break-even close
+      return { success: true, netPnl: 0 };
     };
 
     // 5. Run checkProfitTarget
