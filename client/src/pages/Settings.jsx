@@ -5,6 +5,7 @@ import { Settings as SettingsIcon, ShieldCheck, DollarSign, Percent, AlertCircle
 export default function Settings() {
   const [baseTradingCapital, setBaseTradingCapital] = useState(100);
   const [basketProfitTargetPct, setBasketProfitTargetPct] = useState(10);
+  const [sweepTargetProfitPct, setSweepTargetProfitPct] = useState(10);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -16,6 +17,7 @@ export default function Settings() {
         if (res.data.success && res.data.data) {
           setBaseTradingCapital(res.data.data.baseTradingCapital || 100);
           setBasketProfitTargetPct(res.data.data.basketProfitTargetPct || 10);
+          setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct || 10);
         }
       } catch (err) {
         console.error('Failed to load portfolio settings:', err);
@@ -35,6 +37,7 @@ export default function Settings() {
       const res = await axios.post('/api/portfolio/config', {
         baseTradingCapital: parseFloat(baseTradingCapital),
         basketProfitTargetPct: parseFloat(basketProfitTargetPct),
+        sweepTargetProfitPct: parseFloat(sweepTargetProfitPct),
       });
 
       if (res.data.success) {
@@ -42,6 +45,7 @@ export default function Settings() {
         if (res.data.data) {
           setBaseTradingCapital(res.data.data.baseTradingCapital);
           setBasketProfitTargetPct(res.data.data.basketProfitTargetPct);
+          setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct);
         }
       } else {
         setFeedback({ type: 'error', message: res.data.message || 'Failed to update settings.' });
@@ -87,7 +91,7 @@ export default function Settings() {
 
       {/* Main Settings Form */}
       <form onSubmit={handleSubmit} className="bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-2xl overflow-hidden p-6 space-y-6 shadow-xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Base Capital Option */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-mono flex items-center gap-2">
@@ -113,14 +117,39 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Profit Target Percentage */}
+          {/* Sweep Target Profit Percentage */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-mono flex items-center gap-2">
               <Percent className="w-3.5 h-3.5 text-zinc-500" />
               Sweep Target Profit (%)
             </label>
             <p className="text-[11px] text-zinc-500 leading-relaxed">
-              Trigger threshold for profit sweeping. Bot will square off all active positions and sweep excess funds once profit reaches this percentage.
+              Trigger threshold for profit sweeping. Squares off all trades and sweeps profit when total net balance (capital + unrealized PnL) reaches this percentage.
+            </p>
+            <div className="relative">
+              <input
+                type="number"
+                min="1"
+                max="100"
+                step="0.5"
+                required
+                value={sweepTargetProfitPct}
+                onChange={(e) => setSweepTargetProfitPct(e.target.value)}
+                className="w-full bg-[#2c2c2e]/50 border border-[#3a3a3c] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500 font-mono"
+                placeholder="e.g. 10"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono text-zinc-500">%</span>
+            </div>
+          </div>
+
+          {/* Basket Profit Target Percentage */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-mono flex items-center gap-2">
+              <Percent className="w-3.5 h-3.5 text-zinc-500" />
+              Basket Profit Target (%)
+            </label>
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              Trigger threshold for combined open trades PnL. Squares off all trades when the net PnL of all open trades alone reaches this percentage of capital.
             </p>
             <div className="relative">
               <input

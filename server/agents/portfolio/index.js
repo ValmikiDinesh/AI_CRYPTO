@@ -1178,8 +1178,11 @@ export default class PortfolioAgent extends BaseAgent {
 
   async checkProfitTarget(portfolio) {
     const baseCap = portfolio.baseTradingCapital || 100;
-    const targetPct = portfolio.basketProfitTargetPct !== undefined ? portfolio.basketProfitTargetPct : 10;
-    const target = baseCap * (1 + targetPct / 100);
+    const sweepPct = portfolio.sweepTargetProfitPct !== undefined ? portfolio.sweepTargetProfitPct : 10;
+    const basketPct = portfolio.basketProfitTargetPct !== undefined ? portfolio.basketProfitTargetPct : 10;
+    
+    const sweepTarget = baseCap * (1 + sweepPct / 100);
+    const basketTarget = baseCap * (basketPct / 100);
     
     // Calculate liquid total balance (excluding illiquid positions P&L)
     const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
@@ -1204,9 +1207,17 @@ export default class PortfolioAgent extends BaseAgent {
     
     // Liquid total balance = availableBalance + liquid margin + liquid unrealized - estimated closing fees
     const liquidTotalBalance = portfolio.availableBalance + liquidOpenExposure + liquidOpenUnrealized - estimatedCloseFees;
-    
-    if (liquidTotalBalance >= target && !portfolio.tradingPaused) {
-      this.logger.warn(`🚨 [PROFIT TARGET MET] Liquid net worth has reached $${liquidTotalBalance.toFixed(2)} (Target: $${target.toFixed(2)}). Initiating automatic square-off...`);
+    const combinedNetPnL = liquidOpenUnrealized - estimatedCloseFees;
+
+    const isSweepTargetMet = liquidTotalBalance >= sweepTarget;
+    const isBasketTargetMet = combinedNetPnL >= basketTarget;
+
+    if ((isSweepTargetMet || isBasketTargetMet) && !portfolio.tradingPaused) {
+      const triggerReason = isSweepTargetMet 
+        ? `[SWEEP TARGET MET] Liquid net worth reached $${liquidTotalBalance.toFixed(2)} (Target: $${sweepTarget.toFixed(2)})`
+        : `[BASKET TARGET MET] Combined net unrealized PnL reached $${combinedNetPnL.toFixed(2)} (Target: $${basketTarget.toFixed(2)})`;
+      
+      this.logger.warn(`🚨 ${triggerReason}. Initiating automatic square-off...`);
       
       portfolio.tradingPaused = true;
       await portfolio.save();
@@ -1229,7 +1240,7 @@ export default class PortfolioAgent extends BaseAgent {
       for (const position of liquidPositionsToClose) {
         try {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || position.entryPrice || 0;
-          await this.closePosition(portfolio, position, currentPrice, 'Profit Target Met (Auto-Squareoff)', false);
+          await this.closePosition(portfolio, position, currentPrice, `${isSweepTargetMet ? 'Sweep' : 'Basket'} Target Met (Auto-Squareoff)`, false);
         } catch (closeErr) {
           this.logger.error(`Failed to close position for ${position.asset} during square-off: ${closeErr.message}`);
         }
@@ -1253,7 +1264,8 @@ export default class PortfolioAgent extends BaseAgent {
         
         await sendTelegramMessage(
           `🎯 <b>Profit Target Achieved!</b>\n\n` +
-          `• Net Worth reached: $${(baseCap + excessProfit).toFixed(2)} (Target: $${target.toFixed(2)})\n` +
+          `• Trigger: ${triggerReason}\n` +
+          `• Net Worth reached: $${(baseCap + excessProfit).toFixed(2)}\n` +
           `• Swept Profit to Local Vault: $${excessProfit.toFixed(2)}\n` +
           `• Total Vault Balance: $${portfolio.walletBalance.toFixed(2)}\n` +
           `• Trading bot has been <b>PAUSED</b> and all liquid positions squared off.\n\n` +

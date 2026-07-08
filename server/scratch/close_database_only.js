@@ -46,6 +46,7 @@ async function run() {
       portfolio.tradingPaused = false;
       portfolio.isSquaringOff = false;
       portfolio.basketProfitTargetPct = targetPct;
+      portfolio.sweepTargetProfitPct = targetPct;
       portfolio.baseTradingCapital = 100;
       portfolio.targetProfitThreshold = 100 * (1 + targetPct / 100);
       await portfolio.save();
@@ -69,6 +70,7 @@ async function run() {
         tradingPaused: false,
         isSquaringOff: false,
         basketProfitTargetPct: targetPct,
+        sweepTargetProfitPct: targetPct,
         baseTradingCapital: 100,
         targetProfitThreshold: 100 * (1 + targetPct / 100),
       });

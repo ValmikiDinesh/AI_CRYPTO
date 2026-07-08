@@ -118,6 +118,8 @@ router.get('/performance', async (req, res, next) => {
         tradingPaused: portfolio.tradingPaused,
         targetProfitThreshold: portfolio.targetProfitThreshold,
         baseTradingCapital: portfolio.baseTradingCapital,
+        basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
+        sweepTargetProfitPct: portfolio.sweepTargetProfitPct || 10,
       },
     });
   } catch (err) {
@@ -279,7 +281,7 @@ router.get('/volatility-profile', async (req, res, next) => {
 // POST /api/portfolio/config — update portfolio configurations (base capital, profit target percentage)
 router.post('/config', async (req, res, next) => {
   try {
-    const { baseTradingCapital, basketProfitTargetPct } = req.body;
+    const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct } = req.body;
 
     const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
@@ -300,10 +302,14 @@ router.post('/config', async (req, res, next) => {
       portfolio.basketProfitTargetPct = parseFloat(basketProfitTargetPct);
     }
 
-    // Recalculate targetProfitThreshold dynamically
+    if (sweepTargetProfitPct !== undefined) {
+      portfolio.sweepTargetProfitPct = parseFloat(sweepTargetProfitPct);
+    }
+
+    // Recalculate targetProfitThreshold dynamically based on Sweep Target Profit Pct
     const baseCap = portfolio.baseTradingCapital || 100;
-    const targetPct = portfolio.basketProfitTargetPct !== undefined ? portfolio.basketProfitTargetPct : 10;
-    portfolio.targetProfitThreshold = baseCap * (1 + targetPct / 100);
+    const sweepPct = portfolio.sweepTargetProfitPct !== undefined ? portfolio.sweepTargetProfitPct : 10;
+    portfolio.targetProfitThreshold = baseCap * (1 + sweepPct / 100);
 
     await portfolio.save();
 
@@ -326,6 +332,7 @@ router.post('/config', async (req, res, next) => {
       targetProfitThreshold: portfolio.targetProfitThreshold,
       baseTradingCapital: portfolio.baseTradingCapital,
       basketProfitTargetPct: portfolio.basketProfitTargetPct,
+      sweepTargetProfitPct: portfolio.sweepTargetProfitPct,
       manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
       autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
     });

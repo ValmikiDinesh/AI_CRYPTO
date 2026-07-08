@@ -59,6 +59,7 @@ const portfolioSchema = new mongoose.Schema({
   targetProfitThreshold: { type: Number, default: 110 },
   baseTradingCapital: { type: Number, default: 100 },
   basketProfitTargetPct: { type: Number, default: 10 },
+  sweepTargetProfitPct: { type: Number, default: 10 },
   manuallyDisabledAssets: { type: [String], default: [] },
   autoIgnoredAssets: { type: [String], default: [] },
   lastRebalancedAt: { type: Date },
