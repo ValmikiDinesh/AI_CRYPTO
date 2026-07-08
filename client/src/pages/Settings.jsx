@@ -117,7 +117,7 @@ export default function Settings() {
           <div className="space-y-2">
             <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-mono flex items-center gap-2">
               <Percent className="w-3.5 h-3.5 text-zinc-500" />
-              Basket Profit Target (%)
+              Sweep Target Profit (%)
             </label>
             <p className="text-[11px] text-zinc-500 leading-relaxed">
               Trigger threshold for profit sweeping. Bot will square off all active positions and sweep excess funds once profit reaches this percentage.
