@@ -188,3 +188,64 @@ socket.on('trade:execution', (data) => {
 socket.on('system:emergency', (data) => {
   useAgentStore.setState({ emergencyStop: true });
 });
+
+// ─── Binance Direct WebSocket Connection (Millisecond Pricing) ───
+const BINANCE_WS_URL = 'wss://fstream.binance.com/ws';
+let binanceWs = null;
+const assetsList = [
+  'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT', 
+  'DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 
+  'AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'BOMEUSDT', 'PEOPLEUSDT', 'PORTALUSDT', 
+  'HEIUSDT', 'IDUSDT', 'STGUSDT', 'EPICUSDT', 'RENDERUSDT', 'PENDLEUSDT', 'INJUSDT', 'OPUSDT'
+];
+
+function connectBinanceWS() {
+  if (binanceWs) return;
+
+  try {
+    binanceWs = new WebSocket(BINANCE_WS_URL);
+
+    binanceWs.onopen = () => {
+      console.log('Connected directly to Binance Futures public WebSocket for real-time prices');
+      const streams = assetsList.map(a => `${a.toLowerCase()}@aggTrade`);
+      const subscribeMsg = {
+        method: 'SUBSCRIBE',
+        params: streams,
+        id: 1,
+      };
+      binanceWs.send(JSON.stringify(subscribeMsg));
+    };
+
+    binanceWs.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data && data.e === 'aggTrade') {
+          const rawSymbol = data.s;
+          const price = parseFloat(data.p);
+          if (rawSymbol && price) {
+            useMarketStore.getState().setPrice(rawSymbol.toUpperCase(), price);
+          }
+        }
+      } catch (err) {
+        // silent parse error
+      }
+    };
+
+    binanceWs.onclose = () => {
+      console.warn('Binance WebSocket disconnected. Reconnecting in 3 seconds...');
+      binanceWs = null;
+      setTimeout(connectBinanceWS, 3000);
+    };
+
+    binanceWs.onerror = (err) => {
+      console.error('Binance WebSocket error:', err);
+    };
+  } catch (e) {
+    console.error('Failed to initialize Binance WebSocket:', e);
+  }
+}
+
+// Start the real-time feed
+if (typeof window !== 'undefined') {
+  connectBinanceWS();
+}

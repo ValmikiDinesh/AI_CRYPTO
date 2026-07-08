@@ -44,9 +44,10 @@ export const getExchange = () => {
   exchangeInstance = new ccxt.binance(exchangeConfig);
 
   // Enable newer Binance Demo Trading mode since old testnet/sandbox is deprecated for futures
-  exchangeInstance.enableDemoTrading(true);
+  const isDemo = process.env.TRADING_MODE !== 'live';
+  exchangeInstance.enableDemoTrading(isDemo);
 
-  logger.info('CCXT Binance Futures Demo Trading exchange initialized');
+  logger.info(`CCXT Binance Futures ${isDemo ? 'Demo' : 'Live'} Trading exchange initialized`);
   return exchangeInstance;
 };
 

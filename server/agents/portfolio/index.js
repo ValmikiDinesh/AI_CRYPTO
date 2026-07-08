@@ -2,7 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
-import { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange, checkAssetLiquidity } from '../../services/exchangeService.js';
+import { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange, checkAssetLiquidity, fetchBalance } from '../../services/exchangeService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 import { computeIndicators } from '../../services/indicatorService.js';
@@ -95,50 +95,7 @@ export default class PortfolioAgent extends BaseAgent {
         position.unrealizedPnl = (position.entryPrice - currentPrice) * position.quantity;
       }
 
-      // Phase 1: Dynamic TP calculations (run before sync logic so SL updates are sent in this cycle)
-      const isDynamicAssetTp = process.env.DYNAMIC_ASSET_TP_ENABLED === 'true';
-      if (isDynamicAssetTp) {
-        // Set category if missing
-        if (!position.category) {
-          position.category = getCategoryForAsset(position.asset);
-        }
 
-        const netPnl = calculateNetPnl(position);
-
-        // 1. MFE/MAE tracking
-        if (netPnl > (position.maxProfitReached || 0)) {
-          position.maxProfitReached = netPnl;
-        }
-        if (netPnl < (position.maxDrawdownReached || 0)) {
-          position.maxDrawdownReached = netPnl;
-        }
-
-        const candles = this.marketAgent.getCandles(position.asset);
-        const indicators = candles && candles.length >= 30 ? computeIndicators(candles) : null;
-        const atr = indicators && !indicators.error ? indicators.atr : null;
-
-        if (atr) {
-          // 2. Minimum Profit Lock (SL moved to profit/breakeven)
-          if (shouldLockProfit(position)) {
-            const lockPrice = calculateMinProfitLockPrice(position.entryPrice, position.side, atr, parseFloat(process.env.DYNAMIC_TP_MIN_PROFIT_LOCK_PCT) || 0.003);
-            if (lockPrice) {
-              position.stopLoss = lockPrice;
-              position.lockedMinProfit = lockPrice;
-              this.logger.info(`[DYNAMIC TP] Locked minimum profit for ${position.asset} at $${lockPrice.toFixed(4)}. Stop Loss moved to secure gains.`);
-            }
-          }
-
-          // 3. Dynamic Trailing Stop
-          const dynamicTrailingPct = calculateDynamicTrailingPct(position.asset, atr, currentPrice);
-          position.dynamicTrailingPct = dynamicTrailingPct;
-          
-          const newStopLoss = getUpdatedStopLoss(position, currentPrice, dynamicTrailingPct);
-          if (newStopLoss && newStopLoss !== position.stopLoss) {
-            position.stopLoss = newStopLoss;
-            this.logger.info(`[DYNAMIC TP] Trailed Stop Loss for ${position.asset} to $${newStopLoss.toFixed(4)} based on dynamic trailing %: ${(dynamicTrailingPct * 100).toFixed(2)}%`);
-          }
-        }
-      }
 
       let isNativelyClosed = false;
       let closePrice = currentPrice;
@@ -542,17 +499,8 @@ export default class PortfolioAgent extends BaseAgent {
           const calculatedStopLoss = (activeTrade && activeTrade.stopLoss) ? activeTrade.stopLoss : (side === 'long' ? entryPrice * 0.95 : entryPrice * 1.05);
           const calculatedTakeProfit = (activeTrade && activeTrade.takeProfit) ? activeTrade.takeProfit : (side === 'long' ? entryPrice * 1.10 : entryPrice * 0.90);
 
-          const isDynamicAssetTp = process.env.DYNAMIC_ASSET_TP_ENABLED === 'true';
           let dynamicTrailingPct = undefined;
           const category = getCategoryForAsset(asset);
-          if (isDynamicAssetTp) {
-            const candles = this.marketAgent.getCandles(asset);
-            const indicators = candles && candles.length >= 30 ? computeIndicators(candles) : null;
-            const atr = indicators && !indicators.error ? indicators.atr : null;
-            if (atr) {
-              dynamicTrailingPct = calculateDynamicTrailingPct(asset, atr, entryPrice);
-            }
-          }
 
           // Add to portfolio positions array
           portfolio.positions.push({
@@ -644,57 +592,13 @@ export default class PortfolioAgent extends BaseAgent {
     // Sort liquid positions by absolute unrealized PnL descending
     liquidPositions.sort((a, b) => Math.abs(b.unrealizedPnl || 0) - Math.abs(a.unrealizedPnl || 0));
 
-    // ─── Phase 2: Dynamic Category Basket Profit (CBP) ───
-    const isDynamicCbp = process.env.DYNAMIC_CBP_ENABLED === 'true';
-    if (isDynamicCbp && !portfolio.isSquaringOff) {
-      const categories = ['core', 'meme', 'recommended'];
-      for (const cat of categories) {
-        // Filter open liquid positions belonging to this category
-        const catPositions = liquidPositions.filter(p => {
-          const pCat = p.category || getCategoryForAsset(p.asset);
-          return pCat === cat;
-        });
 
-        if (catPositions.length > 0) {
-          // Dynamic category target calculation (fallback to 3.0% daily range for multiplier = 1.0)
-          const categoryTarget = calculateCategoryBP(cat, catPositions, 3.0);
-          const categoryNetPnl = calculateNetPnlForPositions(catPositions);
-
-          if (categoryNetPnl >= categoryTarget) {
-            this.logger.info(`[CATEGORY CBP EXIT] ${cat.toUpperCase()} category net unrealized profit reached $${categoryNetPnl.toFixed(2)} (>= $${categoryTarget.toFixed(2)} target). Squaring off category...`);
-            
-            const closedResults = [];
-            for (const position of catPositions) {
-              let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
-              const res = await this.closePosition(portfolio, position, currentPrice, `${cat.toUpperCase()} Category CBP target reached (+$${categoryTarget.toFixed(2)} target)`, false);
-              if (res && res.success) {
-                closedResults.push(res);
-              }
-            }
-
-            if (closedResults.length > 0) {
-              const totalActualNetCatPnL = closedResults.reduce((sum, r) => sum + r.netPnl, 0);
-              await sendTelegramMessage(
-                `🎯 <b>Category Target Achieved! [${cat.toUpperCase()}]</b>\n\n` +
-                `• Category: <b>${cat.toUpperCase()}</b>\n` +
-                `• Net Profit: <b>+$${totalActualNetCatPnL.toFixed(2)} Net</b> (Target: $${categoryTarget.toFixed(2)})\n` +
-                `• Closed positions: ${closedResults.length}`
-              );
-            }
-            return; // Exit checkExits to refresh in the next 30s cycle
-          }
-        }
-      }
-    }
 
     // ─── Phase 3: Dynamic Global Basket Profit (GBP) ───
-    let basketTarget = parseFloat(process.env.BASKET_PROFIT_TARGET) || 20;
-    const isDynamicGbp = process.env.DYNAMIC_GBP_ENABLED === 'true';
-    if (isDynamicGbp) {
-      const btcPrice = this.marketAgent.getPrice('BTCUSDT') || 0;
-      // Regime SMA detector (fallback btcPrice so multiplier = 1.0)
-      basketTarget = calculateGlobalBP(liquidPositions, btcPrice, btcPrice, null);
-    }
+    const baseCap = portfolio.baseTradingCapital || 100;
+    const targetPct = portfolio.basketProfitTargetPct !== undefined ? portfolio.basketProfitTargetPct : 10;
+    let basketTarget = baseCap * (targetPct / 100);
+
 
     if (portfolio.isSquaringOff) {
       if (liquidPositions.length === 0) {
@@ -1048,7 +952,29 @@ export default class PortfolioAgent extends BaseAgent {
       const totalClosed = closedTrades.length;
 
       // 2. Calculate true available balance
-      let trueAvailable = (portfolio.baseTradingCapital || 1000) + trueTotalPnl - (portfolio.walletBalance || 0);
+      let baseCap = portfolio.baseTradingCapital || 100;
+      let trueAvailable = baseCap + trueTotalPnl - (portfolio.walletBalance || 0);
+
+      if (process.env.TRADING_MODE === 'live') {
+        try {
+          const now = Date.now();
+          if (!this.lastBalanceFetch || now - this.lastBalanceFetch > 30000 || !this.cachedBalance) {
+            const bal = await fetchBalance();
+            if (bal && bal.USDT) {
+              this.cachedBalance = bal.USDT;
+              this.lastBalanceFetch = now;
+            }
+          }
+          if (this.cachedBalance) {
+            baseCap = this.cachedBalance.total;
+            portfolio.baseTradingCapital = baseCap;
+            trueAvailable = this.cachedBalance.free;
+          }
+        } catch (balErr) {
+          this.logger.error(`Error fetching live exchange balance in updateMetrics: ${balErr.message}`);
+        }
+      }
+
       let openExposure = 0;
       let openUnrealized = 0;
 
@@ -1058,7 +984,9 @@ export default class PortfolioAgent extends BaseAgent {
         const margin = exposure / leverage;
         const entryFee = p.fees || 0;
 
-        trueAvailable -= (margin + entryFee);
+        if (process.env.TRADING_MODE !== 'live') {
+          trueAvailable -= (margin + entryFee);
+        }
         openExposure += margin;
         openUnrealized += p.unrealizedPnl;
       });
@@ -1071,12 +999,16 @@ export default class PortfolioAgent extends BaseAgent {
         const exposure = t.entryPrice * t.quantity;
         const margin = exposure / leverage;
         const entryFee = t.fees || 0;
-        trueAvailable -= (margin + entryFee);
+        if (process.env.TRADING_MODE !== 'live') {
+          trueAvailable -= (margin + entryFee);
+        }
         pendingMargin += (margin + entryFee);
       });
 
       // 3. Calculate true total balance (Net Worth)
-      const trueTotalBalance = trueAvailable + pendingMargin + openExposure + openUnrealized;
+      const trueTotalBalance = process.env.TRADING_MODE === 'live' && this.cachedBalance
+        ? this.cachedBalance.total + openUnrealized
+        : trueAvailable + pendingMargin + openExposure + openUnrealized;
 
       portfolio.totalPnl = trueTotalPnl;
       portfolio.availableBalance = trueAvailable;
@@ -1094,9 +1026,9 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.error(`Error during self-healing portfolio metrics recalculation: ${dbErr.message}`);
     }
 
-    const baseCap = portfolio.baseTradingCapital || 1000;
+    const baseCapMetric = portfolio.baseTradingCapital || 100;
     portfolio.totalPnlPercent = portfolio.totalBalance > 0
-      ? ((portfolio.totalBalance - baseCap) / baseCap) * 100  // vs initial capital
+      ? ((portfolio.totalBalance - baseCapMetric) / baseCapMetric) * 100  // vs initial capital
       : 0;
 
     // Recalculate dailyLossToday dynamically from Trade collection (source of truth for today's closed trades in IST)
@@ -1206,23 +1138,6 @@ export default class PortfolioAgent extends BaseAgent {
   /** Publish portfolio update to frontend. */
   async publishUpdate(portfolio) {
     const openPositions = portfolio.positions.filter((p) => p && p.status === 'open');
-    
-    // Group open positions by category for progress updates
-    const corePositions = openPositions.filter(p => (p.category || getCategoryForAsset(p.asset)) === 'core');
-    const memePositions = openPositions.filter(p => (p.category || getCategoryForAsset(p.asset)) === 'meme');
-    const recPositions = openPositions.filter(p => (p.category || getCategoryForAsset(p.asset)) === 'recommended');
-
-    const coreTarget = calculateCategoryBP('core', corePositions, 3.0);
-    const memeTarget = calculateCategoryBP('meme', memePositions, 3.0);
-    const recTarget = calculateCategoryBP('recommended', recPositions, 3.0);
-
-    const coreNetPnl = calculateNetPnlForPositions(corePositions);
-    const memeNetPnl = calculateNetPnlForPositions(memePositions);
-    const recNetPnl = calculateNetPnlForPositions(recPositions);
-
-    const btcPrice = this.marketAgent.getPrice('BTCUSDT') || 0;
-    const gbpTarget = calculateGlobalBP(openPositions, btcPrice, btcPrice, null);
-    const gbpNetPnl = calculateNetPnlForPositions(openPositions);
 
     await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
       totalBalance: portfolio.totalBalance,
@@ -1238,34 +1153,23 @@ export default class PortfolioAgent extends BaseAgent {
       totalTrades: portfolio.totalTrades,
       walletBalance: portfolio.walletBalance || 0,
       tradingPaused: portfolio.tradingPaused || false,
-      targetProfitThreshold: portfolio.targetProfitThreshold || 1100,
-      baseTradingCapital: portfolio.baseTradingCapital || 1000,
+      targetProfitThreshold: portfolio.targetProfitThreshold || 110,
+      baseTradingCapital: portfolio.baseTradingCapital || 100,
+      basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
       manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
       autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
       dynamicTargets: {
         gbp: { 
-          enabled: process.env.DYNAMIC_GBP_ENABLED === 'true',
-          target: gbpTarget, 
-          currentProgress: gbpNetPnl, 
-          progressPct: gbpTarget > 0 ? (gbpNetPnl / gbpTarget) * 100 : 0 
+          enabled: false,
+          target: 0, 
+          currentProgress: 0, 
+          progressPct: 0 
         },
         cbp: {
-          enabled: process.env.DYNAMIC_CBP_ENABLED === 'true',
-          core: { 
-            target: coreTarget, 
-            currentProgress: coreNetPnl, 
-            progressPct: coreTarget > 0 ? (coreNetPnl / coreTarget) * 100 : 0 
-          },
-          meme: { 
-            target: memeTarget, 
-            currentProgress: memeNetPnl, 
-            progressPct: memeTarget > 0 ? (memeNetPnl / memeTarget) * 100 : 0 
-          },
-          recommended: { 
-            target: recTarget, 
-            currentProgress: recNetPnl, 
-            progressPct: recTarget > 0 ? (recNetPnl / recTarget) * 100 : 0 
-          },
+          enabled: false,
+          core: { target: 0, currentProgress: 0, progressPct: 0 },
+          meme: { target: 0, currentProgress: 0, progressPct: 0 },
+          recommended: { target: 0, currentProgress: 0, progressPct: 0 }
         }
       }
     });
@@ -1273,7 +1177,9 @@ export default class PortfolioAgent extends BaseAgent {
 
 
   async checkProfitTarget(portfolio) {
-    const target = portfolio.targetProfitThreshold || 1100;
+    const baseCap = portfolio.baseTradingCapital || 100;
+    const targetPct = portfolio.basketProfitTargetPct !== undefined ? portfolio.basketProfitTargetPct : 10;
+    const target = baseCap * (1 + targetPct / 100);
     
     // Calculate liquid total balance (excluding illiquid positions P&L)
     const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
@@ -1300,11 +1206,11 @@ export default class PortfolioAgent extends BaseAgent {
     const liquidTotalBalance = portfolio.availableBalance + liquidOpenExposure + liquidOpenUnrealized - estimatedCloseFees;
     
     if (liquidTotalBalance >= target && !portfolio.tradingPaused) {
-      this.logger.warn(`🚨 [PROFIT TARGET MET] Liquid net worth has reached $${liquidTotalBalance.toFixed(2)} (Target: $${target}). Initiating automatic square-off...`);
+      this.logger.warn(`🚨 [PROFIT TARGET MET] Liquid net worth has reached $${liquidTotalBalance.toFixed(2)} (Target: $${target.toFixed(2)}). Initiating automatic square-off...`);
       
       portfolio.tradingPaused = true;
       await portfolio.save();
-
+ 
       // Only close liquid positions!
       this.logger.info(`🚨 Closing all active liquid positions on Binance...`);
       const liquidPositionsToClose = [];
@@ -1316,10 +1222,10 @@ export default class PortfolioAgent extends BaseAgent {
           this.logger.info(`ℹ️ Skipping square-off close for illiquid position: ${position.asset}`);
         }
       }
-
+ 
       // Sort liquid positions by absolute unrealized PnL descending
       liquidPositionsToClose.sort((a, b) => Math.abs(b.unrealizedPnl || 0) - Math.abs(a.unrealizedPnl || 0));
-
+ 
       for (const position of liquidPositionsToClose) {
         try {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || position.entryPrice || 0;
@@ -1328,14 +1234,13 @@ export default class PortfolioAgent extends BaseAgent {
           this.logger.error(`Failed to close position for ${position.asset} during square-off: ${closeErr.message}`);
         }
       }
-
-      const baseCap = portfolio.baseTradingCapital || 1000;
+ 
       // Recalculate true balance after liquid positions have been closed
       const marginValue = portfolio.positions
         .filter((p) => p && p.status === 'open')
         .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
       const postCloseTotalBalance = portfolio.availableBalance + marginValue;
-
+ 
       const excessProfit = postCloseTotalBalance - baseCap;
       
       if (excessProfit > 0) {

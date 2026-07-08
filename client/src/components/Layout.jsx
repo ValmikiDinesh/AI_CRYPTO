@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useMarketStore, useAgentStore, useSignalStore } from '../store.js';
-import { LayoutDashboard, CandlestickChart, Wallet, Bot, Play, Pause, Activity, ShieldAlert, Cpu, Menu, X } from 'lucide-react';
+import { LayoutDashboard, CandlestickChart, Wallet, Bot, Play, Pause, Activity, ShieldAlert, Cpu, Menu, X, Settings } from 'lucide-react';
 import axios from 'axios';
 
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
   { to: '/trading', icon: CandlestickChart, label: 'Trading Desk' },
   { to: '/portfolio', icon: Wallet, label: 'Portfolio' },
   { to: '/agents', icon: Bot, label: 'AI Agent Nodes' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Layout() {

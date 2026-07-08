@@ -10,10 +10,15 @@ router.get('/', async (req, res, next) => {
     let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
 
     if (!portfolio) {
+      const targetPct = parseFloat(process.env.BASKET_PROFIT_TARGET) || 10;
       portfolio = await Portfolio.create({
         userId: SYSTEM_USER_ID,
-        totalBalance: 1000,
-        availableBalance: 1000,
+        totalBalance: 100,
+        availableBalance: 100,
+        baseTradingCapital: 100,
+        peakBalance: 100,
+        basketProfitTargetPct: targetPct,
+        targetProfitThreshold: 100 * (1 + targetPct / 100),
       });
     }
 
@@ -88,8 +93,8 @@ router.get('/performance', async (req, res, next) => {
 
       totalPnl = netPnl;
       winRate = totalTrades > 0 ? winningTrades / totalTrades : 0;
-      // PnL % relative to the reset capital ($1000)
-      totalPnlPercent = (netPnl / 1000) * 100;
+      // PnL % relative to the reset capital
+      totalPnlPercent = (netPnl / (portfolio.baseTradingCapital || 100)) * 100;
       dailyPnl = netDailyPnl;
     }
 
@@ -148,8 +153,9 @@ router.post('/resume', async (req, res, next) => {
       totalTrades: portfolio.totalTrades,
       walletBalance: portfolio.walletBalance || 0,
       tradingPaused: portfolio.tradingPaused || false,
-      targetProfitThreshold: portfolio.targetProfitThreshold || 1100,
-      baseTradingCapital: portfolio.baseTradingCapital || 1000,
+      targetProfitThreshold: portfolio.targetProfitThreshold || 110,
+      baseTradingCapital: portfolio.baseTradingCapital || 100,
+      basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
       manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
       autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
     });
@@ -270,10 +276,61 @@ router.get('/volatility-profile', async (req, res, next) => {
   }
 });
 
-// POST /api/portfolio/recalculate — trigger manual calculation and updates
-router.post('/recalculate', async (req, res, next) => {
+// POST /api/portfolio/config — update portfolio configurations (base capital, profit target percentage)
+router.post('/config', async (req, res, next) => {
   try {
-    res.json({ success: true, message: 'Recalculation successfully triggered' });
+    const { baseTradingCapital, basketProfitTargetPct } = req.body;
+
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (!portfolio) {
+      return res.status(404).json({ success: false, message: 'Portfolio not found' });
+    }
+
+    if (baseTradingCapital !== undefined) {
+      portfolio.baseTradingCapital = parseFloat(baseTradingCapital);
+      // For paper trading, update totalBalance and availableBalance too to reset to new capital
+      if (process.env.TRADING_MODE !== 'live') {
+        portfolio.totalBalance = parseFloat(baseTradingCapital);
+        portfolio.availableBalance = parseFloat(baseTradingCapital);
+        portfolio.peakBalance = parseFloat(baseTradingCapital);
+      }
+    }
+
+    if (basketProfitTargetPct !== undefined) {
+      portfolio.basketProfitTargetPct = parseFloat(basketProfitTargetPct);
+    }
+
+    // Recalculate targetProfitThreshold dynamically
+    const baseCap = portfolio.baseTradingCapital || 100;
+    const targetPct = portfolio.basketProfitTargetPct !== undefined ? portfolio.basketProfitTargetPct : 10;
+    portfolio.targetProfitThreshold = baseCap * (1 + targetPct / 100);
+
+    await portfolio.save();
+
+    // Trigger update on WebSocket/Redis channel
+    const { publishEvent, CHANNELS } = await import('../config/redis.js');
+    await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
+      totalBalance: portfolio.totalBalance,
+      availableBalance: portfolio.availableBalance,
+      totalPnl: portfolio.totalPnl,
+      totalPnlPercent: portfolio.totalPnlPercent,
+      dailyPnl: portfolio.dailyLossToday,
+      winRate: portfolio.winRate,
+      openPositions: portfolio.positions.filter((p) => p && p.status === 'open').length,
+      allocation: portfolio.allocationBreakdown,
+      winningTrades: portfolio.winningTrades,
+      losingTrades: portfolio.losingTrades,
+      totalTrades: portfolio.totalTrades,
+      walletBalance: portfolio.walletBalance || 0,
+      tradingPaused: portfolio.tradingPaused || false,
+      targetProfitThreshold: portfolio.targetProfitThreshold,
+      baseTradingCapital: portfolio.baseTradingCapital,
+      basketProfitTargetPct: portfolio.basketProfitTargetPct,
+      manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
+      autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
+    });
+
+    res.json({ success: true, message: 'Portfolio configuration updated successfully', data: portfolio });
   } catch (err) {
     next(err);
   }
