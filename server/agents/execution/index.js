@@ -371,8 +371,8 @@ export default class ExecutionAgent extends BaseAgent {
       positionValue = maxNotional;
     }
 
-    // Enforce Binance Futures minimum notional order limit of 53 USDT
-    const MIN_NOTIONAL = 53;
+    // Enforce minimum notional order limit of 2 USDT for CoinSwitch Pro
+    const MIN_NOTIONAL = 2.0;
     if (positionValue < MIN_NOTIONAL) {
       positionValue = MIN_NOTIONAL;
     }
@@ -380,33 +380,68 @@ export default class ExecutionAgent extends BaseAgent {
     let marginRequired = positionValue / leverage;
 
     if (portfolio.availableBalance < marginRequired) {
-      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required margin ($${marginRequired.toFixed(2)}) for minimum notional ($${MIN_NOTIONAL}) — skipping`);
-      return;
+      // Dynamic Sizing: Scale down positionValue so that required margin is 80% of available balance
+      const targetMargin = portfolio.availableBalance * 0.8;
+      const targetNotional = targetMargin * leverage;
+      
+      if (targetNotional >= MIN_NOTIONAL) {
+        this.logger.info(`Dynamic sizing: scaled down notional from $${positionValue.toFixed(2)} to $${targetNotional.toFixed(2)} (margin: $${targetMargin.toFixed(2)}) to fit available balance of $${portfolio.availableBalance.toFixed(2)}`);
+        positionValue = targetNotional;
+        marginRequired = targetMargin;
+      } else {
+        this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required margin ($${marginRequired.toFixed(2)}) for minimum notional ($${MIN_NOTIONAL}) — skipping`);
+        return;
+      }
     }
 
     let quantity = positionValue / limitEntryPrice;
 
-    // Retrieve exchange metadata and round quantity UP to the nearest step size to prevent notional limit errors
+    // Retrieve exchange metadata and enforce dynamic limits & lot step sizing
     try {
       const exchange = getExchange();
       await exchange.loadMarkets();
       const market = exchange.market(signal.asset);
-      const stepSize = market.precision?.amount;
+      
+      const minQuantity = market.limits?.amount?.min || 0;
+      const minNotional = market.limits?.cost?.min || 2.0;
+
+      // 1. Enforce minimum quantity limit
+      if (quantity < minQuantity) {
+        quantity = minQuantity;
+      }
+
+      // 2. Enforce minimum notional value limit
+      if (quantity * limitEntryPrice < minNotional) {
+        quantity = minNotional / limitEntryPrice;
+      }
+
+      // 3. Round quantity UP to the nearest step size
+      const stepSize = market.limits?.amount?.step || market.precision?.amount;
       if (stepSize) {
         const decimals = Math.max(0, Math.round(-Math.log10(stepSize)));
         const factor = Math.pow(10, decimals);
         quantity = Math.ceil(quantity * factor) / factor;
         
-        // Dynamically adjust positionValue to exactly match the rounded-up quantity
+        // Dynamically adjust positionValue and margin to exactly match the rounded-up quantity
         positionValue = quantity * limitEntryPrice;
         marginRequired = positionValue / leverage;
       }
     } catch (err) {
-      this.logger.warn(`Failed to dynamically retrieve lot step size for ${signal.asset}: ${err.message}`);
+      this.logger.warn(`Failed to dynamically retrieve lot constraints for ${signal.asset}: ${err.message}`);
     }
 
     if (quantity <= 0) {
       this.logger.warn(`${signal.asset}: calculated quantity is 0 — skipping`);
+      return;
+    }
+
+    // Enforce dynamic safety risk cap to protect against excessive risk exposure when trades are scaled up
+    const accountSize = portfolio.totalBalance;
+    const safetyCapPct = accountSize < 50 ? 0.20 : 0.05; // 20% for <$50, 5% for >=$50
+    const marginLimit = accountSize * safetyCapPct;
+
+    if (marginRequired > marginLimit) {
+      this.logger.warn(`${signal.asset}: scaled-up required margin ($${marginRequired.toFixed(2)}) exceeds the dynamic safety risk limit ($${marginLimit.toFixed(2)}, ${safetyCapPct * 100}% of total balance) — skipping`);
       return;
     }
 

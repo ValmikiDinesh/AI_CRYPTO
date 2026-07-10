@@ -1,23 +1,80 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Settings as SettingsIcon, ShieldCheck, DollarSign, Percent, AlertCircle } from 'lucide-react';
+import { Settings as SettingsIcon, ShieldCheck, DollarSign, Percent, AlertCircle, Zap } from 'lucide-react';
+import { usePortfolioStore } from '../store.js';
+
+const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
+const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 'BOMEUSDT', 'PEOPLEUSDT'];
+const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'PORTALUSDT', 'HEIUSDT', 'IDUSDT', 'LABUSDT', 'STGUSDT', 'EPICUSDT'];
+
+function AssetColumn({ title, assets, disabledAssets, onToggle }) {
+  return (
+    <div className="bg-[#2c2c2e]/30 border border-[#2c2c2e]/50 rounded-xl p-4 space-y-3">
+      <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono border-b border-[#2c2c2e]/60 pb-2">
+        {title}
+      </h3>
+      <div className="divide-y divide-[#2c2c2e]/30 max-h-[300px] overflow-y-auto pr-1 space-y-1.5 pt-1">
+        {assets.map((asset) => {
+          const isDisabled = disabledAssets.includes(asset);
+          const cleanName = asset.replace('1000', '').replace('USDT', '');
+          return (
+            <div key={asset} className="flex items-center justify-between py-1.5 hover:bg-zinc-800/10 transition duration-150 rounded px-1.5">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-semibold text-zinc-200">{cleanName}</span>
+                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded font-mono uppercase tracking-wider ${
+                  isDisabled 
+                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
+                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                }`}>
+                  {isDisabled ? 'Off' : 'On'}
+                </span>
+              </div>
+              
+              <button
+                type="button"
+                onClick={() => onToggle(asset, isDisabled)}
+                className={`relative inline-flex h-4.5 w-8 flex-shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  isDisabled ? 'bg-zinc-700' : 'bg-[#30d158]'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    isDisabled ? 'translate-x-0.5' : 'translate-x-3.5'
+                  }`}
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const [baseTradingCapital, setBaseTradingCapital] = useState(100);
   const [basketProfitTargetPct, setBasketProfitTargetPct] = useState(10);
   const [sweepTargetProfitPct, setSweepTargetProfitPct] = useState(10);
+  const [coinSwitchApiKey, setCoinSwitchApiKey] = useState('');
+  const [coinSwitchApiSecret, setCoinSwitchApiSecret] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
+  const portfolio = usePortfolioStore((s) => s.portfolio);
+  const manuallyDisabledAssets = portfolio?.manuallyDisabledAssets || [];
+
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await axios.get('/api/portfolio/performance');
+        const res = await axios.get('/api/portfolio');
         if (res.data.success && res.data.data) {
+          usePortfolioStore.getState().setPortfolio(res.data.data);
           setBaseTradingCapital(res.data.data.baseTradingCapital || 100);
           setBasketProfitTargetPct(res.data.data.basketProfitTargetPct || 10);
           setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct || 10);
+          setCoinSwitchApiKey(res.data.data.coinSwitchApiKey || '');
+          setCoinSwitchApiSecret(res.data.data.coinSwitchApiSecret || '');
         }
       } catch (err) {
         console.error('Failed to load portfolio settings:', err);
@@ -38,14 +95,19 @@ export default function Settings() {
         baseTradingCapital: parseFloat(baseTradingCapital),
         basketProfitTargetPct: parseFloat(basketProfitTargetPct),
         sweepTargetProfitPct: parseFloat(sweepTargetProfitPct),
+        coinSwitchApiKey,
+        coinSwitchApiSecret,
       });
 
       if (res.data.success) {
         setFeedback({ type: 'success', message: 'Settings successfully saved and applied to trading agents.' });
         if (res.data.data) {
+          usePortfolioStore.getState().setPortfolio(res.data.data);
           setBaseTradingCapital(res.data.data.baseTradingCapital);
           setBasketProfitTargetPct(res.data.data.basketProfitTargetPct);
           setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct);
+          setCoinSwitchApiKey(res.data.data.coinSwitchApiKey || '');
+          setCoinSwitchApiSecret(res.data.data.coinSwitchApiSecret || '');
         }
       } else {
         setFeedback({ type: 'error', message: res.data.message || 'Failed to update settings.' });
@@ -56,6 +118,20 @@ export default function Settings() {
     } finally {
       setSaving(false);
       setTimeout(() => setFeedback(null), 5000);
+    }
+  };
+
+  const handleToggleAsset = async (asset, isCurrentlyDisabled) => {
+    try {
+      const res = await axios.post('/api/portfolio/toggle-asset', {
+        asset,
+        enabled: isCurrentlyDisabled ? true : false
+      });
+      if (res.data.success) {
+        usePortfolioStore.getState().setPortfolio(res.data.data);
+      }
+    } catch (err) {
+      console.error("Failed to toggle asset:", err);
     }
   };
 
@@ -168,6 +244,46 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* CoinSwitch Pro API Credentials */}
+        <div className="border-t border-[#2c2c2e]/60 pt-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-sky-400 animate-pulse" />
+            <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider font-mono">
+              CoinSwitch Pro API Credentials
+            </h3>
+          </div>
+          <p className="text-[11px] text-zinc-500 max-w-2xl leading-relaxed">
+            Enter your hex-encoded public API Key and Secret Key generated from your CoinSwitch Pro Profile. 
+            If left blank, the trading engine will run in fully simulated paper-trading mode using live public market rates.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-mono">
+                CoinSwitch API Key
+              </label>
+              <input
+                type="text"
+                value={coinSwitchApiKey}
+                onChange={(e) => setCoinSwitchApiKey(e.target.value)}
+                className="w-full bg-[#2c2c2e]/50 border border-[#3a3a3c] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500 font-mono"
+                placeholder="Hex-encoded API Key"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-mono">
+                CoinSwitch API Secret
+              </label>
+              <input
+                type="password"
+                value={coinSwitchApiSecret}
+                onChange={(e) => setCoinSwitchApiSecret(e.target.value)}
+                className="w-full bg-[#2c2c2e]/50 border border-[#3a3a3c] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500 font-mono"
+                placeholder="Hex-encoded Secret Key"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Action Button */}
         <div className="border-t border-[#2c2c2e]/60 pt-6 flex justify-end">
           <button
@@ -179,6 +295,42 @@ export default function Settings() {
           </button>
         </div>
       </form>
+
+      {/* Coin Switch Activation Console */}
+      <div className="bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-2xl overflow-hidden p-6 space-y-6 shadow-xl">
+        <div>
+          <h2 className="text-lg font-bold text-[#f5f5f7] flex items-center gap-2">
+            <Zap className="w-5 h-5 text-sky-400 animate-pulse" />
+            Asset Activation Console (Coin Switch)
+          </h2>
+          <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+            Directly toggle which assets the trading bot is allowed to trade. Disabling an asset blocks the risk agent from opening any new positions for it.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <AssetColumn 
+            title="Core Crypto" 
+            assets={CORE_ASSETS} 
+            disabledAssets={manuallyDisabledAssets} 
+            onToggle={handleToggleAsset} 
+          />
+
+          <AssetColumn 
+            title="Meme Coins" 
+            assets={MEME_ASSETS} 
+            disabledAssets={manuallyDisabledAssets} 
+            onToggle={handleToggleAsset} 
+          />
+
+          <AssetColumn 
+            title="Recommended Assets" 
+            assets={RECOMMENDED_ASSETS} 
+            disabledAssets={manuallyDisabledAssets} 
+            onToggle={handleToggleAsset} 
+          />
+        </div>
+      </div>
     </div>
   );
 }

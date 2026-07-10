@@ -27,6 +27,7 @@ async function run() {
   const originalState = {
     totalBalance: portfolio.totalBalance,
     availableBalance: portfolio.availableBalance,
+    baseTradingCapital: portfolio.baseTradingCapital,
     walletBalance: portfolio.walletBalance,
     tradingPaused: portfolio.tradingPaused,
     positions: JSON.parse(JSON.stringify(portfolio.positions))
@@ -39,6 +40,7 @@ async function run() {
     console.log("\n--- Setting up Test Scenario ---");
     portfolio.totalBalance = 1105.50; // trigger threshold is 1100
     portfolio.availableBalance = 1105.50;
+    portfolio.baseTradingCapital = 1000;
     portfolio.tradingPaused = false;
     portfolio.walletBalance = 0;
     portfolio.peakBalance = 1000;
@@ -111,6 +113,7 @@ async function run() {
     if (freshPort) {
       freshPort.totalBalance = originalState.totalBalance;
       freshPort.availableBalance = originalState.availableBalance;
+      freshPort.baseTradingCapital = originalState.baseTradingCapital;
       freshPort.walletBalance = originalState.walletBalance;
       freshPort.tradingPaused = originalState.tradingPaused;
       freshPort.positions = originalState.positions;

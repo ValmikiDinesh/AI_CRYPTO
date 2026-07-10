@@ -1,24 +1,22 @@
-import WebSocket from 'ws';
 import BaseAgent from '../base/BaseAgent.js';
-import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
+import { AGENT_NAMES, SUPPORTED_ASSETS, INTERVALS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
-import { fetchCandles } from '../../services/exchangeService.js';
+import { fetchCandles, fetchAllTickers } from '../../services/exchangeService.js';
 import MarketData from '../../models/MarketData.js';
 
 /**
  * Market Tracking Agent
- * - Streams live prices from Binance Futures Testnet via WebSocket.
+ * - Streams live prices from CoinSwitch REST public API.
  * - Publishes structured market events via Redis.
  * - Persists candle data to MongoDB.
  */
 export default class MarketAgent extends BaseAgent {
   constructor() {
     super(AGENT_NAMES.MARKET);
-    this.ws = null;
     this.prices = {};            // asset → latest price
     this.candles = {};           // asset → latest candle array
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 10;
+    this.pollInterval = null;
+    this.lastCandleSync = 0;
   }
 
   async initialize() {
@@ -40,109 +38,105 @@ export default class MarketAgent extends BaseAgent {
       }
     }
 
-    // Open WebSocket stream
-    this.connectWebSocket();
+    // Start high-performance REST polling loop
+    this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
+    this.logger.info(`CoinSwitch REST polling engine started (${INTERVALS.ANALYSIS_CYCLE_MS / 1000}s frequency)`);
   }
 
-  connectWebSocket() {
+  async pollMarketData() {
     try {
-      const streams = SUPPORTED_ASSETS
-        .map((s) => `${s.toLowerCase()}@kline_5m`)
-        .join('/');
+      // 1. Fetch all tickers in one bulk API call
+      const tickers = await fetchAllTickers();
+      if (!tickers) return;
 
-      const wsUrl = `${process.env.BINANCE_TESTNET_WS_URL || 'wss://stream.binancefuture.com'}/stream?streams=${streams}`;
+      const now = Date.now();
+      // Sync candles every 15 seconds to prevent rate-limit blocks
+      const shouldSyncCandles = (now - this.lastCandleSync) >= 15000;
 
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.on('open', () => {
-        this.logger.info('Binance WebSocket connected');
-        this.reconnectAttempts = 0;
-      });
-
-      this.ws.on('message', (data) => {
+      for (const asset of SUPPORTED_ASSETS) {
         try {
-          const parsed = JSON.parse(data.toString());
-          if (parsed.data && parsed.data.e === 'kline') {
-            this.handleKline(parsed.data);
+          const cleanSym = asset.toUpperCase().replace('/', '');
+          const ticker = tickers[cleanSym] || tickers[asset.toLowerCase()];
+          if (!ticker) continue;
+
+          const price = parseFloat(ticker.last_price || ticker.last || ticker.close || 0);
+          if (price <= 0) continue;
+
+          this.prices[asset] = price;
+
+          let candleData = null;
+
+          // 2. Slower loop: Fetch latest candle to update state and check interval close
+          if (shouldSyncCandles) {
+            const candles = await fetchCandles(asset, '5m', 1);
+            if (candles && candles.length > 0) {
+              const latestCandle = candles[0];
+              latestCandle.close = price;
+
+              const history = this.candles[asset] || [];
+              const lastHistoryCandle = history[history.length - 1];
+
+              let isNewCandle = false;
+              if (!lastHistoryCandle || new Date(latestCandle.openTime).getTime() > new Date(lastHistoryCandle.openTime).getTime()) {
+                isNewCandle = true;
+              }
+
+              candleData = {
+                asset,
+                open: latestCandle.open,
+                high: latestCandle.high,
+                low: latestCandle.low,
+                close: price,
+                volume: latestCandle.volume,
+                openTime: new Date(latestCandle.openTime),
+                closeTime: new Date(latestCandle.closeTime),
+                isClosed: isNewCandle
+              };
+
+              if (isNewCandle) {
+                try {
+                  if (lastHistoryCandle) {
+                    lastHistoryCandle.isClosed = true;
+                    await MarketData.findOneAndUpdate(
+                      { asset, interval: '5m', openTime: lastHistoryCandle.openTime },
+                      lastHistoryCandle,
+                      { upsert: true, new: true }
+                    );
+                    await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: lastHistoryCandle });
+                  }
+
+                  history.push(candleData);
+                  if (history.length > 200) history.shift();
+                } catch (dbErr) {
+                  this.logger.error(`Failed to persist candle for ${asset}: ${dbErr.message}`);
+                }
+              } else {
+                if (history.length > 0) {
+                  history[history.length - 1] = candleData;
+                } else {
+                  history.push(candleData);
+                }
+              }
+            }
           }
-        } catch (err) {
-          this.logger.error(`WS message parse error: ${err.message}`);
+
+          // Publish live tick to Redis/Socket.io
+          await publishEvent(CHANNELS.MARKET_DATA, {
+            asset,
+            price,
+            candle: candleData,
+          });
+
+        } catch (assetErr) {
+          // Silent catch for individual asset loop items
         }
-      });
-
-      this.ws.on('error', (err) => {
-        this.logger.error(`WebSocket error: ${err.message}`);
-      });
-
-      this.ws.on('close', () => {
-        this.logger.warn('WebSocket closed');
-        this.attemptReconnect();
-      });
-    } catch (err) {
-      this.logger.error(`WebSocket connection setup failed: ${err.message}`);
-      this.attemptReconnect();
-    }
-  }
-
-  attemptReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger.error('Max reconnect attempts reached — resetting counters and retrying in 30s');
-      this.reconnectAttempts = 0;
-      setTimeout(() => this.connectWebSocket(), 30000);
-      return;
-    }
-    this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30_000);
-    this.logger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    setTimeout(() => this.connectWebSocket(), delay);
-  }
-
-  async handleKline(data) {
-    const kline = data.k;
-    const asset = data.s;                      // e.g. "BTCUSDT"
-    const price = parseFloat(kline.c);         // close price
-
-    this.prices[asset] = price;
-
-    const candleData = {
-      asset,
-      open: parseFloat(kline.o),
-      high: parseFloat(kline.h),
-      low: parseFloat(kline.l),
-      close: price,
-      volume: parseFloat(kline.v),
-      quoteVolume: parseFloat(kline.q),
-      trades: kline.n,
-      openTime: new Date(kline.t),
-      closeTime: new Date(kline.T),
-      isClosed: kline.x,
-    };
-
-    // Publish live tick to Redis
-    await publishEvent(CHANNELS.MARKET_DATA, {
-      asset,
-      price,
-      candle: candleData,
-    });
-
-    // When candle closes, persist to MongoDB and update local buffer
-    if (kline.x) {
-      try {
-        await MarketData.findOneAndUpdate(
-          { asset, interval: '5m', openTime: candleData.openTime },
-          candleData,
-          { upsert: true, new: true }
-        );
-
-        // Keep last 200 candles in memory
-        if (!this.candles[asset]) this.candles[asset] = [];
-        this.candles[asset].push(candleData);
-        if (this.candles[asset].length > 200) this.candles[asset].shift();
-
-        await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: candleData });
-      } catch (err) {
-        this.logger.error(`Failed to persist candle for ${asset}: ${err.message}`);
       }
+
+      if (shouldSyncCandles) {
+        this.lastCandleSync = now;
+      }
+    } catch (err) {
+      this.logger.error(`Error polling market data: ${err.message}`);
     }
   }
 
@@ -174,9 +168,9 @@ export default class MarketAgent extends BaseAgent {
   }
 
   stop() {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
     }
     super.stop();
   }

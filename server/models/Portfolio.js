@@ -62,6 +62,8 @@ const portfolioSchema = new mongoose.Schema({
   sweepTargetProfitPct: { type: Number, default: 10 },
   manuallyDisabledAssets: { type: [String], default: [] },
   autoIgnoredAssets: { type: [String], default: [] },
+  coinSwitchApiKey: { type: String, default: "" },
+  coinSwitchApiSecret: { type: String, default: "" },
   lastRebalancedAt: { type: Date },
   lastDailyDigestDate: { type: String },
 }, {

@@ -120,6 +120,8 @@ router.get('/performance', async (req, res, next) => {
         baseTradingCapital: portfolio.baseTradingCapital,
         basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
         sweepTargetProfitPct: portfolio.sweepTargetProfitPct || 10,
+        coinSwitchApiKey: portfolio.coinSwitchApiKey || "",
+        coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
       },
     });
   } catch (err) {
@@ -196,6 +198,34 @@ router.post('/toggle-asset', async (req, res, next) => {
     }
 
     await portfolio.save();
+
+    // Trigger real-time update on WebSocket/Redis channel
+    try {
+      const { publishEvent, CHANNELS } = await import('../config/redis.js');
+      await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
+        totalBalance: portfolio.totalBalance,
+        availableBalance: portfolio.availableBalance,
+        totalPnl: portfolio.totalPnl,
+        totalPnlPercent: portfolio.totalPnlPercent,
+        dailyPnl: portfolio.dailyLossToday,
+        winRate: portfolio.winRate,
+        openPositions: portfolio.positions.filter((p) => p && p.status === 'open').length,
+        allocation: portfolio.allocationBreakdown,
+        winningTrades: portfolio.winningTrades,
+        losingTrades: portfolio.losingTrades,
+        totalTrades: portfolio.totalTrades,
+        walletBalance: portfolio.walletBalance || 0,
+        tradingPaused: portfolio.tradingPaused || false,
+        targetProfitThreshold: portfolio.targetProfitThreshold || 110,
+        baseTradingCapital: portfolio.baseTradingCapital || 100,
+        basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
+        manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
+        autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
+      });
+    } catch (redisErr) {
+      // Don't fail the response if Redis pub/sub fails
+      console.error('Failed to publish portfolio update during toggle-asset:', redisErr);
+    }
 
     res.json({ success: true, message: `Asset ${asset} status updated`, data: portfolio });
   } catch (err) {
@@ -278,10 +308,10 @@ router.get('/volatility-profile', async (req, res, next) => {
   }
 });
 
-// POST /api/portfolio/config — update portfolio configurations (base capital, profit target percentage)
+// POST /api/portfolio/config — update portfolio configurations (base capital, profit target percentage, keys)
 router.post('/config', async (req, res, next) => {
   try {
-    const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct } = req.body;
+    const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct, coinSwitchApiKey, coinSwitchApiSecret } = req.body;
 
     const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
@@ -304,6 +334,14 @@ router.post('/config', async (req, res, next) => {
 
     if (sweepTargetProfitPct !== undefined) {
       portfolio.sweepTargetProfitPct = parseFloat(sweepTargetProfitPct);
+    }
+
+    if (coinSwitchApiKey !== undefined) {
+      portfolio.coinSwitchApiKey = coinSwitchApiKey;
+    }
+
+    if (coinSwitchApiSecret !== undefined) {
+      portfolio.coinSwitchApiSecret = coinSwitchApiSecret;
     }
 
     // Recalculate targetProfitThreshold dynamically based on Sweep Target Profit Pct
@@ -335,6 +373,8 @@ router.post('/config', async (req, res, next) => {
       sweepTargetProfitPct: portfolio.sweepTargetProfitPct,
       manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
       autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
+      coinSwitchApiKey: portfolio.coinSwitchApiKey || "",
+      coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
     });
 
     res.json({ success: true, message: 'Portfolio configuration updated successfully', data: portfolio });

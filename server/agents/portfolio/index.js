@@ -709,7 +709,7 @@ export default class PortfolioAgent extends BaseAgent {
     if (!isReconciliation) {
       try {
         const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-        if (process.env.BINANCE_TESTNET_API_KEY && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
+        if ((process.env.TRADING_MODE === 'live' || process.env.BINANCE_TESTNET_API_KEY) && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
           const exitSide = position.side === 'long' ? 'sell' : 'buy';
           
           // Fetch fresh position size directly from the exchange to ensure we close the full current position
@@ -724,7 +724,7 @@ export default class PortfolioAgent extends BaseAgent {
             this.logger.warn(`Failed to fetch fresh position size before exit, falling back to local quantity: ${fetchErr.message}`);
           }
 
-          this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} (${closeQty} units)`);
+          this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Exchange for ${position.asset} (${closeQty} units)`);
           
           // Await close order and retrieve actual executed parameters from response
           const closeOrder = await placeMarketOrder(position.asset, exitSide, closeQty);
@@ -735,7 +735,7 @@ export default class PortfolioAgent extends BaseAgent {
           }
         }
       } catch (err) {
-        this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Binance Demo for ${position.asset}: ${err.message}. Initiating auto-ignore with limit order fallback.`);
+        this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Exchange for ${position.asset}: ${err.message}. Initiating auto-ignore with limit order fallback.`);
         
         try {
           const exchange = getExchange();
@@ -1179,10 +1179,8 @@ export default class PortfolioAgent extends BaseAgent {
   async checkProfitTarget(portfolio) {
     const baseCap = portfolio.baseTradingCapital || 100;
     const sweepPct = portfolio.sweepTargetProfitPct !== undefined ? portfolio.sweepTargetProfitPct : 10;
-    const basketPct = portfolio.basketProfitTargetPct !== undefined ? portfolio.basketProfitTargetPct : 10;
     
     const sweepTarget = baseCap * (1 + sweepPct / 100);
-    const basketTarget = baseCap * (basketPct / 100);
     
     // Calculate liquid total balance (excluding illiquid positions P&L)
     const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
@@ -1207,15 +1205,11 @@ export default class PortfolioAgent extends BaseAgent {
     
     // Liquid total balance = availableBalance + liquid margin + liquid unrealized - estimated closing fees
     const liquidTotalBalance = portfolio.availableBalance + liquidOpenExposure + liquidOpenUnrealized - estimatedCloseFees;
-    const combinedNetPnL = liquidOpenUnrealized - estimatedCloseFees;
 
     const isSweepTargetMet = liquidTotalBalance >= sweepTarget;
-    const isBasketTargetMet = combinedNetPnL >= basketTarget;
 
-    if ((isSweepTargetMet || isBasketTargetMet) && !portfolio.tradingPaused) {
-      const triggerReason = isSweepTargetMet 
-        ? `[SWEEP TARGET MET] Liquid net worth reached $${liquidTotalBalance.toFixed(2)} (Target: $${sweepTarget.toFixed(2)})`
-        : `[BASKET TARGET MET] Combined net unrealized PnL reached $${combinedNetPnL.toFixed(2)} (Target: $${basketTarget.toFixed(2)})`;
+    if (isSweepTargetMet && !portfolio.tradingPaused) {
+      const triggerReason = `[SWEEP TARGET MET] Liquid net worth reached $${liquidTotalBalance.toFixed(2)} (Target: $${sweepTarget.toFixed(2)})`;
       
       this.logger.warn(`🚨 ${triggerReason}. Initiating automatic square-off...`);
       
@@ -1240,7 +1234,7 @@ export default class PortfolioAgent extends BaseAgent {
       for (const position of liquidPositionsToClose) {
         try {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || position.entryPrice || 0;
-          await this.closePosition(portfolio, position, currentPrice, `${isSweepTargetMet ? 'Sweep' : 'Basket'} Target Met (Auto-Squareoff)`, false);
+          await this.closePosition(portfolio, position, currentPrice, `Sweep Target Met (Auto-Squareoff)`, false);
         } catch (closeErr) {
           this.logger.error(`Failed to close position for ${position.asset} during square-off: ${closeErr.message}`);
         }

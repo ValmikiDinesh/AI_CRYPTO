@@ -308,7 +308,7 @@ router.post('/manual-close', async (req, res, next) => {
     
     try {
       const activeTrade = await Trade.findOne({ asset, status: 'open' });
-      if (process.env.BINANCE_TESTNET_API_KEY && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
+      if ((process.env.TRADING_MODE === 'live' || process.env.BINANCE_TESTNET_API_KEY) && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
         const { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange } = await import('../services/exchangeService.js');
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         
@@ -376,13 +376,13 @@ router.post('/manual-close', async (req, res, next) => {
             console.warn(`Failed to clean up remaining triggers: ${cleanErr.message}`);
           }
         } else {
-          console.log(`No active position found on Binance for ${asset}. Closing position locally.`);
+          console.log(`No active position found on Exchange for ${asset}. Closing position locally.`);
         }
       }
     } catch (exchangeErr) {
       return res.status(500).json({ 
         success: false, 
-        message: `Failed to execute close order on Binance exchange: ${exchangeErr.message}` 
+        message: `Failed to execute close order on exchange: ${exchangeErr.message}` 
       });
     }
 
