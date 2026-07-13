@@ -22,16 +22,45 @@ export default class MarketAgent extends BaseAgent {
   async initialize() {
     await super.initialize();
 
-    // Load initial historical candles via REST
+    // Load initial historical candles via REST (with DB fallback and stagger delay)
     for (const asset of SUPPORTED_ASSETS) {
       try {
-        const candles = await fetchCandles(asset, '5m', 100);
+        // Stagger requests to prevent concurrent spikes
+        await new Promise(resolve => setTimeout(resolve, 250));
+        
+        let candles = await fetchCandles(asset, '5m', 100);
+        
+        // If API fails to return candles, load from MongoDB fallback
+        if (!candles || candles.length === 0) {
+          const dbCandles = await MarketData.find({ asset, interval: '5m' })
+            .sort({ openTime: -1 })
+            .limit(100);
+          
+          if (dbCandles && dbCandles.length > 0) {
+            candles = dbCandles.reverse().map(c => ({
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: c.volume,
+              openTime: c.openTime,
+              closeTime: c.closeTime,
+              isClosed: c.isClosed
+            }));
+            this.logger.info(`Loaded ${candles.length} historical candles from MongoDB fallback for ${asset}`);
+          } else {
+            candles = [];
+            this.logger.warn(`No candles found in Exchange or MongoDB for ${asset}`);
+          }
+        } else {
+          this.logger.info(`Loaded ${candles.length} historical candles from Exchange for ${asset}`);
+        }
+        
         this.candles[asset] = candles;
         if (candles && candles.length > 0) {
           const lastCandle = candles[candles.length - 1];
           this.prices[asset] = lastCandle.close || lastCandle.price || 0;
         }
-        this.logger.info(`Loaded ${candles.length} historical candles for ${asset}`);
       } catch (err) {
         this.logger.warn(`Failed to load candles for ${asset}: ${err.message}`);
         this.candles[asset] = [];
@@ -50,8 +79,8 @@ export default class MarketAgent extends BaseAgent {
       if (!tickers) return;
 
       const now = Date.now();
-      // Sync candles every 15 seconds to prevent rate-limit blocks
-      const shouldSyncCandles = (now - this.lastCandleSync) >= 15000;
+      // Sync candles every 60 seconds to prevent rate-limit blocks
+      const shouldSyncCandles = (now - this.lastCandleSync) >= 60000;
 
       for (const asset of SUPPORTED_ASSETS) {
         try {
@@ -69,6 +98,8 @@ export default class MarketAgent extends BaseAgent {
           // 2. Slower loop: Fetch latest candle to update state and check interval close
           if (shouldSyncCandles) {
             const candles = await fetchCandles(asset, '5m', 1);
+            // Stagger next requests to avoid rate limits (250ms delay)
+            await new Promise(resolve => setTimeout(resolve, 250));
             if (candles && candles.length > 0) {
               const latestCandle = candles[0];
               latestCandle.close = price;

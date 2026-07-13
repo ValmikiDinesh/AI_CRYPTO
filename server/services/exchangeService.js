@@ -181,62 +181,50 @@ class CoinSwitchExchange {
 
   // REST API: Public fetchTicker
   async fetchTicker(symbol) {
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '');
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     try {
-      // Fetch public ticker from CoinSwitch Futures REST API
-      const res = await axios.get(`${this.baseUrl}/futures/ticker?symbol=${cleanSym}`);
+      const path = `/futures/ticker?symbol=${cleanSym}&exchange=EXCHANGE_2`;
+      const auth = await this._signRequest('GET', path);
+      const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth || {});
       if (res.data && res.data.data) {
-        const t = res.data.data;
-        return {
-          symbol: symbol,
-          last: parseFloat(t.lastPrice || t.last || t.close),
-          bid: parseFloat(t.bidPrice || t.bid),
-          ask: parseFloat(t.askPrice || t.ask),
-          high: parseFloat(t.highPrice || t.high),
-          low: parseFloat(t.lowPrice || t.low),
-          volume: parseFloat(t.volume || t.volume24h),
-          markPrice: parseFloat(t.markPrice || t.lastPrice)
-        };
+        const resData = res.data.data;
+        const t = resData.EXCHANGE_2 || resData[Object.keys(resData)[0]];
+        if (t) {
+          return {
+            symbol: symbol,
+            last: parseFloat(t.lastPrice || t.last_price || t.last || t.close || 0),
+            bid: parseFloat(t.bidPrice || t.best_bid_price || t.bid || 0),
+            ask: parseFloat(t.askPrice || t.best_ask_price || t.ask || 0),
+            high: parseFloat(t.highPrice || t.high_price_24h || t.high || 0),
+            low: parseFloat(t.lowPrice || t.low_price_24h || t.low || 0),
+            volume: parseFloat(t.volume || t.volume24h || t.base_asset_volume_24h || 0),
+            markPrice: parseFloat(t.markPrice || t.mark_price || t.last_price || 0)
+          };
+        }
       }
       throw new Error('Invalid CoinSwitch response structure');
     } catch (err) {
-      // Fallback: Fetch from public Binance Futures API
-      try {
-        const res = await axios.get(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${cleanSym}`);
-        if (res.data) {
-          const t = res.data;
-          return {
-            symbol: symbol,
-            last: parseFloat(t.lastPrice),
-            bid: parseFloat(t.bidPrice || t.lastPrice * 0.999),
-            ask: parseFloat(t.askPrice || t.lastPrice * 1.001),
-            high: parseFloat(t.highPrice),
-            low: parseFloat(t.lowPrice),
-            volume: parseFloat(t.volume),
-            markPrice: parseFloat(t.lastPrice)
-          };
-        }
-        throw new Error('Invalid Binance response structure');
-      } catch (binanceErr) {
-        logger.error(`fetchTicker fallback error for ${symbol}: ${binanceErr.message}`);
-        // Return mock placeholder
-        return { symbol, last: 60000, bid: 59990, ask: 60010, markPrice: 60000 };
-      }
+      logger.error(`fetchTicker error for ${symbol}: ${err.message}`);
+      throw err;
     }
   }
 
   // REST API: Public fetchOHLCV
   async fetchOHLCV(symbol, timeframe = '5m', since, limit = 100) {
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '');
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
+    const cleanInterval = timeframe.replace('m', '').replace('h', '').replace('d', '');
     try {
-      const res = await axios.get(`${this.baseUrl}/futures/candles?symbol=${cleanSym}&interval=${timeframe}&limit=${limit}`);
-      if (res.data && res.data.data) {
-        return res.data.data.map(c => [
-          new Date(c.time || c.timestamp).getTime(),
-          parseFloat(c.open),
-          parseFloat(c.high),
-          parseFloat(c.low),
-          parseFloat(c.close),
+      const path = `/futures/klines?symbol=${cleanSym}&interval=${cleanInterval}&limit=${limit}&exchange=EXCHANGE_2`;
+      const auth = await this._signRequest('GET', path);
+      const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth || {});
+      const klines = res.data.data || res.data;
+      if (klines && Array.isArray(klines)) {
+        return klines.map(c => [
+          parseInt(c.start_time || c.time || c.timestamp),
+          parseFloat(c.o || c.open),
+          parseFloat(c.h || c.high),
+          parseFloat(c.l || c.low),
+          parseFloat(c.c || c.close),
           parseFloat(c.volume)
         ]);
       }
@@ -517,45 +505,35 @@ class CoinSwitchExchange {
       return [];
     }
 
-    // Helper to query a single symbol on the exchange
-    const fetchSingle = async (sym) => {
-      const cleanSym = sym.replace('/', '').replace(':USDT', '').toUpperCase();
-      const path = `/futures/positions?exchange=EXCHANGE_2&symbol=${cleanSym}`;
-      const auth = await this._signRequest('GET', path);
-      if (!auth) return null;
+    if (!this.isDemo) {
       try {
-        const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
-        if (res.data && res.data.data) {
-          const data = Array.isArray(res.data.data) ? res.data.data : [res.data.data];
-          return data.map(p => ({
-            symbol: p.symbol,
-            contracts: parseFloat(p.quantity || p.position_size || p.positionSize || 0),
-            side: (p.side || p.position_side || p.positionSide || 'LONG').toLowerCase(),
-            entryPrice: parseFloat(p.entryPrice || p.avg_entry_price || p.avgEntryPrice || 0),
-            markPrice: parseFloat(p.markPrice || p.currentPrice || p.entryPrice || 0),
-            unrealizedPnl: parseFloat(p.unrealizedPnl || p.unrealizedPnl || 0),
-            leverage: parseFloat(p.leverage || 0)
-          }));
+        const path = symbol
+          ? `/futures/positions?exchange=EXCHANGE_2&symbol=${symbol.replace('/', '').replace(':USDT', '').toUpperCase()}`
+          : `/futures/positions?exchange=EXCHANGE_2`;
+          
+        const auth = await this._signRequest('GET', path);
+        if (auth) {
+          const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
+          if (res.data) {
+            if (res.data.message && res.data.message.includes('no open Positions')) {
+              return [];
+            }
+            if (res.data.data) {
+              const data = Array.isArray(res.data.data) ? res.data.data : [res.data.data];
+              return data.filter(Boolean).map(p => ({
+                symbol: p.symbol,
+                contracts: parseFloat(p.quantity || p.position_size || p.positionSize || 0),
+                side: (p.side || p.position_side || p.positionSide || 'LONG').toLowerCase(),
+                entryPrice: parseFloat(p.entryPrice || p.avg_entry_price || p.avgEntryPrice || 0),
+                markPrice: parseFloat(p.markPrice || p.currentPrice || p.entryPrice || 0),
+                unrealizedPnl: parseFloat(p.unrealizedPnl || 0),
+                leverage: parseFloat(p.leverage || 0)
+              }));
+            }
+          }
         }
       } catch (err) {
-        logger.error(`CoinSwitch fetchPositions live error for ${cleanSym}: ${err.message}`);
-      }
-      return null;
-    };
-
-    if (!this.isDemo) {
-      if (symbol) {
-        const singlePos = await fetchSingle(symbol);
-        if (singlePos) return singlePos;
-      } else {
-        // Fetch positions for all currently monitored symbols in the database
-        const dbOpenAssets = portfolio.positions.filter(p => p.status === 'open').map(p => p.asset);
-        // Include core symbols just in case
-        const coreAssets = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT', 'DOGEUSDT'];
-        const allAssetsToQuery = Array.from(new Set([...dbOpenAssets, ...coreAssets]));
-        
-        const results = await Promise.all(allAssetsToQuery.map(a => fetchSingle(a)));
-        return results.filter(Boolean).flat();
+        logger.error(`CoinSwitch fetchPositions live error: ${err.message}`);
       }
     }
 
