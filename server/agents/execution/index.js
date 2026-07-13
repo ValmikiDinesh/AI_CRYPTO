@@ -258,7 +258,7 @@ export default class ExecutionAgent extends BaseAgent {
                   openedAt: new Date(),
                   fees: pendingTrade.fees || 0,
                   // Dynamic Profit Engine fields
-                  dynamicTrailingPct: isDynamicAssetTp ? dynamicTrailingPct : undefined,
+                  dynamicTrailingPct,
                   category,
                   maxProfitReached: 0,
                   maxDrawdownReached: 0,
@@ -531,7 +531,7 @@ export default class ExecutionAgent extends BaseAgent {
       trade.exchangeOrderId = order?.id;
       trade.executedAt = new Date(order.timestamp || Date.now());
       trade.fees = actualFee;
-      if (isDynamicAssetTp && dynamicTrailingPct) {
+      if (dynamicTrailingPct) {
         trade.dynamicTrailingPct = dynamicTrailingPct;
       }
       await trade.save();
@@ -561,7 +561,7 @@ export default class ExecutionAgent extends BaseAgent {
         status: 'open',
         fees: actualFee,
         // Dynamic Profit Engine fields
-        dynamicTrailingPct: isDynamicAssetTp ? dynamicTrailingPct : undefined,
+        dynamicTrailingPct,
         category,
         maxProfitReached: 0,
         maxDrawdownReached: 0,

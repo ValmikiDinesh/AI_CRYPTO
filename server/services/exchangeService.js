@@ -10,6 +10,7 @@ class CoinSwitchExchange {
     this.isDemo = true;
     this.markets = {};
     this.timeOffset = 0;
+    this.leverageCache = new Map(); // symbol -> leverage (already set this session)
     this.syncTimeOffset();
   }
 
@@ -348,6 +349,7 @@ class CoinSwitchExchange {
     const auth = await this._signRequest('POST', '/futures/order', body);
     if (auth && !this.isDemo) {
       try {
+        await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
         const res = await axios.post(`https://coinswitch.co/trade/api/v2/futures/order`, body, auth);
         if (res.data && res.data.data) {
           const o = res.data.data;
@@ -398,6 +400,7 @@ class CoinSwitchExchange {
     const auth = await this._signRequest('POST', '/futures/order', body);
     if (auth && !this.isDemo) {
       try {
+        await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
         const res = await axios.post(`https://coinswitch.co/trade/api/v2/futures/order`, body, auth);
         if (res.data && res.data.data) {
           const o = res.data.data;
@@ -482,6 +485,9 @@ class CoinSwitchExchange {
     const auth = await this._signRequest('POST', path, body);
     if (auth) {
       try {
+        if (!this.isDemo) {
+          await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+        }
         const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
         if (res.data && res.data.data) {
           const o = res.data.data;
@@ -675,6 +681,40 @@ class CoinSwitchExchange {
   async fetchOpenOrders(symbol, since, limit, params = {}) {
     return [];
   }
+
+  // Private API: Set leverage for a futures contract
+  async setLeverage(symbol, leverage = 3) {
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+    const body = {
+      exchange: 'EXCHANGE_2',
+      symbol: cleanSym,
+      leverage: parseInt(leverage)
+    };
+
+    const path = '/futures/leverage';
+    const auth = await this._signRequest('POST', path, body);
+    if (auth && !this.isDemo) {
+      try {
+        const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
+        logger.info(`✅ Leverage set to ${leverage}x for ${cleanSym}`);
+        return res.data;
+      } catch (err) {
+        logger.error(`CoinSwitch setLeverage error for ${cleanSym}: ${err.response?.data?.message || err.message}`);
+        throw err;
+      }
+    }
+    return { simulated: true, leverage };
+  }
+
+  // Idempotent leverage setter — only calls the API if leverage hasn't been set for this symbol yet
+  async ensureLeverage(symbol, leverage = 3) {
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+    const cached = this.leverageCache.get(cleanSym);
+    if (cached === leverage) return; // already set this session
+
+    await this.setLeverage(symbol, leverage);
+    this.leverageCache.set(cleanSym, leverage);
+  }
 }
 
 let exchangeInstance = null;
@@ -851,6 +891,16 @@ export const fetchAllTickers = async () => {
   }
 };
 
+export const setLeverage = async (symbol, leverage) => {
+  try {
+    const exchange = getExchange();
+    return await exchange.setLeverage(symbol, leverage);
+  } catch (err) {
+    logger.error(`setLeverage(${symbol}, ${leverage}) error: ${err.message}`);
+    throw err;
+  }
+};
+
 export default {
   getExchange,
   fetchCandles,
@@ -865,4 +915,5 @@ export default {
   fetchBalance,
   fetchPositions,
   checkAssetLiquidity,
+  setLeverage,
 };
