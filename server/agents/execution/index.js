@@ -234,6 +234,9 @@ export default class ExecutionAgent extends BaseAgent {
             if (portfolio) {
               const exists = portfolio.positions.some(p => p && p.asset === asset && p.status === 'open');
               if (!exists) {
+                const category = getCategoryForAsset(asset);
+                const dynamicTrailingPct = undefined;
+
                 // Place trigger orders (SL/TP) for this executed portion
                 let stopLossOrderId = null;
                 if (!pendingTrade.exchangeOrderId.startsWith('mock_')) {

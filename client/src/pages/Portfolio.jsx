@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { usePortfolioStore, useMarketStore } from '../store.js';
+import { useState, useEffect, useMemo } from 'react';
+import { usePortfolioStore, useMarketStore, useCurrencyStore } from '../store.js';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
 import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity, Search, Medal, Skull, AlertCircle, ArrowUpDown } from 'lucide-react';
 import axios from 'axios';
@@ -10,15 +10,200 @@ const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADA
 const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 'BOMEUSDT', 'PEOPLEUSDT'];
 const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'PORTALUSDT', 'HEIUSDT', 'IDUSDT', 'LABUSDT', 'STGUSDT', 'EPICUSDT'];
 
+function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
+  const prices = useMarketStore((s) => s.prices);
+  const [openLedgerTab, setOpenLedgerTab] = useState('all');
+
+  const filteredOpenTrades = onlyOpenTrades.filter((trade) => {
+    if (openLedgerTab === 'all') return true;
+    if (openLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
+    if (openLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
+    if (openLedgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
+    return true;
+  });
+
+  if (onlyOpenTrades.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+        <Activity size={20} className="text-zinc-600 mb-2" />
+        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+          NO ACTIVE POSITIONS ON SYSTEM
+        </span>
+      </div>
+    );
+  }
+
+  if (filteredOpenTrades.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+        <Activity size={20} className="text-zinc-600 mb-2" />
+        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+          NO ACTIVE POSITIONS MATCHING CATEGORY
+        </span>
+      </div>
+    );
+  }
+
+  const totalOpenCommission = filteredOpenTrades.reduce((sum, t) => {
+    const fees = t.fees !== undefined && t.fees !== null ? t.fees : (t.entryPrice * t.quantity * 0.0005);
+    return sum + fees;
+  }, 0);
+
+  const totalOpenNetPnl = filteredOpenTrades.reduce((sum, t) => {
+    const currentPrice = prices ? prices[t.asset] : undefined;
+    if (!currentPrice) return sum;
+    const fees = t.fees !== undefined && t.fees !== null ? t.fees : (t.entryPrice * t.quantity * 0.0005);
+    const isLong = t.side === 'long' || t.action === 'BUY';
+    const grossPnl = isLong ? (currentPrice - t.entryPrice) * t.quantity : (t.entryPrice - currentPrice) * t.quantity;
+    return sum + (grossPnl - fees);
+  }, 0);
+
+  return (
+    <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
+      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
+        <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
+          Active Open Positions
+        </h3>
+        <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'core', label: 'Core Crypto' },
+            { id: 'meme', label: 'Meme Coins' },
+            { id: 'recommended', label: 'Recommended' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setOpenLedgerTab(tab.id)}
+              className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
+                openLedgerTab === tab.id
+                  ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
+                  : 'text-[#86868b] hover:text-[#f5f5f7]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
+              <th className="px-6 py-4">Execution Date</th>
+              <th className="px-6 py-4">Asset</th>
+              <th className="px-6 py-4">Action</th>
+              <th className="px-6 py-4 text-right">Entry Price</th>
+              <th className="px-6 py-4 text-right">Current Price</th>
+              <th className="px-6 py-4 text-right">Stop Loss</th>
+              <th className="px-6 py-4 text-right">Target</th>
+              <th className="px-6 py-4 text-right">Quantity</th>
+              <th className="px-6 py-4 text-right">Commission</th>
+              <th className="px-6 py-4 text-right">PnL (Net)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#2c2c2e]/40">
+            {filteredOpenTrades.map((trade, i) => {
+              const price = trade.entryPrice;
+              const currentPrice = prices ? prices[trade.asset] : undefined;
+              const fees = trade.fees !== undefined && trade.fees !== null 
+                ? trade.fees 
+                : (trade.entryPrice * trade.quantity * 0.0005);
+              const isLong = trade.side === 'long' || trade.action === 'BUY';
+              const grossPnl = currentPrice ? (isLong ? (currentPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - currentPrice) * trade.quantity) : 0;
+              const netPnl = currentPrice ? grossPnl - fees : 0;
+
+              return (
+                <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+                  <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
+                    {new Date(trade.createdAt).toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
+                    {trade.asset?.replace('1000', '').replace('USDT', '')}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+                      trade.action === 'BUY'
+                        ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+                        : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
+                    }`}>
+                      {trade.action}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
+                    {price ? `$${price.toFixed(6)}` : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-sky-400 font-mono font-bold">
+                    {currentPrice ? `$${currentPrice.toFixed(6)}` : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
+                    {trade.stopLoss ? `$${trade.stopLoss.toFixed(6)}` : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
+                    {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-[#86868b] font-mono">
+                    {trade.quantity?.toFixed(5) || '—'}
+                  </td>
+                  <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+                    ${fees.toFixed(4)}
+                  </td>
+                  <td 
+                    className="px-6 py-4 text-right font-bold font-mono"
+                    style={{ color: currentPrice ? (netPnl >= 0 ? '#30d158' : '#ff453a') : '#86868b' }}
+                  >
+                    {currentPrice ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : 'WAITING'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot className="border-t border-[#2c2c2e] bg-black/45">
+            <tr className="align-middle">
+              <td colSpan={8} className="px-6 py-4 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest">
+                Totals ({filteredOpenTrades.length} Active Positions)
+              </td>
+              <td className="px-6 py-4 text-right">
+                <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
+                <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
+                  -${totalOpenCommission.toFixed(4)}
+                </span>
+              </td>
+              <td className="px-6 py-4 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60">
+                <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Combined Net PnL</span>
+                <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalOpenNetPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                  {totalOpenNetPnl >= 0 ? '+' : ''}${totalOpenNetPnl.toFixed(2)}
+                </span>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function Portfolio() {
   const portfolio = usePortfolioStore((s) => s.portfolio);
-  const prices = useMarketStore((s) => s.prices);
+
+  const currency = useCurrencyStore((s) => s.currency);
+  const rate = useCurrencyStore((s) => s.rate);
+
+  const convertVal = (val) => {
+    if (val === undefined || val === null) return 0;
+    return currency === 'INR' ? val * rate : val;
+  };
+
+  const formatVal = (val, dec = 2) => {
+    const converted = convertVal(val);
+    const symbol = currency === 'INR' ? '₹' : '$';
+    return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
+  };
   const [trades, setTrades] = useState([]);
   const [allTrades, setAllTrades] = useState([]);
   const [stats, setStats] = useState(null);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'analytics' | 'history' | 'open' | 'closed'
   const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
-  const [openLedgerTab, setOpenLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [closedLedgerTab, setClosedLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [dateFilter, setDateFilter] = useState('all'); // 'all' | 'today' | 'yesterday' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
   const [searchQuery, setSearchQuery] = useState('');
@@ -86,14 +271,6 @@ export default function Portfolio() {
 
   const onlyOpenTrades = allTrades.filter((trade) => trade.status === 'open');
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
-
-  const filteredOpenTrades = onlyOpenTrades.filter((trade) => {
-    if (openLedgerTab === 'all') return true;
-    if (openLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
-    if (openLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
-    if (openLedgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
-    return true;
-  });
 
   const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
     if (!filterByDate(trade.closedAt || trade.updatedAt || trade.createdAt)) return false;
@@ -422,6 +599,94 @@ export default function Portfolio() {
 
   const displayOpenExposure = portfolio.openPositions || 0;
 
+  const allocationChartMemo = useMemo(() => {
+    return (
+      <div className="flex flex-col items-center w-full justify-center h-[210px]">
+        <PieChart width={300} height={210}>
+          <Pie
+            data={allocation}
+            dataKey="percentage"
+            nameKey="asset"
+            cx="50%"
+            cy="50%"
+            outerRadius={75}
+            innerRadius={55}
+            paddingAngle={4}
+            strokeWidth={0}
+          >
+            {allocation.map((_, i) => (
+              <Cell key={i} fill={COLORS[i % COLORS.length]} className="outline-none" />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7', fontSize: 10 }}
+            itemStyle={{ color: '#f5f5f7', fontFamily: 'monospace' }}
+            formatter={(v) => `${v.toFixed(1)}%`}
+          />
+        </PieChart>
+        <div className="flex flex-wrap gap-4 justify-center mt-3">
+          {allocation.map((a, i) => (
+            <span key={i} className="flex items-center gap-2 text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">
+              <span className="w-2 h-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }}></span>
+              {a.asset} ({a.percentage?.toFixed(1)}%)
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }, [allocation]);
+
+  const returnsChartMemo = useMemo(() => {
+    if (dateFilteredClosed.length === 0) {
+      return (
+        <div className="h-[240px] flex items-center justify-center text-xs text-zinc-500 font-extrabold uppercase tracking-widest font-mono animate-pulse">
+          NO TRANSACTION HISTORY LOGGED
+        </div>
+      );
+    }
+    return (
+      <div className="w-full flex justify-center h-[240px]">
+        <BarChart width={400} height={240} data={dateFilteredClosed.map((t, i) => ({ name: `#${i + 1}`, pnl: t.pnl || 0 }))} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+          <XAxis dataKey="name" stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
+          <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
+          <Tooltip
+            contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
+            itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
+          />
+          <Bar dataKey="pnl" radius={[2, 2, 0, 0]}>
+            {dateFilteredClosed.map((t, i) => (
+              <Cell key={i} fill={(t.pnl || 0) >= 0 ? '#30d158' : '#ff453a'} />
+            ))}
+          </Bar>
+        </BarChart>
+      </div>
+    );
+  }, [dateFilteredClosed]);
+
+  const categoryChartMemo = useMemo(() => {
+    return (
+      <div className="lg:col-span-2 flex justify-center">
+        <div className="h-[260px]">
+          <BarChart width={450} height={260} data={categoryStats} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+            <XAxis dataKey="name" stroke="#86868b" fontSize={10} tickLine={false} className="font-mono font-bold" />
+            <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
+            <Tooltip
+              contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
+              itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
+              formatter={(value) => typeof value === 'number' ? `$${value.toFixed(2)}` : `$${value}`}
+            />
+            <Bar dataKey="maxProfit" name="High Profit" fill="#30d158" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="minProfit" name="Low Profit" fill="rgba(48, 209, 88, 0.45)" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="maxLoss" name="High Loss" fill="#ff453a" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="minLoss" name="Low Loss" fill="rgba(255, 69, 58, 0.45)" radius={[2, 2, 0, 0]} />
+          </BarChart>
+        </div>
+      </div>
+    );
+  }, [categoryStats]);
+
   return (
     <div className="page-layout">
       {/* Header */}
@@ -468,7 +733,7 @@ export default function Portfolio() {
             <div>
               <h4 className="text-sm font-bold text-red-200">Trading Bot Paused</h4>
               <p className="text-xs text-red-300/80 mt-0.5">
-                The target profit threshold of ${(portfolio.targetProfitThreshold || 1100).toFixed(2)} was met. All open positions were automatically squared off, and excess profits were swept to the secure vault.
+                The target profit threshold of {formatVal(portfolio.targetProfitThreshold || 1100)} was met. All open positions were automatically squared off, and excess profits were swept to the secure vault.
               </p>
             </div>
           </div>
@@ -487,15 +752,13 @@ export default function Portfolio() {
         {[
           { 
             label: 'Net Balances', 
-            value: portfolio.totalBalance !== undefined && portfolio.totalBalance !== null 
-              ? `$${portfolio.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
-              : '$0.00', 
+            value: formatVal(portfolio.totalBalance), 
             icon: Wallet, 
             color: '#86868b' 
           },
           { 
             label: 'Realized Return', 
-            value: `${displayRealizedReturn >= 0 ? '+' : ''}$${displayRealizedReturn.toFixed(2)}`, 
+            value: `${displayRealizedReturn >= 0 ? '+' : ''}${formatVal(displayRealizedReturn)}`, 
             icon: displayRealizedReturn >= 0 ? TrendingUp : TrendingDown, 
             color: displayRealizedReturn >= 0 ? '#30d158' : '#ff453a' 
           },
@@ -513,17 +776,13 @@ export default function Portfolio() {
           },
           { 
             label: 'Margin Available', 
-            value: portfolio.availableBalance !== undefined && portfolio.availableBalance !== null 
-              ? `$${portfolio.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
-              : '$0.00', 
+            value: formatVal(portfolio.availableBalance), 
             icon: Wallet, 
             color: '#86868b' 
           },
           { 
             label: 'Secure Vault', 
-            value: portfolio.walletBalance !== undefined && portfolio.walletBalance !== null 
-              ? `$${portfolio.walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
-              : '$0.00', 
+            value: formatVal(portfolio.walletBalance), 
             icon: Wallet, 
             color: '#bf5af2' 
           },
@@ -619,7 +878,7 @@ export default function Portfolio() {
                     <div className="flex justify-between items-baseline mb-2">
                       <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">GLOBAL BASKET (GBP)</span>
                       <span className="text-[10px] font-mono font-extrabold text-[#bf5af2]">
-                        {portfolio.dynamicTargets.gbp.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.gbp.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.gbp.target.toFixed(2)}
+                        {portfolio.dynamicTargets.gbp.currentProgress >= 0 ? '+' : ''}{formatVal(portfolio.dynamicTargets.gbp.currentProgress)} / {formatVal(portfolio.dynamicTargets.gbp.target)}
                       </span>
                     </div>
                     <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
@@ -642,7 +901,7 @@ export default function Portfolio() {
                     <div className="flex justify-between items-baseline mb-2">
                       <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">CORE BASKET (CBP)</span>
                       <span className="text-[10px] font-mono font-extrabold text-[#0071e3]">
-                        {portfolio.dynamicTargets.cbp.core.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.cbp.core.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.cbp.core.target.toFixed(2)}
+                        {portfolio.dynamicTargets.cbp.core.currentProgress >= 0 ? '+' : ''}{formatVal(portfolio.dynamicTargets.cbp.core.currentProgress)} / {formatVal(portfolio.dynamicTargets.cbp.core.target)}
                       </span>
                     </div>
                     <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
@@ -665,7 +924,7 @@ export default function Portfolio() {
                     <div className="flex justify-between items-baseline mb-2">
                       <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">MEME BASKET (CBP)</span>
                       <span className="text-[10px] font-mono font-extrabold text-[#30d158]">
-                        {portfolio.dynamicTargets.cbp.meme.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.cbp.meme.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.cbp.meme.target.toFixed(2)}
+                        {portfolio.dynamicTargets.cbp.meme.currentProgress >= 0 ? '+' : ''}{formatVal(portfolio.dynamicTargets.cbp.meme.currentProgress)} / {formatVal(portfolio.dynamicTargets.cbp.meme.target)}
                       </span>
                     </div>
                     <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
@@ -688,7 +947,7 @@ export default function Portfolio() {
                     <div className="flex justify-between items-baseline mb-2">
                       <span className="font-bold text-[#f5f5f7] text-[10px] font-mono">RECS BASKET (CBP)</span>
                       <span className="text-[10px] font-mono font-extrabold text-[#ff9f0a]">
-                        {portfolio.dynamicTargets.cbp.recommended.currentProgress >= 0 ? '+' : ''}${portfolio.dynamicTargets.cbp.recommended.currentProgress.toFixed(2)} / ${portfolio.dynamicTargets.cbp.recommended.target.toFixed(2)}
+                        {portfolio.dynamicTargets.cbp.recommended.currentProgress >= 0 ? '+' : ''}{formatVal(portfolio.dynamicTargets.cbp.recommended.currentProgress)} / {formatVal(portfolio.dynamicTargets.cbp.recommended.target)}
                       </span>
                     </div>
                     <div className="w-full bg-[#2c2c2e] h-1.5 rounded-full overflow-hidden mt-2">
@@ -706,7 +965,6 @@ export default function Portfolio() {
               </div>
             </div>
           )}
-
           {/* Charts Row */}
           <div className="grid-layout-2">
             {/* Allocation Pie Chart */}
@@ -715,70 +973,16 @@ export default function Portfolio() {
                 <PieIcon size={14} className="text-sky-400" />
                 Asset Allocation Models
               </h3>
-              <div className="flex flex-col items-center">
-                <ResponsiveContainer width="100%" height={210}>
-                  <PieChart>
-                    <Pie
-                      data={allocation}
-                      dataKey="percentage"
-                      nameKey="asset"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={75}
-                      innerRadius={55}
-                      paddingAngle={4}
-                      strokeWidth={0}
-                    >
-                      {allocation.map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} className="outline-none" />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7', fontSize: 10 }}
-                      itemStyle={{ color: '#f5f5f7', fontFamily: 'monospace' }}
-                      formatter={(v) => `${v.toFixed(1)}%`}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex flex-wrap gap-4 justify-center mt-3">
-                  {allocation.map((a, i) => (
-                    <span key={i} className="flex items-center gap-2 text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono">
-                      <span className="w-2 h-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }}></span>
-                      {a.asset} ({a.percentage?.toFixed(1)}%)
-                    </span>
-                  ))}
-                </div>
-              </div>
+              {allocationChartMemo}
             </div>
-
+ 
             {/* Trade PnL Bar Chart */}
             <div className="glass-panel bg-[#1c1c1e]">
               <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 pb-3 font-mono mb-4">
                 <BarChart3 size={14} className="text-purple-400" />
                 Returns History (Closed Trades)
               </h3>
-              {dateFilteredClosed.length > 0 ? (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={dateFilteredClosed.map((t, i) => ({ name: `#${i + 1}`, pnl: t.pnl || 0 }))} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
-                    <XAxis dataKey="name" stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
-                    <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
-                    <Tooltip
-                      contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
-                      itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
-                    />
-                    <Bar dataKey="pnl" radius={[2, 2, 0, 0]}>
-                      {dateFilteredClosed.map((t, i) => (
-                        <Cell key={i} fill={(t.pnl || 0) >= 0 ? '#30d158' : '#ff453a'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[240px] flex items-center justify-center text-xs text-zinc-500 font-extrabold uppercase tracking-widest font-mono animate-pulse">
-                  NO TRANSACTION HISTORY LOGGED
-                </div>
-              )}
+              {returnsChartMemo}
             </div>
           </div>
 
@@ -791,24 +995,7 @@ export default function Portfolio() {
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
               {/* Chart */}
-              <div className="lg:col-span-2">
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={categoryStats} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
-                    <XAxis dataKey="name" stroke="#86868b" fontSize={10} tickLine={false} className="font-mono font-bold" />
-                    <YAxis stroke="#86868b" fontSize={9} tickLine={false} className="font-mono" />
-                    <Tooltip
-                      contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
-                      itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
-                      formatter={(value) => `$${value.toFixed(2)}`}
-                    />
-                    <Bar dataKey="maxProfit" name="High Profit" fill="#30d158" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="minProfit" name="Low Profit" fill="rgba(48, 209, 88, 0.45)" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="maxLoss" name="High Loss" fill="#ff453a" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="minLoss" name="Low Loss" fill="rgba(255, 69, 58, 0.45)" radius={[2, 2, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              {categoryChartMemo}
 
               {/* Data Breakdown Table */}
               <div className="space-y-4">
@@ -1059,159 +1246,7 @@ export default function Portfolio() {
           )}
         </div>
       ) : activeTab === 'open' ? (
-        /* Open Trades Ledger */
-        <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
-          <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
-            <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
-              Active Open Positions
-            </h3>
-            <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'core', label: 'Core Crypto' },
-                { id: 'meme', label: 'Meme Coins' },
-                { id: 'recommended', label: 'Recommended' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setOpenLedgerTab(tab.id)}
-                  className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
-                    openLedgerTab === tab.id
-                      ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
-                      : 'text-[#86868b] hover:text-[#f5f5f7]'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          {onlyOpenTrades.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
-              <Activity size={20} className="text-zinc-600 mb-2" />
-              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
-                NO ACTIVE POSITIONS ON SYSTEM
-              </span>
-            </div>
-          ) : filteredOpenTrades.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
-              <Activity size={20} className="text-zinc-600 mb-2" />
-              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
-                NO ACTIVE POSITIONS MATCHING CATEGORY
-              </span>
-            </div>
-          ) : (() => {
-            const totalOpenCommission = filteredOpenTrades.reduce((sum, t) => {
-              const fees = t.fees !== undefined && t.fees !== null ? t.fees : (t.entryPrice * t.quantity * 0.0005);
-              return sum + fees;
-            }, 0);
-
-            const totalOpenNetPnl = filteredOpenTrades.reduce((sum, t) => {
-              const currentPrice = prices[t.asset];
-              if (!currentPrice) return sum;
-              const fees = t.fees !== undefined && t.fees !== null ? t.fees : (t.entryPrice * t.quantity * 0.0005);
-              const isLong = t.side === 'long' || t.action === 'BUY';
-              const grossPnl = isLong ? (currentPrice - t.entryPrice) * t.quantity : (t.entryPrice - currentPrice) * t.quantity;
-              return sum + (grossPnl - fees);
-            }, 0);
-
-            return (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
-                      <th className="px-6 py-4">Execution Date</th>
-                      <th className="px-6 py-4">Asset</th>
-                      <th className="px-6 py-4">Action</th>
-                      <th className="px-6 py-4 text-right">Entry Price</th>
-                      <th className="px-6 py-4 text-right">Current Price</th>
-                      <th className="px-6 py-4 text-right">Stop Loss</th>
-                      <th className="px-6 py-4 text-right">Target</th>
-                      <th className="px-6 py-4 text-right">Quantity</th>
-                      <th className="px-6 py-4 text-right">Commission</th>
-                      <th className="px-6 py-4 text-right">PnL (Net)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#2c2c2e]/40">
-                    {filteredOpenTrades.map((trade, i) => {
-                      const price = trade.entryPrice;
-                      const currentPrice = prices[trade.asset];
-                      const fees = trade.fees !== undefined && trade.fees !== null 
-                        ? trade.fees 
-                        : (trade.entryPrice * trade.quantity * 0.0005);
-                      const isLong = trade.side === 'long' || trade.action === 'BUY';
-                      const grossPnl = currentPrice ? (isLong ? (currentPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - currentPrice) * trade.quantity) : 0;
-                      const netPnl = currentPrice ? grossPnl - fees : 0;
-
-                      return (
-                        <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                          <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
-                            {new Date(trade.createdAt).toLocaleString()}
-                          </td>
-                          <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
-                            {trade.asset?.replace('1000', '').replace('USDT', '')}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
-                              trade.action === 'BUY'
-                                ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
-                                : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
-                            }`}>
-                              {trade.action}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
-                            {price ? `$${price.toFixed(6)}` : '—'}
-                          </td>
-                          <td className="px-6 py-4 text-right text-sky-400 font-mono font-bold">
-                            {currentPrice ? `$${currentPrice.toFixed(6)}` : '—'}
-                          </td>
-                          <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
-                            {trade.stopLoss ? `$${trade.stopLoss.toFixed(6)}` : '—'}
-                          </td>
-                          <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
-                            {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
-                          </td>
-                          <td className="px-6 py-4 text-right text-[#86868b] font-mono">
-                            {trade.quantity?.toFixed(5) || '—'}
-                          </td>
-                          <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
-                            ${fees.toFixed(4)}
-                          </td>
-                          <td 
-                            className="px-6 py-4 text-right font-bold font-mono"
-                            style={{ color: currentPrice ? (netPnl >= 0 ? '#30d158' : '#ff453a') : '#86868b' }}
-                          >
-                            {currentPrice ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : 'WAITING'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot className="border-t border-[#2c2c2e] bg-black/45">
-                    <tr className="align-middle">
-                      <td colSpan={8} className="px-6 py-4 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest">
-                        Totals ({filteredOpenTrades.length} Active Positions)
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
-                        <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
-                          -${totalOpenCommission.toFixed(4)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60">
-                        <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Combined Net PnL</span>
-                        <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalOpenNetPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
-                          {totalOpenNetPnl >= 0 ? '+' : ''}${totalOpenNetPnl.toFixed(2)}
-                        </span>
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            );
-          })()}
-        </div>
+        <OpenTradesLedger onlyOpenTrades={onlyOpenTrades} formatVal={formatVal} />
       ) : activeTab === 'closed' ? (
         /* Closed Trades Ledger */
         <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">

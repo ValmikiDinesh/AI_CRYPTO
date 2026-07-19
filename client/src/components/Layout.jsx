@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { useMarketStore, useAgentStore, useSignalStore } from '../store.js';
+import { useMarketStore, useAgentStore, useSignalStore, useCurrencyStore } from '../store.js';
 import { LayoutDashboard, CandlestickChart, Wallet, Bot, Play, Pause, Activity, ShieldAlert, Cpu, Menu, X, Settings } from 'lucide-react';
 import axios from 'axios';
 
@@ -15,6 +15,8 @@ const navItems = [
 export default function Layout() {
   const connected = useMarketStore((s) => s.connected);
   const emergencyStop = useAgentStore((s) => s.emergencyStop);
+  const currency = useCurrencyStore((s) => s.currency);
+  const setCurrency = useCurrencyStore((s) => s.setCurrency);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -40,6 +42,16 @@ export default function Layout() {
           });
         }
       } catch {}
+
+      try {
+        // 3. Fetch live USDT to INR exchange rate from CoinGecko
+        const rateRes = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=inr');
+        if (rateRes.data && rateRes.data.tether && rateRes.data.tether.inr) {
+          useCurrencyStore.getState().setRate(rateRes.data.tether.inr);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch live USDT/INR rate from Coingecko:", err);
+      }
     };
     bootstrapData();
   }, []);
@@ -171,6 +183,30 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Currency Toggle */}
+            <div className="flex items-center bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-full p-0.5 font-mono text-[9px] font-extrabold mr-1">
+              <button
+                onClick={() => setCurrency('USD')}
+                className={`px-2.5 py-1 rounded-full transition-all duration-300 cursor-pointer ${
+                  currency === 'USD'
+                    ? 'bg-sky-500 text-white shadow-md'
+                    : 'text-[#86868b] hover:text-white'
+                }`}
+              >
+                USD
+              </button>
+              <button
+                onClick={() => setCurrency('INR')}
+                className={`px-2.5 py-1 rounded-full transition-all duration-300 cursor-pointer ${
+                  currency === 'INR'
+                    ? 'bg-sky-500 text-white shadow-md'
+                    : 'text-[#86868b] hover:text-white'
+                }`}
+              >
+                INR
+              </button>
+            </div>
+
             {/* Status pill */}
             <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[9px] font-extrabold font-mono tracking-widest transition-all duration-300 ${
               emergencyStop 

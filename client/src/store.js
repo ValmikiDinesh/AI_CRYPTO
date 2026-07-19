@@ -126,6 +126,20 @@ export const useTradeStore = create((set) => ({
     })),
 }));
 
+// ─── Currency Store ─────────────────────────────────────────────
+export const useCurrencyStore = create((set) => ({
+  currency: localStorage.getItem('user_currency') || 'USD',
+  rate: parseFloat(localStorage.getItem('currency_rate') || '96.29'), // default to 96.29
+  setCurrency: (currency) => {
+    localStorage.setItem('user_currency', currency);
+    set({ currency });
+  },
+  setRate: (rate) => {
+    localStorage.setItem('currency_rate', rate.toString());
+    set({ rate: parseFloat(rate) });
+  },
+}));
+
 // ─── Socket Event Listeners ─────────────────────────────────────
 socket.on('connect', () => {
   useMarketStore.getState().setConnected(true);

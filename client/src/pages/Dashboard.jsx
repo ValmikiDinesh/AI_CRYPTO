@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useMarketStore, useSignalStore, usePortfolioStore, useTradeStore } from '../store.js';
+import { useMarketStore, useSignalStore, usePortfolioStore, useTradeStore, useCurrencyStore } from '../store.js';
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, BarChart3, Bot, Zap, ArrowUpRight, ArrowDownRight, ShieldCheck, Star } from 'lucide-react';
 import axios from 'axios';
 
@@ -149,6 +149,20 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme' | 'recommended'
   const [comparisonData, setComparisonData] = useState(null);
 
+  const currency = useCurrencyStore((s) => s.currency);
+  const rate = useCurrencyStore((s) => s.rate);
+
+  const convertVal = (val) => {
+    if (val === undefined || val === null) return 0;
+    return currency === 'INR' ? val * rate : val;
+  };
+
+  const formatVal = (val, dec = 2) => {
+    const converted = convertVal(val);
+    const symbol = currency === 'INR' ? '₹' : '$';
+    return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
+  };
+
   const displayedAssets = activeTab === 'core' 
     ? CORE_ASSETS 
     : activeTab === 'meme' 
@@ -226,14 +240,14 @@ export default function Dashboard() {
         <StatCard
           icon={DollarSign}
           label="Net Worth"
-          value={`$${portfolio.totalBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '1,000.00'}`}
-          subValue={`Margin Available: $${portfolio.availableBalance?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '1,000.00'}`}
+          value={formatVal(portfolio.totalBalance)}
+          subValue={`Margin Available: ${formatVal(portfolio.availableBalance)}`}
           iconColor="#86868b"
         />
         <StatCard
           icon={portfolio.totalPnl >= 0 ? ArrowUpRight : ArrowDownRight}
           label="Total Return"
-          value={`${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl?.toFixed(2) || '0.00'}`}
+          value={`${portfolio.totalPnl >= 0 ? '+' : ''}${formatVal(portfolio.totalPnl)}`}
           subValue={`${portfolio.totalPnlPercent >= 0 ? '+' : ''}${portfolio.totalPnlPercent?.toFixed(2) || '0.00'}% Net Yield`}
           iconColor={portfolio.totalPnl >= 0 ? '#30d158' : '#ff453a'}
         />
@@ -247,7 +261,7 @@ export default function Dashboard() {
         <StatCard
           icon={Activity}
           label="Daily Net PnL"
-          value={`${portfolio.dailyPnl >= 0 ? '+' : ''}$${portfolio.dailyPnl?.toFixed(2) || '0.00'}`}
+          value={`${portfolio.dailyPnl >= 0 ? '+' : ''}${formatVal(portfolio.dailyPnl)}`}
           subValue="Net value (After Fees)"
           iconColor="#86868b"
         />
@@ -283,7 +297,7 @@ export default function Dashboard() {
                 <div>
                   <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Net PnL</div>
                   <div className={`text-base font-bold mt-1 font-mono ${comparisonData.ai?.totalPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
-                    {comparisonData.ai?.totalPnl >= 0 ? '+' : ''}${comparisonData.ai?.totalPnl.toFixed(2) || '0.00'}
+                    {comparisonData.ai?.totalPnl >= 0 ? '+' : ''}{formatVal(comparisonData.ai?.totalPnl)}
                   </div>
                 </div>
               </div>
@@ -311,7 +325,7 @@ export default function Dashboard() {
                 <div>
                   <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Net PnL</div>
                   <div className={`text-base font-bold mt-1 font-mono ${comparisonData.fallback?.totalPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
-                    {comparisonData.fallback?.totalPnl >= 0 ? '+' : ''}${comparisonData.fallback?.totalPnl.toFixed(2) || '0.00'}
+                    {comparisonData.fallback?.totalPnl >= 0 ? '+' : ''}{formatVal(comparisonData.fallback?.totalPnl)}
                   </div>
                 </div>
               </div>
@@ -339,7 +353,7 @@ export default function Dashboard() {
                 <div>
                   <div className="text-[8px] text-zinc-500 font-mono uppercase font-bold">Net PnL</div>
                   <div className={`text-base font-bold mt-1 font-mono ${comparisonData.unknown?.totalPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
-                    {comparisonData.unknown?.totalPnl >= 0 ? '+' : ''}${comparisonData.unknown?.totalPnl.toFixed(2) || '0.00'}
+                    {comparisonData.unknown?.totalPnl >= 0 ? '+' : ''}{formatVal(comparisonData.unknown?.totalPnl)}
                   </div>
                 </div>
               </div>

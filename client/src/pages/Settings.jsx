@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Settings as SettingsIcon, ShieldCheck, DollarSign, Percent, AlertCircle, Zap } from 'lucide-react';
-import { usePortfolioStore } from '../store.js';
+import { usePortfolioStore, useCurrencyStore } from '../store.js';
 
 const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
 const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 'BOMEUSDT', 'PEOPLEUSDT'];
@@ -61,6 +61,10 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
+  const storeRate = useCurrencyStore((s) => s.rate);
+  const setStoreRate = useCurrencyStore((s) => s.setRate);
+  const [rateInput, setRateInput] = useState(storeRate);
+
   const portfolio = usePortfolioStore((s) => s.portfolio);
   const manuallyDisabledAssets = portfolio?.manuallyDisabledAssets || [];
 
@@ -89,6 +93,9 @@ export default function Settings() {
     e.preventDefault();
     setSaving(true);
     setFeedback(null);
+
+    // Save local store currency conversion rate
+    setStoreRate(parseFloat(rateInput || '96.29'));
 
     try {
       const res = await axios.post('/api/portfolio/config', {
@@ -240,6 +247,40 @@ export default function Settings() {
                 placeholder="e.g. 10"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono text-zinc-500">%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Currency Display Settings */}
+        <div className="border-t border-[#2c2c2e]/60 pt-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-sky-400" />
+            <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider font-mono">
+              Currency Display Settings
+            </h3>
+          </div>
+          <p className="text-[11px] text-zinc-500 max-w-2xl leading-relaxed">
+            Customize the USD to INR conversion exchange rate. This rate is used to display all portfolio values, profits, and margins in Indian Rupees when the INR display toggle is active.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-mono">
+                USD to INR Conversion Rate
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  step="0.01"
+                  required
+                  value={rateInput}
+                  onChange={(e) => setRateInput(e.target.value)}
+                  className="w-full bg-[#2c2c2e]/50 border border-[#3a3a3c] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500 font-mono"
+                  placeholder="e.g. 96.29"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono text-zinc-500">₹ / $</span>
+              </div>
             </div>
           </div>
         </div>
