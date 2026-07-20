@@ -438,8 +438,9 @@ class CoinSwitchExchange {
           };
         }
       } catch (err) {
-        logger.error(`CoinSwitch createLimitOrder live error: ${err.message}`);
-        throw err;
+        const errorMsg = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+        logger.error(`CoinSwitch createLimitOrder live error: ${errorMsg}`);
+        throw new Error(errorMsg);
       }
     }
 
