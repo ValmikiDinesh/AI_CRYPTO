@@ -22,7 +22,7 @@ const marketDataSchema = new mongoose.Schema({
 marketDataSchema.index({ asset: 1, openTime: -1 });
 marketDataSchema.index({ asset: 1, interval: 1, openTime: -1 }, { unique: true });
 
-// TTL: auto-delete data older than 30 days to manage storage
-marketDataSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+// TTL: auto-delete data older than 12 hours to manage storage
+marketDataSchema.index({ createdAt: 1 }, { expireAfterSeconds: 12 * 60 * 60 });
 
 export default mongoose.model('MarketData', marketDataSchema);
