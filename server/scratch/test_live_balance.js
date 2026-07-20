@@ -15,10 +15,13 @@ async function run() {
     
     if (auth) {
       try {
-        console.log('Sending request to CoinSwitch...');
+        console.log('Sending request to CoinSwitch for futures wallet...');
         const res = await axios.get(`https://coinswitch.co/trade/api/v2/futures/wallet_balance`, auth);
-        console.log('Response Status:', res.status);
-        console.log('Response Data:', JSON.stringify(res.data, null, 2));
+        console.log('Futures Wallet Response:', JSON.stringify(res.data, null, 2));
+
+        console.log('Sending request to CoinSwitch for spot portfolio...');
+        const spotRes = await axios.get(`https://coinswitch.co/trade/api/v2/user/portfolio`, auth);
+        console.log('Spot Portfolio Response:', JSON.stringify(spotRes.data, null, 2));
       } catch (err) {
         console.error('API request failed:');
         if (err.response) {
