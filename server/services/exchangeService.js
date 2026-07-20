@@ -289,6 +289,10 @@ class CoinSwitchExchange {
       return { USDT: { free: 1000, used: 0, total: 1000 } };
     }
 
+    let usdtTotal = 0;
+    let usdtFree = 0;
+
+    // 1. Check Futures Wallet Balance (if any USDT is specifically held)
     const auth = await this._signRequest('GET', '/futures/wallet_balance');
     if (auth && !this.isDemo) {
       try {
@@ -297,17 +301,46 @@ class CoinSwitchExchange {
           const usdtBal = res.data.data.base_asset_balances.find(b => b.base_asset === 'USDT');
           if (usdtBal && usdtBal.balances) {
             const b = usdtBal.balances;
-            const total = parseFloat(b.total_balance || 0);
-            const free = parseFloat(b.total_available_balance || 0);
-            const used = parseFloat(b.total_blocked_balance || (total - free) || 0);
-            return {
-              USDT: { free, used, total }
-            };
+            usdtTotal = parseFloat(b.total_balance || 0);
+            usdtFree = parseFloat(b.total_available_balance || 0);
           }
         }
       } catch (err) {
         logger.error(`CoinSwitch fetchBalance live error: ${err.message}`);
       }
+    }
+
+    // 2. Check Spot Portfolio for INR and convert it to USDT equivalent (since CoinSwitch Pro automatically converts INR for futures margin)
+    const spotAuth = await this._signRequest('GET', '/user/portfolio');
+    if (spotAuth && !this.isDemo) {
+      try {
+        const res = await axios.get(`https://coinswitch.co/trade/api/v2/user/portfolio`, spotAuth);
+        if (res.data && res.data.data) {
+          const inrBal = res.data.data.find(item => item.currency === 'INR' || item.name === 'Indian Rupee' || item.asset === 'INR');
+          if (inrBal) {
+            const rawInr = parseFloat(inrBal.main_balance || inrBal.available_balance || 0);
+            if (rawInr > 0) {
+              // Convert INR to USDT using a stable exchange premium rate
+              const inrRate = 96.56;
+              const convertedUsdt = rawInr / inrRate;
+              usdtTotal += convertedUsdt;
+              usdtFree += convertedUsdt;
+            }
+          }
+        }
+      } catch (err) {
+        logger.error(`CoinSwitch fetchBalance spot INR error: ${err.message}`);
+      }
+    }
+
+    if (usdtTotal > 0) {
+      return {
+        USDT: {
+          free: usdtFree,
+          used: usdtTotal - usdtFree,
+          total: usdtTotal
+        }
+      };
     }
 
     // Default Fallback: Return database fields

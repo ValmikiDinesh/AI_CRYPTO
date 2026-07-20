@@ -958,7 +958,7 @@ export default class PortfolioAgent extends BaseAgent {
       if (process.env.TRADING_MODE === 'live') {
         try {
           const now = Date.now();
-          if (!this.lastBalanceFetch || now - this.lastBalanceFetch > 30000 || !this.cachedBalance) {
+          if (!this.lastBalanceFetch || now - this.lastBalanceFetch > 60000 || !this.cachedBalance) {
             const bal = await fetchBalance();
             if (bal && bal.USDT) {
               this.cachedBalance = bal.USDT;
