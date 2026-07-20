@@ -399,6 +399,24 @@ export default class ExecutionAgent extends BaseAgent {
 
     let quantity = positionValue / limitEntryPrice;
 
+    // Enforce dynamic safety risk cap to protect against excessive risk exposure when trades are scaled up
+    const accountSize = portfolio.totalBalance;
+    const safetyCapPct = accountSize < 50 ? 0.20 : 0.05; // 20% for <$50, 5% for >=$50
+    const marginLimit = accountSize * safetyCapPct;
+
+    if (marginRequired > marginLimit) {
+      const targetNotional = marginLimit * leverage;
+      if (targetNotional >= MIN_NOTIONAL) {
+        this.logger.info(`Safety cap scaling: scaled down required margin for ${signal.asset} from $${marginRequired.toFixed(2)} to safety cap $${marginLimit.toFixed(2)} (notional: $${targetNotional.toFixed(2)})`);
+        marginRequired = marginLimit;
+        positionValue = targetNotional;
+        quantity = positionValue / limitEntryPrice;
+      } else {
+        this.logger.warn(`${signal.asset}: scaled-up required margin ($${marginRequired.toFixed(2)}) exceeds the dynamic safety risk limit ($${marginLimit.toFixed(2)}, ${safetyCapPct * 100}% of total balance) — skipping`);
+        return;
+      }
+    }
+
     // Retrieve exchange metadata and enforce dynamic limits & lot step sizing
     try {
       const exchange = getExchange();
@@ -435,16 +453,6 @@ export default class ExecutionAgent extends BaseAgent {
 
     if (quantity <= 0) {
       this.logger.warn(`${signal.asset}: calculated quantity is 0 — skipping`);
-      return;
-    }
-
-    // Enforce dynamic safety risk cap to protect against excessive risk exposure when trades are scaled up
-    const accountSize = portfolio.totalBalance;
-    const safetyCapPct = accountSize < 50 ? 0.20 : 0.05; // 20% for <$50, 5% for >=$50
-    const marginLimit = accountSize * safetyCapPct;
-
-    if (marginRequired > marginLimit) {
-      this.logger.warn(`${signal.asset}: scaled-up required margin ($${marginRequired.toFixed(2)}) exceeds the dynamic safety risk limit ($${marginLimit.toFixed(2)}, ${safetyCapPct * 100}% of total balance) — skipping`);
       return;
     }
 
