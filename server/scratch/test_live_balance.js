@@ -20,7 +20,8 @@ async function run() {
         console.log('Futures Wallet Response:', JSON.stringify(res.data, null, 2));
 
         console.log('Sending request to CoinSwitch for spot portfolio...');
-        const spotRes = await axios.get(`https://coinswitch.co/trade/api/v2/user/portfolio`, auth);
+        const spotAuth = await exchange._signRequest('GET', '/user/portfolio');
+        const spotRes = await axios.get(`https://coinswitch.co/trade/api/v2/user/portfolio`, spotAuth);
         console.log('Spot Portfolio Response:', JSON.stringify(spotRes.data, null, 2));
       } catch (err) {
         console.error('API request failed:');
