@@ -161,7 +161,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
           <tfoot className="border-t border-[#2c2c2e] bg-black/45">
             <tr className="align-middle">
               <td colSpan={8} className="px-6 py-4 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest">
-                Totals ({filteredOpenTrades.length} Active Positions)
+                Totals ({filteredOpenTrades.length} Open Trades)
               </td>
               <td className="px-6 py-4 text-right">
                 <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
