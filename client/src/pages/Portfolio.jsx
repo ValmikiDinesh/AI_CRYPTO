@@ -105,7 +105,9 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
           <tbody className="divide-y divide-[#2c2c2e]/40">
             {filteredOpenTrades.map((trade, i) => {
               const price = trade.entryPrice;
-              const currentPrice = prices ? prices[trade.asset] : undefined;
+              const currentPrice = (prices && prices[trade.asset] !== undefined)
+                ? prices[trade.asset]
+                : (trade.currentPrice || trade.entryPrice || 0);
               const fees = trade.fees !== undefined && trade.fees !== null 
                 ? trade.fees 
                 : (trade.entryPrice * trade.quantity * 0.0005);
