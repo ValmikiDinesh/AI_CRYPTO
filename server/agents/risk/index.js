@@ -130,8 +130,9 @@ export default class RiskAgent extends BaseAgent {
       }
 
       // 5.5. Duplicate position check
-      const hasOpenPosition = portfolio.positions?.some((p) => p.asset === signal.asset && p.status === 'open');
-      if (hasOpenPosition) {
+      const existingOpenTrade = await Trade.findOne({ asset: signal.asset, status: 'open' });
+      const hasOpenPosition = portfolio.positions?.some((p) => p && p.asset === signal.asset && p.status === 'open');
+      if (hasOpenPosition || existingOpenTrade) {
         return this.reject(
           `Position already open for ${signal.asset}`,
           'duplicate_position',
