@@ -11,6 +11,9 @@ class CoinSwitchExchange {
     this.markets = {};
     this.timeOffset = 0;
     this.leverageCache = new Map(); // symbol -> leverage (already set this session)
+    this.positionsCache = {};
+    this.allTickersCache = null;
+    this.ohlcvCache = {};
     this.syncTimeOffset();
   }
 
@@ -147,9 +150,15 @@ class CoinSwitchExchange {
 
   // REST API: Public fetchAllTickers
   async fetchAllTickers() {
+    const now = Date.now();
+    if (this.allTickersCache && (now - this.allTickersCache.timestamp < 3000)) {
+      return this.allTickersCache.data;
+    }
+
     try {
       const res = await axios.get(`${this.baseUrl}/futures/all-pairs/ticker?exchange=EXCHANGE_2`);
       if (res.data && res.data.data) {
+        this.allTickersCache = { timestamp: now, data: res.data.data };
         return res.data.data;
       }
       throw new Error('Invalid CoinSwitch response structure');
@@ -169,10 +178,12 @@ class CoinSwitchExchange {
               volume24h: t.volume
             };
           });
+          this.allTickersCache = { timestamp: now, data: map };
           return map;
         }
         throw new Error('Invalid Binance response structure');
       } catch (binanceErr) {
+        if (this.allTickersCache) return this.allTickersCache.data;
         logger.error(`fetchAllTickers fallback error: ${binanceErr.message}`);
         return {};
       }
@@ -213,13 +224,20 @@ class CoinSwitchExchange {
   async fetchOHLCV(symbol, timeframe = '5m', since, limit = 100) {
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const cleanInterval = timeframe.replace('m', '').replace('h', '').replace('d', '');
+    const now = Date.now();
+    const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
+
+    if (this.ohlcvCache[cacheKey] && (now - this.ohlcvCache[cacheKey].timestamp < 3000)) {
+      return this.ohlcvCache[cacheKey].data;
+    }
+
     try {
       const path = `/futures/klines?symbol=${cleanSym}&interval=${cleanInterval}&limit=${limit}&exchange=EXCHANGE_2`;
       const auth = await this._signRequest('GET', path);
       const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth || {});
       const klines = res.data.data || res.data;
       if (klines && Array.isArray(klines)) {
-        return klines.map(c => [
+        const result = klines.map(c => [
           parseInt(c.start_time || c.time || c.timestamp),
           parseFloat(c.o || c.open),
           parseFloat(c.h || c.high),
@@ -227,6 +245,8 @@ class CoinSwitchExchange {
           parseFloat(c.c || c.close),
           parseFloat(c.volume)
         ]);
+        this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
+        return result;
       }
       throw new Error('Invalid CoinSwitch response structure');
     } catch (err) {
@@ -235,7 +255,7 @@ class CoinSwitchExchange {
         const limitParam = limit || 100;
         const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`);
         if (res.data && Array.isArray(res.data)) {
-          return res.data.map(c => [
+          const result = res.data.map(c => [
             parseFloat(c[0]), // openTime
             parseFloat(c[1]), // open
             parseFloat(c[2]), // high
@@ -243,9 +263,12 @@ class CoinSwitchExchange {
             parseFloat(c[4]), // close
             parseFloat(c[5])  // volume
           ]);
+          this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
+          return result;
         }
         throw new Error('Invalid Binance response structure');
       } catch (binanceErr) {
+        if (this.ohlcvCache[cacheKey]) return this.ohlcvCache[cacheKey].data;
         logger.error(`fetchOHLCV fallback error for ${symbol}: ${binanceErr.message}`);
         return [];
       }
@@ -355,7 +378,7 @@ class CoinSwitchExchange {
 
   // Private API: createMarketOrder (Simulated or Live)
   async createMarketOrder(symbol, side, amount) {
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const ticker = await this.fetchTicker(symbol);
     const price = ticker.last || 1.0;
 
@@ -408,7 +431,7 @@ class CoinSwitchExchange {
 
   // Private API: createLimitOrder (Simulated or Live)
   async createLimitOrder(symbol, side, amount, price) {
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const body = {
       exchange: 'EXCHANGE_2',
       symbol: cleanSym,
@@ -474,7 +497,7 @@ class CoinSwitchExchange {
       };
     }
 
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const stopPrice = params.stopPrice || params.triggerPrice || params.trigger_price;
     const reduceOnly = params.reduceOnly || params.reduce_only;
 
@@ -534,6 +557,12 @@ class CoinSwitchExchange {
 
   // Private API: fetchPositions (Simulated or Live)
   async fetchPositions(symbol) {
+    const now = Date.now();
+    const cacheKey = symbol || 'ALL';
+    if (this.positionsCache[cacheKey] && (now - this.positionsCache[cacheKey].timestamp < 3000)) {
+      return this.positionsCache[cacheKey].data;
+    }
+
     const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
       return [];
@@ -550,11 +579,12 @@ class CoinSwitchExchange {
           const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
           if (res.data) {
             if (res.data.message && res.data.message.includes('no open Positions')) {
+              this.positionsCache[cacheKey] = { timestamp: now, data: [] };
               return [];
             }
             if (res.data.data) {
               const data = Array.isArray(res.data.data) ? res.data.data : [res.data.data];
-              return data.filter(Boolean).map(p => ({
+              const result = data.filter(Boolean).map(p => ({
                 symbol: p.symbol,
                 contracts: parseFloat(p.quantity || p.position_size || p.positionSize || 0),
                 side: (p.side || p.position_side || p.positionSide || 'LONG').toLowerCase(),
@@ -563,17 +593,20 @@ class CoinSwitchExchange {
                 unrealizedPnl: parseFloat(p.unrealizedPnl || 0),
                 leverage: parseFloat(p.leverage || 0)
               }));
+              this.positionsCache[cacheKey] = { timestamp: now, data: result };
+              return result;
             }
           }
         }
       } catch (err) {
+        if (this.positionsCache[cacheKey]) return this.positionsCache[cacheKey].data;
         logger.error(`CoinSwitch fetchPositions live error: ${err.message}`);
       }
     }
 
     // Default Fallback: Return open positions from DB
     const dbPositions = portfolio.positions.filter(p => p.status === 'open');
-    return dbPositions.map(p => ({
+    const result = dbPositions.map(p => ({
       symbol: p.asset,
       contracts: p.quantity,
       side: p.side,
@@ -582,6 +615,8 @@ class CoinSwitchExchange {
       unrealizedPnl: p.unrealizedPnl || 0,
       leverage: p.leverage || 10
     }));
+    this.positionsCache[cacheKey] = { timestamp: now, data: result };
+    return result;
   }
 
   // Private API: fetchOrder (Simulated or Live)
@@ -665,7 +700,7 @@ class CoinSwitchExchange {
       }
 
       // Live implementation
-      const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+      const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
       const path = '/futures/cancel_all';
       const body = {
         exchange: 'EXCHANGE_2',
@@ -696,7 +731,7 @@ class CoinSwitchExchange {
 
   // Private API: Set leverage for a futures contract
   async setLeverage(symbol, leverage = 3) {
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const body = {
       exchange: 'EXCHANGE_2',
       symbol: cleanSym,
@@ -720,7 +755,7 @@ class CoinSwitchExchange {
 
   // Idempotent leverage setter — only calls the API if leverage hasn't been set for this symbol yet
   async ensureLeverage(symbol, leverage = 3) {
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toLowerCase();
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const cached = this.leverageCache.get(cleanSym);
     if (cached === leverage) return; // already set this session
 

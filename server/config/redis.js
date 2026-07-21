@@ -29,6 +29,8 @@ async function tryLoadRedis() {
           ...clientOptions,
         });
 
+    testClient.on('error', () => {});
+
     await testClient.connect();
     await testClient.ping();
     await testClient.quit();
