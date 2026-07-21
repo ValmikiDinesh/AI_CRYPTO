@@ -1,15 +1,18 @@
-const rawAssets = (process.env.SUPPORTED_ASSETS || 'BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,1000SHIBUSDT,1000PEPEUSDT,WIFUSDT,1000FLOKIUSDT,1000BONKUSDT,AVAXUSDT,DOTUSDT,POLUSDT,LTCUSDT,BOMEUSDT,PEOPLEUSDT')
+export const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
+export const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 'BOMEUSDT', 'PEOPLEUSDT'];
+export const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'PORTALUSDT', 'HEIUSDT', 'IDUSDT', 'LABUSDT', 'STGUSDT', 'EPICUSDT', 'RENDERUSDT', 'PENDLEUSDT', 'INJUSDT', 'OPUSDT'];
+
+const allDefinedAssets = Array.from(new Set([...CORE_ASSETS, ...MEME_ASSETS, ...RECOMMENDED_ASSETS]));
+
+const rawAssets = (process.env.SUPPORTED_ASSETS || allDefinedAssets.join(','))
   .split(',')
   .map((s) => s.trim());
 
-if (!rawAssets.includes('BOMEUSDT')) rawAssets.push('BOMEUSDT');
-if (!rawAssets.includes('PEOPLEUSDT')) rawAssets.push('PEOPLEUSDT');
+allDefinedAssets.forEach(a => {
+  if (!rawAssets.includes(a)) rawAssets.push(a);
+});
 
 export const SUPPORTED_ASSETS = rawAssets;
-
-export const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
-export const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 'BOMEUSDT', 'PEOPLEUSDT'];
-export const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'PORTALUSDT', 'HEIUSDT', 'IDUSDT', 'LABUSDT', 'STGUSDT', 'EPICUSDT'];
 
 // ─── Risk Management Defaults ────────────────────────────────────
 export const RISK = {
