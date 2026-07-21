@@ -550,6 +550,26 @@ export default class PortfolioAgent extends BaseAgent {
       }
     }
 
+    // 4. Sync MongoDB Trade collection with CoinSwitch active exchange positions
+    if (fetchedExchangeSuccessfully) {
+      try {
+        const liveSymbols = new Set(activeExchangePositions.map(p => p.symbol.split(':')[0].replace('/', '').toUpperCase()));
+        const dbOpenTrades = await Trade.find({ status: 'open' });
+        for (const trade of dbOpenTrades) {
+          const cleanAsset = trade.asset.replace('/', '').replace(':USDT', '').toUpperCase();
+          if (!liveSymbols.has(cleanAsset)) {
+            this.logger.info(`🔄 [RECONCILIATION] Closing stale DB Trade document for ${trade.asset} (ID: ${trade._id}) as it is no longer active on CoinSwitch Pro`);
+            trade.status = 'closed';
+            trade.closedAt = new Date();
+            trade.exitReason = 'CoinSwitch exchange sync cleanup';
+            await trade.save();
+          }
+        }
+      } catch (tradeSyncErr) {
+        this.logger.error(`Failed to reconcile DB Trade documents with exchange positions: ${tradeSyncErr.message}`);
+      }
+    }
+
     // Recalculate total balance using leverage-adjusted universal equity formula
     const marginValue = portfolio.positions
       .filter((p) => p && p.status === 'open')
