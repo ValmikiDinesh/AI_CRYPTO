@@ -1,5 +1,6 @@
 import express from 'express';
 import Portfolio from '../models/Portfolio.js';
+import Trade from '../models/Trade.js';
 import { SYSTEM_USER_ID } from '../config/constants.js';
 
 const router = express.Router();
@@ -98,6 +99,11 @@ router.get('/performance', async (req, res, next) => {
       dailyPnl = netDailyPnl;
     }
 
+    const openTradesList = await Trade.find({ status: 'open' }).lean();
+    const uniqueTradeAssets = new Set(openTradesList.map((t) => t.asset)).size;
+    const dbPositionsCount = portfolio.positions ? portfolio.positions.filter((p) => p && p.status === 'open').length : 0;
+    const openPositionsCount = Math.max(dbPositionsCount, uniqueTradeAssets);
+
     res.json({
       success: true,
       data: {
@@ -113,7 +119,7 @@ router.get('/performance', async (req, res, next) => {
         drawdown: portfolio.currentDrawdown,
         peakBalance: portfolio.peakBalance,
         allocation: portfolio.allocationBreakdown,
-        openPositions: portfolio.positions.filter((p) => p.status === 'open').length,
+        openPositions: openPositionsCount,
         walletBalance: portfolio.walletBalance,
         tradingPaused: portfolio.tradingPaused,
         targetProfitThreshold: portfolio.targetProfitThreshold,

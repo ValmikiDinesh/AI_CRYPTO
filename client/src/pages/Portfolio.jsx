@@ -597,7 +597,10 @@ export default function Portfolio() {
         ? (dateFilteredClosed.filter(t => (t.pnl || 0) - (t.fees || 0) >= 0).length / dateFilteredClosed.length) * 100
         : 0);
 
-  const displayOpenExposure = portfolio.openPositions || 0;
+  const uniqueOpenAssetsCount = new Set(onlyOpenTrades.map(t => t.asset)).size;
+  const displayOpenExposure = onlyOpenTrades.length > 0
+    ? uniqueOpenAssetsCount
+    : (portfolio.openPositions || 0);
 
   const allocationChartMemo = useMemo(() => {
     return (
