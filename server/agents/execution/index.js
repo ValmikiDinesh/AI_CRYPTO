@@ -106,6 +106,45 @@ export default class ExecutionAgent extends BaseAgent {
               this.logger.warn(`Failed to cancel expired order ${trade.exchangeOrderId} on exchange: ${cancelErr.message}`);
             }
 
+            // Post-cancellation verification: Re-fetch order status to verify if a partial fill occurred
+            let finalOrder = order;
+            try {
+              finalOrder = await fetchOrder(trade.asset, trade.exchangeOrderId);
+            } catch (postFetchErr) {
+              this.logger.warn(`Could not re-verify order status after cancellation: ${postFetchErr.message}`);
+            }
+
+            const finalFilled = finalOrder.filled || 0;
+
+            if (finalFilled > 0) {
+              this.logger.info(`⚡ [PARTIAL FILL ON EXPIRATION] Expired limit order ${trade.exchangeOrderId} for ${trade.asset} had ${finalFilled}/${amount} filled. Transitioning to open...`);
+              await this.transitionPendingToOpen(trade, finalOrder);
+
+              // Refund only the unused margin portion for the unfilled amount
+              if (finalFilled < amount) {
+                const leverage = trade.leverage || 3;
+                const originalMarginReserved = (trade.entryPrice * amount) / leverage;
+                const actualMarginUsed = (trade.entryPrice * finalFilled) / leverage;
+                const marginRefund = originalMarginReserved - actualMarginUsed;
+
+                let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+                if (portfolio && marginRefund > 0) {
+                  portfolio.availableBalance += marginRefund;
+                  await portfolio.save();
+                }
+
+                await sendTelegramMessage(
+                  `⚡ <b>Limit Order Partial Fill on Expiration</b>\n` +
+                  `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
+                  `<b>Action</b>: ${trade.action} (Limit Order)\n` +
+                  `<b>Limit Price</b>: $${formatPrice(trade.entryPrice)}\n` +
+                  `<b>Filled Quantity</b>: ${finalFilled} / ${amount}\n` +
+                  `<b>Status</b>: ${finalFilled} units converted to active position. Unfilled portion cancelled and $${marginRefund.toFixed(2)} reserved margin refunded.`
+                );
+              }
+              continue;
+            }
+
             trade.status = 'cancelled';
             trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)', cancelError };
             trade.markModified('metadata');
