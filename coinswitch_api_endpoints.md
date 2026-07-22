@@ -631,4 +631,25 @@ Public market-data sockets for CoinSwitch Pro futures use Socket.IO v4 with a si
            ]
          }
          ```
-  3. *Note for KLines: The symbol format is `SYMBOL_INTERVAL` (e.g., `BTCUSDT_5`).*
+     * **KLines Event**: `FETCH_CANDLESTICK_CS_PRO`
+       * Payload: `{"event": "subscribe", "pair": "BTCUSDT_5"}`
+       * Pair format: `SYMBOL_INTERVAL` (e.g. `BTCUSDT_5` for 5-minute candles, `DOGEUSDT_60` for 1-hour candles).
+       * Broadcast/Push: Server pushes updates back as events on the name `FETCH_CANDLESTICK_CS_PRO`.
+       * Push Format:
+         ```json
+         {
+           "o": "104562.7",
+           "h": "104588.5",
+           "l": "104535",
+           "c": "104558.7",
+           "v": "43.205",
+           "q": "1918381.4344",
+           "s": "BTCUSDT",
+           "i": "5",
+           "x": false,
+           "t": 1734343500000,
+           "T": 1734343799999,
+           "ts": 1734343543430
+         }
+         ```
+         *Note: `x` evaluates to `true` when the candle is closed/final; otherwise it is `false` during updates.*
