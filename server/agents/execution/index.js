@@ -581,7 +581,7 @@ export default class ExecutionAgent extends BaseAgent {
       }
       await trade.save();
 
-      // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
+      // Place native Stop-Loss and Take-Profit orders directly on CoinSwitch Pro
       let stopLossOrderId = null;
       if (order && order.id && !order.id.startsWith('mock_')) {
         stopLossOrderId = await this.placeTriggerOrders(signal, executionQuantity, side);
@@ -725,7 +725,7 @@ export default class ExecutionAgent extends BaseAgent {
           if (!stopLossOrderId) {
             stopLossOrderId = slOrderResult?.id; // return the first one as primary reference
           }
-          this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} size=${formattedAmount} id=${slOrderResult?.id} on Binance Demo`);
+          this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} size=${formattedAmount} id=${slOrderResult?.id} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}`);
           remaining -= chunk;
         }
       }
@@ -750,12 +750,12 @@ export default class ExecutionAgent extends BaseAgent {
               reduceOnly: true
             }
           );
-          this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedAmount} on Binance Demo`);
+          this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedAmount} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}`);
           remaining -= chunk;
         }
       }
     } catch (triggerErr) {
-      this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
+      this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}: ${triggerErr.message}`);
       await sendTelegramMessage(
         `⚠️ <b>SL/TP Placement Failed on Exchange</b>\n` +
         `<b>Asset</b>: ${signal.asset.replace('USDT', '')}/USDT\n` +
@@ -791,7 +791,7 @@ export default class ExecutionAgent extends BaseAgent {
     if (portfolio) {
       const exists = portfolio.positions.some(p => p && p.asset === trade.asset && p.status === 'open');
       if (!exists) {
-        // Place native Stop-Loss and Take-Profit orders directly on Binance Demo
+        // Place native Stop-Loss and Take-Profit orders directly on CoinSwitch Pro
         let stopLossOrderId = null;
         if (order && order.id && !order.id.startsWith('mock_')) {
           stopLossOrderId = await this.placeTriggerOrders(

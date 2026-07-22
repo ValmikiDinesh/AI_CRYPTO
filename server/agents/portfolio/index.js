@@ -271,7 +271,7 @@ export default class PortfolioAgent extends BaseAgent {
                         reduceOnly: true
                       }
                     );
-                    this.logger.info(`✅ [SL SYNC PLACED] stopPrice=${formattedStopLoss} size=${formattedChunk} id=${slOrderResult.id} on Binance Demo`);
+                    this.logger.info(`✅ [SL SYNC PLACED] stopPrice=${formattedStopLoss} size=${formattedChunk} id=${slOrderResult.id} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}`);
                   } catch (orderErr) {
                     if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
                       this.logger.warn(`⚠️ [SL SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
@@ -370,7 +370,7 @@ export default class PortfolioAgent extends BaseAgent {
                         reduceOnly: true
                       }
                     );
-                    this.logger.info(`✅ [TP SYNC PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedChunk} id=${tpOrderResult.id} on Binance Demo`);
+                    this.logger.info(`✅ [TP SYNC PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedChunk} id=${tpOrderResult.id} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}`);
                   } catch (orderErr) {
                     if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
                       this.logger.warn(`⚠️ [TP SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
@@ -507,7 +507,7 @@ export default class PortfolioAgent extends BaseAgent {
                     }
                   );
                   stopLossOrderId = slOrderResult?.id;
-                  this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} id=${stopLossOrderId} on Binance Demo for filled limit order`);
+                  this.logger.info(`✅ [NATIVE STOP-LOSS PLACED] stopPrice=${formattedStopLoss} id=${stopLossOrderId} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'} for filled limit order`);
                 }
                 
                 if (activeTrade.takeProfit) {
@@ -523,10 +523,10 @@ export default class PortfolioAgent extends BaseAgent {
                       reduceOnly: true
                     }
                   );
-                  this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} on Binance Demo for filled limit order`);
+                  this.logger.info(`✅ [NATIVE TAKE-PROFIT PLACED] takeProfitPrice=${formattedTakeProfit} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'} for filled limit order`);
                 }
               } catch (triggerErr) {
-                this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on Binance Demo: ${triggerErr.message}`);
+                this.logger.error(`❌ [NATIVE TRIGGERS PLACEMENT FAILED] Failed to place stop/target orders on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}: ${triggerErr.message}`);
               }
             }
 
@@ -821,7 +821,7 @@ export default class PortfolioAgent extends BaseAgent {
 
           // 3. Place Limit Order
           const exitSide = position.side === 'long' ? 'sell' : 'buy';
-          this.logger.info(`🚨 [AUTO-IGNORE FALLBACK] Placing Limit ${exitSide.toUpperCase()} order on Binance Demo for ${position.asset} at $${limitPrice}`);
+          this.logger.info(`🚨 [AUTO-IGNORE FALLBACK] Placing Limit ${exitSide.toUpperCase()} order on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'} for ${position.asset} at $${limitPrice}`);
           const limitOrder = await exchange.createOrder(symbol, 'limit', exitSide, position.quantity, limitPrice, { reduceOnly: true });
           this.logger.info(`✅ [AUTO-IGNORE LIMIT PLACED] Order ID: ${limitOrder.id}, status: ${limitOrder.status}`);
 
