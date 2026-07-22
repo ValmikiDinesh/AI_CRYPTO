@@ -29,6 +29,7 @@ export default class PortfolioAgent extends BaseAgent {
     super(AGENT_NAMES.PORTFOLIO);
     this.marketAgent = marketAgent;
     this.riskAgent = riskAgent;
+    this.notifiedSyncErrors = new Set();
   }
 
   async execute() {
@@ -369,6 +370,18 @@ export default class PortfolioAgent extends BaseAgent {
             }
           } catch (syncErr) {
             this.logger.error(`❌ [TRIGGER SYNC FAILED] Failed to reconcile trigger orders for ${position.asset}: ${syncErr.stack || syncErr.message}`);
+            
+            const errKey = `${portfolio._id}_${position.asset}_${syncErr.message}`;
+            if (!this.notifiedSyncErrors.has(errKey)) {
+              this.notifiedSyncErrors.add(errKey);
+              await sendTelegramMessage(
+                `⚠️ <b>SL/TP Trigger Sync Failure</b>\n` +
+                `<b>Asset</b>: ${position.asset.replace('USDT', '')}/USDT\n` +
+                `<b>Details</b>: Failed to synchronize native SL/TP trigger orders on the exchange.\n` +
+                `<b>Error</b>: <i>${syncErr.message}</i>\n\n` +
+                `<i>Note: Local software backup monitoring remains ACTIVE. The bot will automatically market-close the position if it hits the Stop-Loss ($${position.stopLoss ? formatPrice(position.stopLoss) : '—'}) or Take-Profit ($${position.takeProfit ? formatPrice(position.takeProfit) : '—'}) price levels.</i>`
+              );
+            }
           }
         }
       }

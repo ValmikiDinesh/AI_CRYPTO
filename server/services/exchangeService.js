@@ -548,8 +548,9 @@ class CoinSwitchExchange {
           };
         }
       } catch (err) {
-        logger.error(`CoinSwitch createOrder live error: ${err.message}`);
-        throw err;
+        const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+        logger.error(`CoinSwitch createOrder live error: ${errorDetail}`);
+        throw new Error(errorDetail);
       }
     }
     throw new Error(`Failed to place live order on CoinSwitch Pro for ${symbol}`);
