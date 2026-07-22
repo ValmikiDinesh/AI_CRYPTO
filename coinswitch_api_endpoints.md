@@ -48,10 +48,44 @@ These endpoints are public and do not require private key signing.
     }
     ```
   
-* **Get Ticker Prices**:
+* **Get Ticker Prices (All Pairs)**:
   * **Method**: `GET`
   * **Path**: `/futures/all-pairs/ticker?exchange=EXCHANGE_2`
   * **Usage**: Streams the latest mark/last price of all perpetual contracts.
+
+* **Get Ticker Price (Single Symbol)**:
+  * **Method**: `GET`
+  * **Path**: `/futures/ticker?symbol={symbol}&exchange=EXCHANGE_2`
+  * **Usage**: Gets 24-hour stats and funding info for a single symbol.
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "EXCHANGE_2": {
+          "low_price_24h": "94707.00",
+          "high_price_24h": "97276.00",
+          "last_price": "95136.60",
+          "symbol": "BTCUSDT",
+          "exchange": "EXCHANGE_2",
+          "timestamp": 1732821806680,
+          "best_ask_price": "95136.70",
+          "best_bid_price": "95136.60",
+          "price_24h_pcnt": "-1.297300",
+          "base_asset_volume_24h": "93707.6800",
+          "quote_asset_volume_24h": "8970676685.2608",
+          "index_price": 95046.53,
+          "mark_price": 95136.7,
+          "open_interest": "67529.878",
+          "open_interest_value": "6424569744.32",
+          "funding_rate": 0.00039681,
+          "next_funding_timestamp": 1732838400000,
+          "best_bid_size": "3.189",
+          "best_ask_size": "3.963"
+        }
+      }
+    }
+    ```
+    *Note: The response object is keyed by exchange identifier (e.g. `EXCHANGE_2`).*
   
 * **Get Candle/Kline History**:
   * **Method**: `GET`
