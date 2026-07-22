@@ -188,7 +188,7 @@ class CoinSwitchExchange {
       this._requestQueue = this._requestQueue.then(async () => {
         const now = Date.now();
         const elapsed = now - this._lastRequestTime;
-        const minGap = 450; // minimum 450ms between API requests
+        const minGap = 600; // minimum 600ms between API requests
         if (elapsed < minGap) {
           await new Promise(r => setTimeout(r, minGap - elapsed));
         }
@@ -319,7 +319,7 @@ class CoinSwitchExchange {
     const now = Date.now();
     const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
 
-    if (this.ohlcvCache[cacheKey] && (now - this.ohlcvCache[cacheKey].timestamp < 3000)) {
+    if (this.ohlcvCache[cacheKey] && (now - this.ohlcvCache[cacheKey].timestamp < 15000)) {
       return this.ohlcvCache[cacheKey].data;
     }
 
