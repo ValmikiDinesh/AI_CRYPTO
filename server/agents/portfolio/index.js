@@ -1033,8 +1033,6 @@ export default class PortfolioAgent extends BaseAgent {
             }
           }
           if (this.cachedBalance) {
-            baseCap = this.cachedBalance.total;
-            portfolio.baseTradingCapital = baseCap;
             trueAvailable = this.cachedBalance.free;
           }
         } catch (balErr) {
@@ -1271,7 +1269,9 @@ export default class PortfolioAgent extends BaseAgent {
     }
     
     // Liquid total balance = availableBalance + liquid margin + liquid unrealized - estimated closing fees
-    const liquidTotalBalance = portfolio.availableBalance + liquidOpenExposure + liquidOpenUnrealized - estimatedCloseFees;
+    const liquidTotalBalance = process.env.TRADING_MODE === 'live'
+      ? portfolio.totalBalance
+      : portfolio.availableBalance + liquidOpenExposure + liquidOpenUnrealized - estimatedCloseFees;
 
     const isSweepTargetMet = liquidTotalBalance >= sweepTarget;
 
