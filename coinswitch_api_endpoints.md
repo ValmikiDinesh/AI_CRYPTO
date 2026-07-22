@@ -197,6 +197,46 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
     }
     ```
   
+* **Get Closed Futures Orders**:
+  * **Method**: `POST`
+  * **Path**: `/futures/orders/closed`
+  * **Payload Parameters**:
+    ```json
+    {
+      "exchange": "EXCHANGE_2",
+      "symbol": "BTCUSDT",     // Optional: Filter to a single symbol
+      "status": "CANCELLED",   // Optional: Filter to EXECUTED, PARTIALLY_EXECUTED, or CANCELLED
+      "limit": 10              // Optional: Page size
+    }
+    ```
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "orders": [
+          {
+            "order_id": "01936be4-9e37-7487-8e31-20fede6ef271",
+            "exchange": "EXCHANGE_2",
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "status": "CANCELLED",
+            "order_type": "LIMIT",
+            "quantity": "160",
+            "exec_quantity": "0",
+            "price": "80000",
+            "avg_execution_price": "0",
+            "execution_fee": "0.1051",
+            "realised_pnl": "0",
+            "reduce_only": false,
+            "created_at": 1732681965292,
+            "updated_at": 1732681965292
+          }
+        ],
+        "cursor": 1732616972834
+      }
+    }
+    ```
+  
 * **Set Position Leverage**:
   * **Method**: `POST`
   * **Path**: `/futures/leverage`

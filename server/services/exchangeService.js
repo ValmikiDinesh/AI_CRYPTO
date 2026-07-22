@@ -804,6 +804,62 @@ class CoinSwitchExchange {
     return [];
   }
 
+  // Private API: fetchClosedOrders (Simulated or Live)
+  async fetchClosedOrders(symbol, since, limit, params = {}) {
+    try {
+      if (this.isDemo) {
+        return [];
+      }
+
+      const cleanSym = symbol ? symbol.replace('/', '').replace(':USDT', '').replace(':USDT', '').toUpperCase() : undefined;
+      const path = '/futures/orders/closed';
+      const body = {
+        exchange: 'EXCHANGE_2'
+      };
+      if (cleanSym) {
+        body.symbol = cleanSym;
+      }
+      if (limit) {
+        body.limit = limit;
+      }
+      if (since) {
+        body.from_time = since;
+      }
+
+      const auth = await this._signRequest('POST', path, body);
+      if (auth) {
+        const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
+        if (res.data && res.data.data && res.data.data.orders) {
+          const orders = res.data.data.orders;
+          return orders.map(o => {
+            let status = 'open';
+            if (o.status === 'EXECUTED' || o.status === 'PARTIALLY_EXECUTED') {
+              status = 'closed';
+            } else if (o.status === 'CANCELLED') {
+              status = 'canceled';
+            }
+            return {
+              id: o.order_id || o.orderId,
+              symbol: symbol || o.symbol,
+              type: (o.order_type || 'LIMIT').toLowerCase(),
+              side: (o.side || 'BUY').toLowerCase(),
+              status: status,
+              price: parseFloat(o.avg_execution_price || o.averagePrice || o.price || 0),
+              amount: parseFloat(o.quantity || 0),
+              filled: parseFloat(o.exec_quantity || o.executedQuantity || 0),
+              stopPrice: parseFloat(o.trigger_price || 0),
+              reduceOnly: o.reduce_only === true,
+              raw: o
+            };
+          });
+        }
+      }
+    } catch (err) {
+      logger.error(`CoinSwitch fetchClosedOrders live error: ${err.message}`);
+    }
+    return [];
+  }
+
   // Private API: Set leverage for a futures contract
   async setLeverage(symbol, leverage = 3) {
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
