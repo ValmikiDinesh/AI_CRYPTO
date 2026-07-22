@@ -276,3 +276,15 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
       "leverage": 5
     }
     ```
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "exchange": "EXCHANGE_2",
+        "symbol": "BTCUSDT",
+        "leverage": "5"
+      }
+    }
+    ```
+  * **Leverage Change Restrictions**:
+    * You cannot change leverage on a symbol while you have an open position or any open orders on that symbol. Open orders must be cancelled and positions must be closed first. (The bot handles this by making leverage updates non-blocking, ensuring failures do not obstruct order placement).
