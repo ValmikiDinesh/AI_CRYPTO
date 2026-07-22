@@ -393,7 +393,11 @@ class CoinSwitchExchange {
     const auth = await this._signRequest('POST', '/futures/order', body);
     if (auth && !this.isDemo) {
       try {
-        await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+        try {
+          await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+        } catch (levErr) {
+          logger.warn(`Non-blocking leverage setup warning for ${symbol}: ${levErr.message}`);
+        }
         const res = await axios.post(`https://coinswitch.co/trade/api/v2/futures/order`, body, auth);
         if (res.data && res.data.data) {
           const o = res.data.data;
@@ -444,7 +448,11 @@ class CoinSwitchExchange {
     const auth = await this._signRequest('POST', '/futures/order', body);
     if (auth && !this.isDemo) {
       try {
-        await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+        try {
+          await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+        } catch (levErr) {
+          logger.warn(`Non-blocking leverage setup warning for ${symbol}: ${levErr.message}`);
+        }
         const res = await axios.post(`https://coinswitch.co/trade/api/v2/futures/order`, body, auth);
         if (res.data && res.data.data) {
           const o = res.data.data;
@@ -536,7 +544,11 @@ class CoinSwitchExchange {
     if (auth) {
       try {
         if (!this.isDemo) {
-          await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+          try {
+            await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+          } catch (levErr) {
+            logger.warn(`Non-blocking leverage setup warning for ${symbol}: ${levErr.message}`);
+          }
         }
         const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
         if (res.data && res.data.data) {
