@@ -2,11 +2,12 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS, INTERVALS } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { fetchCandles, fetchAllTickers } from '../../services/exchangeService.js';
+import { coinswitchWs } from '../../services/coinswitchWsService.js';
 import MarketData from '../../models/MarketData.js';
 
 /**
  * Market Tracking Agent
- * - Streams live prices from CoinSwitch REST public API.
+ * - Streams live prices from CoinSwitch Socket.IO WebSocket stream.
  * - Publishes structured market events via Redis.
  * - Persists candle data to MongoDB.
  */
@@ -21,6 +22,28 @@ export default class MarketAgent extends BaseAgent {
 
   async initialize() {
     await super.initialize();
+
+    // Connect to live CoinSwitch Pro WebSocket stream for sub-second price ticks
+    try {
+      coinswitchWs.onPriceUpdate((asset, price) => {
+        if (SUPPORTED_ASSETS.includes(asset)) {
+          this.prices[asset] = price;
+          if (this.candles[asset] && this.candles[asset].length > 0) {
+            this.candles[asset][this.candles[asset].length - 1].close = price;
+          }
+          publishEvent(CHANNELS.MARKET_DATA, {
+            asset,
+            price,
+            timestamp: Date.now(),
+            source: 'coinswitch_ws'
+          });
+        }
+      });
+      coinswitchWs.connect();
+      this.logger.info('⚡ CoinSwitch Pro WebSocket price engine linked to MarketAgent');
+    } catch (wsErr) {
+      this.logger.warn(`Failed to initialize CoinSwitch WebSocket: ${wsErr.message}`);
+    }
 
     // Load initial historical candles via REST (with DB fallback and stagger delay)
     for (const asset of SUPPORTED_ASSETS) {
