@@ -288,3 +288,18 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
     ```
   * **Leverage Change Restrictions**:
     * You cannot change leverage on a symbol while you have an open position or any open orders on that symbol. Open orders must be cancelled and positions must be closed first. (The bot handles this by making leverage updates non-blocking, ensuring failures do not obstruct order placement).
+
+* **Get Position Leverage**:
+  * **Method**: `GET`
+  * **Path**: `/futures/leverage?symbol={symbol}&exchange=EXCHANGE_2`
+  * **Usage**: Reads the current leverage set for a specific futures symbol.
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "exchange": "EXCHANGE_2",
+        "symbol": "BTCUSDT",
+        "leverage": "13"
+      }
+    }
+    ```
