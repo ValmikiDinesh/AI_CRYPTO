@@ -92,15 +92,46 @@ class CoinSwitchExchange {
   }
 
   amountToPrecision(symbol, amount) {
+    if (amount === undefined || amount === null || isNaN(parseFloat(amount))) return '0';
+    const num = parseFloat(amount);
+    if (num <= 0) return '0';
+
     const cleanSym = symbol.replace('/', '').replace(':USDT', '');
-    const dec = this.markets[cleanSym]?.precision?.amount || 3;
-    return parseFloat(amount).toFixed(dec);
+    let dec = this.markets[cleanSym]?.precision?.amount;
+    if (dec === undefined || dec === null) dec = 3;
+
+    let formatted = num.toFixed(dec);
+    if (parseFloat(formatted) === 0 && num > 0) {
+      for (let d = dec + 1; d <= 8; d++) {
+        formatted = num.toFixed(d);
+        if (parseFloat(formatted) > 0) break;
+      }
+    }
+    return formatted;
   }
 
   priceToPrecision(symbol, price) {
+    if (price === undefined || price === null || isNaN(parseFloat(price))) return '0';
+    const num = parseFloat(price);
+    if (num <= 0) return '0';
+
     const cleanSym = symbol.replace('/', '').replace(':USDT', '');
-    const dec = this.markets[cleanSym]?.precision?.price || 2;
-    return parseFloat(price).toFixed(dec);
+    let dec = this.markets[cleanSym]?.precision?.price;
+    if (dec === undefined || dec === null) {
+      if (num < 0.0001) dec = 8;
+      else if (num < 0.01) dec = 6;
+      else if (num < 1) dec = 4;
+      else dec = 2;
+    }
+
+    let formatted = num.toFixed(dec);
+    if (parseFloat(formatted) === 0 && num > 0) {
+      for (let d = dec + 1; d <= 8; d++) {
+        formatted = num.toFixed(d);
+        if (parseFloat(formatted) > 0) break;
+      }
+    }
+    return formatted;
   }
 
   // Generate Ed25519 signature for CoinSwitch Pro API
@@ -157,7 +188,7 @@ class CoinSwitchExchange {
       this._requestQueue = this._requestQueue.then(async () => {
         const now = Date.now();
         const elapsed = now - this._lastRequestTime;
-        const minGap = 350; // minimum 350ms between API requests
+        const minGap = 450; // minimum 450ms between API requests
         if (elapsed < minGap) {
           await new Promise(r => setTimeout(r, minGap - elapsed));
         }
@@ -168,25 +199,21 @@ class CoinSwitchExchange {
   }
 
   // Execute authenticated requests with rate-limit retry support (exponential backoff on 429)
-  async _requestWithRetry(method, path, body = {}, maxAttempts = 3) {
+  async _requestWithRetry(method, path, body = {}, maxAttempts = 4) {
     let attempts = 0;
     while (attempts < maxAttempts) {
       try {
         await this._throttle();
         const auth = await this._signRequest(method, path, body);
-        if (!auth) {
-          throw new Error(`Failed to sign request for ${method} ${path} (credentials missing)`);
-        }
-
         const url = `https://coinswitch.co/trade/api/v2${path}`;
         let res;
         
         if (method.toUpperCase() === 'GET') {
-          res = await axios.get(url, auth);
+          res = await axios.get(url, auth || {});
         } else if (method.toUpperCase() === 'DELETE') {
-          res = await axios.delete(url, { ...auth, data: body });
+          res = await axios.delete(url, { ...(auth || {}), data: body });
         } else {
-          res = await axios.post(url, body, auth);
+          res = await axios.post(url, body, auth || {});
         }
         return res;
       } catch (err) {
@@ -194,7 +221,7 @@ class CoinSwitchExchange {
         const status = err.response?.status;
         
         if (status === 429 && attempts < maxAttempts) {
-          const delay = 2000 * attempts;
+          const delay = 3000 * attempts;
           logger.warn(`⚠️ CoinSwitch Pro 429 Rate Limit on ${method} ${path}. Retrying attempt ${attempts}/${maxAttempts} in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         } else {
@@ -212,7 +239,7 @@ class CoinSwitchExchange {
     }
 
     try {
-      const res = await axios.get(`${this.baseUrl}/futures/all-pairs/ticker?exchange=EXCHANGE_2`);
+      const res = await this._requestWithRetry('GET', '/futures/all-pairs/ticker?exchange=EXCHANGE_2');
       if (res.data && res.data.data) {
         this.allTickersCache = { timestamp: now, data: res.data.data };
         return res.data.data;
@@ -251,8 +278,7 @@ class CoinSwitchExchange {
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     try {
       const path = `/futures/ticker?symbol=${cleanSym}&exchange=EXCHANGE_2`;
-      const auth = await this._signRequest('GET', path);
-      const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth || {});
+      const res = await this._requestWithRetry('GET', path);
       if (res.data && res.data.data) {
         const resData = res.data.data;
         const t = resData.EXCHANGE_2 || resData[Object.keys(resData)[0]];
@@ -299,8 +325,7 @@ class CoinSwitchExchange {
 
     try {
       const path = `/futures/klines?symbol=${cleanSym}&interval=${cleanInterval}&limit=${limit}&exchange=EXCHANGE_2`;
-      const auth = await this._signRequest('GET', path);
-      const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth || {});
+      const res = await this._requestWithRetry('GET', path);
       const klines = res.data.data || res.data;
       if (klines && Array.isArray(klines)) {
         const result = klines.map(c => [
@@ -345,12 +370,12 @@ class CoinSwitchExchange {
   async fetchOrderBook(symbol, limit = 20) {
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     try {
-      const res = await axios.get(`${this.baseUrl}/futures/order_book?exchange=EXCHANGE_2&symbol=${cleanSym}`);
+      const res = await this._requestWithRetry('GET', `/futures/order_book?exchange=EXCHANGE_2&symbol=${cleanSym}`);
       if (res.data && res.data.data) {
-        return {
-          bids: res.data.data.bids.map(b => [parseFloat(b[0]), parseFloat(b[1])]),
-          asks: res.data.data.asks.map(a => [parseFloat(a[0]), parseFloat(a[1])])
-        };
+        const d = res.data.data;
+        const bids = (d.bids || []).slice(0, limit).map(b => [parseFloat(b[0]), parseFloat(b[1])]);
+        const asks = (d.asks || []).slice(0, limit).map(a => [parseFloat(a[0]), parseFloat(a[1])]);
+        return { bids, asks };
       }
       throw new Error('Invalid CoinSwitch response structure');
     } catch (err) {
@@ -572,7 +597,8 @@ class CoinSwitchExchange {
     }
 
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
-    const stopPrice = params.stopPrice || params.triggerPrice || params.trigger_price;
+    const rawStop = params.stopPrice !== undefined && params.stopPrice !== null ? params.stopPrice : (params.triggerPrice !== undefined && params.triggerPrice !== null ? params.triggerPrice : params.trigger_price);
+    const stopPrice = (rawStop !== undefined && rawStop !== null && !isNaN(parseFloat(rawStop)) && parseFloat(rawStop) > 0) ? parseFloat(rawStop) : undefined;
     const reduceOnly = params.reduceOnly || params.reduce_only;
 
     // Map order type (e.g. 'stop_market' -> 'STOP_MARKET')
