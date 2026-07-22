@@ -223,7 +223,17 @@ class CoinSwitchExchange {
   // REST API: Public fetchOHLCV
   async fetchOHLCV(symbol, timeframe = '5m', since, limit = 100) {
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
-    const cleanInterval = timeframe.replace('m', '').replace('h', '').replace('d', '');
+    const intervalMap = {
+      '1m': '1',
+      '5m': '5',
+      '15m': '15',
+      '30m': '30',
+      '1h': '60',
+      '2h': '120',
+      '4h': '240',
+      '1d': '1440'
+    };
+    const cleanInterval = intervalMap[timeframe] || timeframe.replace('m', '').replace('h', '').replace('d', '');
     const now = Date.now();
     const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
 
