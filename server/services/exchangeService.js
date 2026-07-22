@@ -317,12 +317,17 @@ class CoinSwitchExchange {
     };
     const cleanInterval = intervalMap[timeframe] || timeframe.replace('m', '').replace('h', '').replace('d', '');
     const now = Date.now();
-    const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
+    const cachePrefix = `${cleanSym}_${timeframe}_`;
 
-    if (this.ohlcvCache[cacheKey] && (now - this.ohlcvCache[cacheKey].timestamp < 15000)) {
-      return this.ohlcvCache[cacheKey].data;
+    for (const [key, cacheObj] of Object.entries(this.ohlcvCache)) {
+      if (key.startsWith(cachePrefix) && (now - cacheObj.timestamp < 15000)) {
+        if (cacheObj.data && Array.isArray(cacheObj.data) && cacheObj.data.length >= limit) {
+          return cacheObj.data.slice(-limit);
+        }
+      }
     }
 
+    const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
     try {
       const path = `/futures/klines?symbol=${cleanSym}&interval=${cleanInterval}&limit=${limit}&exchange=EXCHANGE_2`;
       const res = await this._requestWithRetry('GET', path);
