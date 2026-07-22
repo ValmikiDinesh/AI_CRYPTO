@@ -547,3 +547,26 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
       ]
     }
     ```
+
+---
+
+## 4. Futures WebSockets connection
+Public market-data sockets for CoinSwitch Pro futures use Socket.IO v4 with a single namespace per exchange.
+
+* **Protocol & Connection details**:
+  * **Protocol**: Socket.IO v4
+  * **Base URL**: `wss://ws.coinswitch.co/`
+  * **Handshake path**: `/pro/realtime-rates-socket/futures/exchange_2`
+  * **Namespace**: `/exchange_2`
+  * **Authentication**: Unauthenticated (Public market-data only; private user-data sockets like order/position updates are not supported on Futures currently).
+
+* **Subscription Protocol**:
+  1. Connect to the namespace `/exchange_2`.
+  2. Emit the event name (e.g. `order_book`, `ticker`, `trades`, `klines`) with a subscription payload containing the symbol:
+     ```json
+     {
+       "symbol": "BTCUSDT"
+     }
+     ```
+  3. The server will stream real-time rates back as events on the same event name.
+  4. *Note for KLines: The symbol format is `SYMBOL_INTERVAL` (e.g., `BTCUSDT_5`).*
