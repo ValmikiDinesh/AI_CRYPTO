@@ -25,8 +25,8 @@ export default class MarketAgent extends BaseAgent {
     // Load initial historical candles via REST (with DB fallback and stagger delay)
     for (const asset of SUPPORTED_ASSETS) {
       try {
-        // Stagger requests to prevent concurrent spikes
-        await new Promise(resolve => setTimeout(resolve, 250));
+        // Stagger requests to prevent concurrent spikes (650ms per asset)
+        await new Promise(resolve => setTimeout(resolve, 650));
         
         let candles = await fetchCandles(asset, '5m', 100);
         
