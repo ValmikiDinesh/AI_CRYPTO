@@ -96,26 +96,7 @@ export default class PortfolioAgent extends BaseAgent {
         position.unrealizedPnl = (position.entryPrice - currentPrice) * position.quantity;
       }
 
-      // Dynamic Trailing Stop-Loss: Ratchet Stop-Loss up (Long) or down (Short) as price moves favorably
-      const updatedSL = getUpdatedStopLoss(position, currentPrice, position.dynamicTrailingPct || position.trailingPct || 0.03);
-      if (updatedSL && position.stopLoss && updatedSL !== position.stopLoss) {
-        const isFavorable = position.side === 'long' ? (updatedSL > position.stopLoss) : (updatedSL < position.stopLoss);
-        if (isFavorable) {
-          this.logger.info(`📈 [TRAILING STOP UPDATED] ${position.asset} (${position.side.toUpperCase()}): Trailed Stop-Loss from $${formatPrice(position.stopLoss)} -> $${formatPrice(updatedSL)} (Price: $${formatPrice(currentPrice)})`);
-          position.stopLoss = updatedSL;
-
-          // Sync trailing stop loss to open Trade record
-          try {
-            const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
-            if (activeTrade) {
-              activeTrade.stopLoss = updatedSL;
-              await activeTrade.save();
-            }
-          } catch (slSyncErr) {
-            this.logger.debug(`Could not sync trailing SL to Trade record for ${position.asset}: ${slSyncErr.message}`);
-          }
-        }
-      }
+      // Fixed Stop-Loss Mode: Stop-Loss remains fixed at initial entry level to give trades full room to hit targets.
 
 
 
