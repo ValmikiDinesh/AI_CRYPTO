@@ -631,10 +631,13 @@ class CoinSwitchExchange {
         return { id, symbol, status: 'closed', filled: 1.0, amount: 1.0 };
       }
 
-      // Live implementation
-      const path = `/futures/order?order_id=${id}`;
-      const auth = await this._signRequest('GET', path);
-      if (auth && !this.isDemo) {
+      if (!this.isDemo) {
+        // Live implementation
+        const path = `/futures/order?order_id=${id}`;
+        const auth = await this._signRequest('GET', path);
+        if (!auth) {
+          throw new Error('Failed to sign fetchOrder request (credentials missing or DB error)');
+        }
         const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
         if (res.data && res.data.data) {
           const o = res.data.data;
@@ -655,11 +658,17 @@ class CoinSwitchExchange {
             filled: parseFloat(o.executedQuantity || o.quantity || 0),
             fee: { cost: parseFloat(o.fee || 0), currency: 'USDT' }
           };
+        } else {
+          throw new Error(`Order ${id} not found or invalid response from exchange`);
         }
       }
     } catch (err) {
       logger.error(`CoinSwitch fetchOrder live error: ${err.message}`);
+      if (!this.isDemo) {
+        throw err;
+      }
     }
+    // Default simulated fallback for demo/sim orders
     return { id, symbol, status: 'closed', filled: 1.0, amount: 1.0 };
   }
 
