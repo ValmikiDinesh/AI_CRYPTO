@@ -160,7 +160,25 @@ These endpoints are public and do not require private key signing.
       }
     }
     ```
-
+* **Get Recent Public Trades**:
+  * **Method**: `GET`
+  * **Path**: `/futures/trades?exchange=EXCHANGE_2&symbol={symbol}`
+  * **Usage**: Fetches recent trade execution history on the exchange.
+  * **Response Format**:
+    ```json
+    {
+      "data": [
+        {
+          "E": 1732691693128,
+          "p": 0.39391,
+          "q": 133,
+          "e": "EXCHANGE_2",
+          "s": "DOGEUSDT",
+          "m": true
+        }
+      ]
+    }
+    ```
 ---
 
 ## 2. Private User & Balance Endpoints
