@@ -658,7 +658,7 @@ class CoinSwitchExchange {
         }
         const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
         if (res.data && res.data.data) {
-          const o = res.data.data;
+          const o = res.data.data.order || res.data.data;
           
           let status = 'open';
           if (o.status === 'EXECUTED' || o.status === 'PARTIALLY_EXECUTED') {
@@ -668,13 +668,13 @@ class CoinSwitchExchange {
           }
 
           return {
-            id: o.orderId,
+            id: o.order_id || o.orderId,
             symbol: symbol,
             status: status,
-            price: parseFloat(o.averagePrice || o.price || 0),
+            price: parseFloat(o.avg_execution_price || o.averagePrice || o.price || 0),
             amount: parseFloat(o.quantity || 0),
-            filled: parseFloat(o.executedQuantity || o.quantity || 0),
-            fee: { cost: parseFloat(o.fee || 0), currency: 'USDT' }
+            filled: parseFloat(o.exec_quantity || o.executedQuantity || o.quantity || 0),
+            fee: { cost: parseFloat(o.execution_fee || o.fee || 0), currency: 'USDT' }
           };
         } else {
           throw new Error(`Order ${id} not found or invalid response from exchange`);

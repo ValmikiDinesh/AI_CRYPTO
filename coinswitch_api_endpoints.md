@@ -73,6 +73,31 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
   * **Method**: `GET`
   * **Path**: `/futures/order?order_id={id}`
   * **Usage**: Checks the execution details or fill quantity of an active order.
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "order": {
+          "order_id": "698ed406-8ef5-4664-9779-f7978702a447",
+          "exchange": "EXCHANGE_2",
+          "symbol": "DOGEUSDT",
+          "side": "BUY",
+          "status": "CANCELLED",
+          "order_type": "LIMIT",
+          "quantity": "6.16",
+          "exec_quantity": "0",
+          "price": "0.28",
+          "avg_execution_price": "0",
+          "execution_fee": "0.0041",
+          "realised_pnl": "0",
+          "reduce_only": false,
+          "created_at": 1732623664116,
+          "updated_at": 1732623664116
+        }
+      }
+    }
+    ```
+    *Note: The response object is nested under `data.order` (singular).*
   
 * **Cancel Single Order**:
   * **Method**: `DELETE`
