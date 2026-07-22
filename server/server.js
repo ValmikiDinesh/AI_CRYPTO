@@ -145,7 +145,7 @@ async function bootAgents() {
   await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 5m — decision fusion
   await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 5m — risk verification
   await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5m — trade execution
-  await portfolioAgent.start(30_000);                            // 30s — fast database-to-exchange reconciliation
+  await portfolioAgent.start(5_000);                             // 5s — fast unrealized PnL, Basket Profit, & Sweep Target checks
   await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);    // 60s
   await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);        // 15s
 
