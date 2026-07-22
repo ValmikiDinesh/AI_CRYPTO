@@ -157,6 +157,45 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
   * **Method**: `GET`
   * **Path**: `/futures/positions?exchange=EXCHANGE_2` (optionally appends `&symbol={symbol}`)
   * **Usage**: Reconciles currently open margin contracts against database state.
+
+* **Get Open Futures Orders**:
+  * **Method**: `POST`
+  * **Path**: `/futures/orders/open`
+  * **Payload Parameters**:
+    ```json
+    {
+      "exchange": "EXCHANGE_2",
+      "symbol": "BTCUSDT",     // Optional: Filter to a single symbol
+      "limit": 50              // Optional: Page size
+    }
+    ```
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "orders": [
+          {
+            "order_id": "01936c09-85a6-79d5-a7b8-d0e19daa9fbf",
+            "exchange": "EXCHANGE_2",
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "status": "RAISED",
+            "order_type": "LIMIT",
+            "quantity": "160",
+            "exec_quantity": "0",
+            "price": "80000",
+            "avg_execution_price": "0",
+            "execution_fee": "0.1051",
+            "realised_pnl": "0",
+            "reduce_only": false,
+            "created_at": 1732684383674,
+            "updated_at": 1732684383674
+          }
+        ],
+        "cursor": 1732684383674
+      }
+    }
+    ```
   
 * **Set Position Leverage**:
   * **Method**: `POST`
