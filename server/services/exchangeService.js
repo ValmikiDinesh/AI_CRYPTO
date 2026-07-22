@@ -277,9 +277,9 @@ class CoinSwitchExchange {
 
   // REST API: Public fetchOrderBook
   async fetchOrderBook(symbol, limit = 20) {
-    const cleanSym = symbol.replace('/', '').replace(':USDT', '');
+    const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     try {
-      const res = await axios.get(`${this.baseUrl}/futures/orderbook?symbol=${cleanSym}&limit=${limit}`);
+      const res = await axios.get(`${this.baseUrl}/futures/order_book?exchange=EXCHANGE_2&symbol=${cleanSym}`);
       if (res.data && res.data.data) {
         return {
           bids: res.data.data.bids.map(b => [parseFloat(b[0]), parseFloat(b[1])]),

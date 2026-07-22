@@ -60,8 +60,25 @@ These endpoints are public and do not require private key signing.
   
 * **Get Order Book Depth**:
   * **Method**: `GET`
-  * **Path**: `/futures/orderbook?symbol={symbol}&limit={limit}`
+  * **Path**: `/futures/order_book?exchange=EXCHANGE_2&symbol={symbol}`
   * **Usage**: Checks buy/sell depth for dynamic slippage calculations.
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "timestamp": 1732685131699,
+        "asks": [
+          ["3388.92", "0.10"],
+          ["3388.94", "0.01"]
+        ],
+        "bids": [
+          ["3425.71", "2.16"],
+          ["3425.69", "0.01"]
+        ],
+        "symbol": "ETHUSDT"
+      }
+    }
+    ```
 
 ---
 
