@@ -193,6 +193,17 @@ export default class PortfolioAgent extends BaseAgent {
 
             this.logger.info(`🔍 [TRIGGER SYNC debug] ${symbol}: found ${existingSLOrders.length} SL orders and ${existingTPOrders.length} TP orders among ${openOrders.length} fetched open trigger orders`);
 
+            // Fetch current mark price for trigger direction validation
+            let currentMarkPrice = position.markPrice || position.currentPrice || 0;
+            if (!currentMarkPrice || currentMarkPrice <= 0) {
+              try {
+                const ticker = await exchange.fetchTicker(symbol);
+                currentMarkPrice = ticker.markPrice || ticker.last || 0;
+              } catch (e) {
+                currentMarkPrice = 0;
+              }
+            }
+
             // 1. Reconcile Stop Loss
             if (position.stopLoss) {
               const formattedStopLoss = parseFloat(exchange.priceToPrecision(symbol, position.stopLoss));
@@ -231,6 +242,13 @@ export default class PortfolioAgent extends BaseAgent {
               if (remainingQty > 0.0001) {
                 this.logger.info(`🔄 [SL SYNC] Stop Loss missing/insufficient for ${position.asset}. Placing trigger order for remaining qty: ${remainingQty}`);
                 
+                // Validate SL direction: for LONG, SL (sell stop) must be BELOW mark price; for SHORT, SL (buy stop) must be ABOVE mark price
+                const slDirectionValid = currentMarkPrice <= 0 || 
+                  (position.side === 'long' ? formattedStopLoss < currentMarkPrice : formattedStopLoss > currentMarkPrice);
+                
+                if (!slDirectionValid) {
+                  this.logger.warn(`⚠️ [SL SYNC SKIP] ${position.asset}: SL price ${formattedStopLoss} is in invalid direction vs mark ${currentMarkPrice} (${position.side}). Local backup will handle.`);
+                } else {
                 const market = exchange.market(symbol);
                 const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE');
                 const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
@@ -258,12 +276,16 @@ export default class PortfolioAgent extends BaseAgent {
                     if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
                       this.logger.warn(`⚠️ [SL SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
                       break;
-                    } else {
-                      throw orderErr;
-                    }
+                    } else if (orderErr.message.includes('invalid direction') || orderErr.message.includes('already exists')) {
+                        this.logger.warn(`⚠️ [SL SYNC SKIP] ${position.asset}: Exchange rejected SL: ${orderErr.message}. Local backup active.`);
+                        break;
+                      } else {
+                        throw orderErr;
+                      }
                   }
                   quantityToPlace -= chunk;
                 }
+                } // end slDirectionValid
               }
             } else {
               // DB has no stopLoss, cancel any existing stop-loss orders
@@ -319,6 +341,13 @@ export default class PortfolioAgent extends BaseAgent {
               if (remainingQty > 0.0001) {
                 this.logger.info(`🔄 [TP SYNC] Take Profit missing/insufficient for ${position.asset}. Placing trigger order for remaining qty: ${remainingQty}`);
                 
+                // Validate TP direction: for LONG, TP (sell take_profit) must be ABOVE mark price; for SHORT, TP (buy take_profit) must be BELOW mark price
+                const tpDirectionValid = currentMarkPrice <= 0 || 
+                  (position.side === 'long' ? formattedTakeProfit > currentMarkPrice : formattedTakeProfit < currentMarkPrice);
+                
+                if (!tpDirectionValid) {
+                  this.logger.warn(`⚠️ [TP SYNC SKIP] ${position.asset}: TP price ${formattedTakeProfit} is in invalid direction vs mark ${currentMarkPrice} (${position.side}). Local backup will handle.`);
+                } else {
                 const market = exchange.market(symbol);
                 const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE');
                 const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
@@ -346,12 +375,16 @@ export default class PortfolioAgent extends BaseAgent {
                     if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
                       this.logger.warn(`⚠️ [TP SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
                       break;
-                    } else {
-                      throw orderErr;
-                    }
+                    } else if (orderErr.message.includes('invalid direction') || orderErr.message.includes('already exists')) {
+                        this.logger.warn(`⚠️ [TP SYNC SKIP] ${position.asset}: Exchange rejected TP: ${orderErr.message}. Local backup active.`);
+                        break;
+                      } else {
+                        throw orderErr;
+                      }
                   }
                   quantityToPlace -= chunk;
                 }
+                } // end tpDirectionValid
               }
             } else {
               // DB has no takeProfit, cancel any existing take-profit orders
