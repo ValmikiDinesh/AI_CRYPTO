@@ -1317,7 +1317,7 @@ export default class PortfolioAgent extends BaseAgent {
       if (excessProfit > 0) {
         portfolio.walletBalance = (portfolio.walletBalance || 0) + excessProfit;
         portfolio.totalBalance = baseCap;
-        portfolio.availableBalance = baseCap;
+        portfolio.availableBalance = baseCap - marginValue;
         portfolio.peakBalance = baseCap;
         
         this.logger.info(`💰 [PROFIT SWEEP] Swept $${excessProfit.toFixed(2)} of excess profit to the secure wallet. New wallet balance: ${portfolio.walletBalance.toFixed(2)}`);
