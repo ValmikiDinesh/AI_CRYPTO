@@ -162,9 +162,7 @@ export default class MarketAgent extends BaseAgent {
         }
       }
 
-      if (shouldSyncCandles) {
-        this.lastCandleSync = now;
-      }
+      this.lastCandleSync = Date.now();
     } catch (err) {
       this.logger.error(`Error polling market data: ${err.message}`);
     }
