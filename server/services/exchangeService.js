@@ -624,24 +624,23 @@ class CoinSwitchExchange {
         }
       }
       const res = await this._requestWithRetry('POST', path, body);
-        if (res.data && res.data.data) {
-          const o = res.data.data;
-          return {
-            id: o.order_id || o.orderId,
-            symbol,
-            type,
-            side,
-            price: price || o.price || 0,
-            amount: amount,
-            status: 'open',
-            raw: o
-          };
-        }
-      } catch (err) {
-        const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-        logger.error(`CoinSwitch createOrder live error: ${errorDetail}`);
-        throw new Error(errorDetail);
+      if (res.data && res.data.data) {
+        const o = res.data.data;
+        return {
+          id: o.order_id || o.orderId,
+          symbol,
+          type,
+          side,
+          price: price || o.price || 0,
+          amount: amount,
+          status: 'open',
+          raw: o
+        };
       }
+    } catch (err) {
+      const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      logger.error(`CoinSwitch createOrder live error: ${errorDetail}`);
+      throw new Error(errorDetail);
     }
     throw new Error(`Failed to place live order on CoinSwitch Pro for ${symbol}`);
   }
