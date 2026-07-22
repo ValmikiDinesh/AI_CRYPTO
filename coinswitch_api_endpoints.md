@@ -84,6 +84,27 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
       "order_id": "order-id-here"
     }
     ```
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "order_id": "0193688e-5212-7493-be58-4f83644772e8",
+        "exchange": "EXCHANGE_2",
+        "symbol": "DOGEUSDT",
+        "side": "BUY",
+        "order_type": "LIMIT",
+        "status": "CANCELLATION_RAISED",
+        "quantity": "22",
+        "exec_quantity": "0",
+        "price": "0.28",
+        "avg_exec_price": "0",  // Note: uses avg_exec_price (not avg_execution_price)
+        "exec_fee": "0",        // Note: uses exec_fee (not execution_fee)
+        "reduce_only": false,
+        "created_at": 1732625977884,
+        "updated_at": 1732626020104
+      }
+    }
+    ```
   
 * **Cancel All Active Orders**:
   * **Method**: `POST`
