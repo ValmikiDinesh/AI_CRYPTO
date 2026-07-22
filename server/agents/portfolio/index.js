@@ -100,12 +100,12 @@ export default class PortfolioAgent extends BaseAgent {
 
       let isNativelyClosed = false;
       let closePrice = currentPrice;
-      let closeReason = 'Exchange-side trigger (Stop-Loss / Take-Profit order executed on CoinSwitch Pro)';
+      let closeReason = 'Exchange Native Trigger';
 
       if (fetchedExchangeSuccessfully) {
         const exchangePos = exchangePositionMap.get(position.asset);
         
-        // If the position is open in DB but does not exist on Binance, it has been natively closed!
+        // If the position is open in DB but does not exist on CoinSwitch Pro, it has been natively closed!
         if (!exchangePos) {
           const positionAgeMs = Date.now() - new Date(position.openedAt).getTime();
           const MIN_RECONCILIATION_AGE_MS = 30000; // 30 seconds
@@ -114,9 +114,9 @@ export default class PortfolioAgent extends BaseAgent {
           const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
           if (activeTrade && positionAgeMs >= MIN_RECONCILIATION_AGE_MS) {
             isNativelyClosed = true;
-            this.logger.warn(`🔄 [RECONCILIATION] Open position for ${position.asset} is no longer active on Binance. Syncing closure locally.`);
+            this.logger.warn(`🔄 [RECONCILIATION] Open position for ${position.asset} is no longer active on CoinSwitch Pro. Syncing closure locally.`);
 
-            // Try to fetch the last closed trade fill price from Binance history
+            // Try to fetch the last closed trade fill price from exchange history
             try {
               const { getExchange } = await import('../../services/exchangeService.js');
               const exchange = getExchange();
@@ -124,11 +124,16 @@ export default class PortfolioAgent extends BaseAgent {
               if (trades.length > 0) {
                 const lastTrade = trades[trades.length - 1];
                 closePrice = lastTrade.price;
-                closeReason = `Binance trigger executed (Exit price: $${lastTrade.price})`;
               }
             } catch (historyErr) {
-              this.logger.debug(`Could not retrieve trade fill price from Binance history for ${position.asset}: ${historyErr.message}`);
+              this.logger.debug(`Could not retrieve trade fill price from exchange history for ${position.asset}: ${historyErr.message}`);
             }
+
+            // Dynamically determine whether this native exchange closure was a Stop-Loss or Take-Profit
+            const isLoss = position.side === 'long' ? (closePrice < position.entryPrice) : (closePrice > position.entryPrice);
+            closeReason = isLoss
+              ? `Stop-Loss Triggered on Exchange (${position.side.toUpperCase()} @ $${formatPrice(position.entryPrice)} vs Exit $${formatPrice(closePrice)})`
+              : `Take-Profit Triggered on Exchange (${position.side.toUpperCase()} @ $${formatPrice(position.entryPrice)} vs Exit $${formatPrice(closePrice)})`;
           }
         } else {
           // Position exists in both DB and Binance. Sync entry price and contracts just in case of slight drift.
