@@ -320,7 +320,7 @@ class CoinSwitchExchange {
     const cachePrefix = `${cleanSym}_${timeframe}_`;
 
     for (const [key, cacheObj] of Object.entries(this.ohlcvCache)) {
-      if (key.startsWith(cachePrefix) && (now - cacheObj.timestamp < 15000)) {
+      if (key.startsWith(cachePrefix) && (now - cacheObj.timestamp < 120000)) {
         if (cacheObj.data && Array.isArray(cacheObj.data) && cacheObj.data.length >= limit) {
           return cacheObj.data.slice(-limit);
         }

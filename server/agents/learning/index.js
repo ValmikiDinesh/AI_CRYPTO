@@ -68,6 +68,9 @@ export default class LearningAgent extends BaseAgent {
 
     for (const asset of SUPPORTED_ASSETS) {
       try {
+        // Stagger requests to avoid concurrent rate limit spikes
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
         // Fetch last 2 daily candles to get the most recent completed day's volatility data
         const candles = await fetchCandles(asset, '1d', 2);
         if (!candles || candles.length === 0) continue;
