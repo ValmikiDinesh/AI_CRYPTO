@@ -338,3 +338,37 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
       }
     }
     ```
+
+* **Get Futures Wallet Balance**:
+  * **Method**: `GET`
+  * **Path**: `/futures/wallet_balance`
+  * **Usage**: Reads the total wallet balance, available balance, and position/blocked margins.
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "base_asset_balances": [
+          {
+            "base_asset": "USDT",
+            "balances": {
+              "total_balance": "60960.82599588",
+              "total_available_balance": "60910.77418715",
+              "total_blocked_balance": "50.05180873",
+              "total_position_margin": "56.83032573",
+              "total_open_order_margin": "-6.778517"
+            }
+          }
+        ],
+        "asset": [
+          {
+            "symbol": "DOGEUSDT",
+            "base_asset": "USDT",
+            "exchange": "EXCHANGE_2",
+            "blocked_balance": "50.04968529",
+            "position_margin": "50.04959675",
+            "open_order_margin": "0.00008854"
+          }
+        ]
+      }
+    }
+    ```
