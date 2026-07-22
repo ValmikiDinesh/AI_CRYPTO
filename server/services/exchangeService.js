@@ -506,12 +506,17 @@ class CoinSwitchExchange {
     if (orderType === 'STOP') orderType = 'STOP_MARKET';
     if (orderType === 'TAKE_PROFIT') orderType = 'TAKE_PROFIT_MARKET';
 
+    let qty = parseFloat(amount || 0);
+    if (orderType === 'STOP_MARKET' || orderType === 'TAKE_PROFIT_MARKET') {
+      qty = 0;
+    }
+
     const body = {
       exchange: 'EXCHANGE_2',
       symbol: cleanSym,
       side: side.toUpperCase(),
       order_type: orderType,
-      quantity: parseFloat(amount || 0)
+      quantity: qty
     };
 
     if (price !== undefined && price !== null) {
