@@ -506,7 +506,7 @@ class CoinSwitchExchange {
             amount: parseFloat(o.quantity),
             filled: parseFloat(o.quantity),
             status: 'closed',
-            fee: { cost: parseFloat(o.fee || amount * price * 0.0005), currency: 'USDT' }
+            fee: { cost: o.fee ? parseFloat(o.fee) / 83.5 : amount * price * 0.0005, currency: 'USDT' }
           };
         }
       } catch (err) {
@@ -772,7 +772,7 @@ class CoinSwitchExchange {
             price: parseFloat(o.avg_execution_price || o.averagePrice || o.price || 0),
             amount: parseFloat(o.quantity || 0),
             filled: parseFloat(o.exec_quantity || o.executedQuantity || o.quantity || 0),
-            fee: { cost: parseFloat(o.execution_fee || o.fee || 0), currency: 'USDT' }
+            fee: { cost: parseFloat(o.execution_fee || o.fee || 0) / 83.5, currency: 'USDT' }
           };
         } else {
           throw new Error(`Order ${id} not found or invalid response from exchange`);
