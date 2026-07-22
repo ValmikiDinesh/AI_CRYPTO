@@ -118,8 +118,26 @@ These endpoints are public and do not require private key signing.
   
 * **Get Candle/Kline History**:
   * **Method**: `GET`
-  * **Path**: `/futures/klines?symbol={symbol}&interval={interval}&limit={limit}&exchange=EXCHANGE_2`
+  * **Path**: `/futures/klines?symbol={symbol}&interval={interval}&limit={limit}&exchange=EXCHANGE_2` (optionally appends `&start_time={unix_ms}&end_time={unix_ms}`)
   * **Usage**: Fetches historical OHLCV data to compute technical indicators.
+  * **Response Format**:
+    ```json
+    {
+      "data": [
+        {
+          "o": "95500.100000000000",
+          "h": "95875.000000000000",
+          "l": "94707.000000000000",
+          "c": "95524.000000000000",
+          "symbol": "BTCUSDT",
+          "close_time": "1732795200000",
+          "volume": "22426.480000000000",
+          "start_time": "1732773600000",
+          "interval": "360"
+        }
+      ]
+    }
+    ```
   
 * **Get Order Book Depth**:
   * **Method**: `GET`
