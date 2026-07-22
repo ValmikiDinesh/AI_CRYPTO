@@ -148,6 +148,43 @@ class CoinSwitchExchange {
     }
   }
 
+  // Execute authenticated requests with rate-limit retry support (exponential backoff on 429)
+  async _requestWithRetry(method, path, body = {}, maxAttempts = 3) {
+    let attempts = 0;
+    while (attempts < maxAttempts) {
+      try {
+        const auth = await this._signRequest(method, path, body);
+        if (!auth) {
+          throw new Error(`Failed to sign request for ${method} ${path} (credentials missing)`);
+        }
+
+        const url = `https://coinswitch.co/trade/api/v2${path}`;
+        let res;
+        
+        if (method.toUpperCase() === 'GET') {
+          res = await axios.get(url, auth);
+        } else if (method.toUpperCase() === 'DELETE') {
+          res = await axios.delete(url, { ...auth, data: body });
+        } else {
+          res = await axios.post(url, body, auth);
+        }
+        return res;
+      } catch (err) {
+        attempts++;
+        const status = err.response?.status;
+        const errMsg = err.response?.data?.message || err.message;
+        
+        if (status === 429 && attempts < maxAttempts) {
+          const delay = 1500 * attempts;
+          logger.warn(`⚠️ CoinSwitch Pro 429 Rate Limit on ${method} ${path}. Retrying attempt ${attempts}/${maxAttempts} in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
   // REST API: Public fetchAllTickers
   async fetchAllTickers() {
     const now = Date.now();
@@ -662,12 +699,8 @@ class CoinSwitchExchange {
       if (!this.isDemo) {
         // Live implementation
         const path = `/futures/order?order_id=${id}`;
-        const auth = await this._signRequest('GET', path);
-        if (!auth) {
-          throw new Error('Failed to sign fetchOrder request (credentials missing or DB error)');
-        }
-        const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
-        if (res.data && res.data.data) {
+        const res = await this._requestWithRetry('GET', path);
+        if (res && res.data && res.data.data) {
           const o = res.data.data.order || res.data.data;
           
           let status = 'open';
