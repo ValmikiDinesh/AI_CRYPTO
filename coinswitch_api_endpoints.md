@@ -16,6 +16,37 @@ These endpoints are public and do not require private key signing.
   * **Method**: `GET`
   * **Path**: `/futures/instrument_info?exchange=EXCHANGE_2`
   * **Usage**: Loads precision limits, lot step sizes, and min/max order sizes.
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "BTCUSDT": {
+          "symbol": "btc",
+          "base_asset": "btc",
+          "quote_asset": "usdt",
+          "status": "TRADING",
+          "type": "PERPETUAL_FUTURES",
+          "min_leverage": "1",
+          "max_leverage": "25",
+          "leverage_step": 1,
+          "min_base_quantity": "0.001",
+          "base_quantity_step_size": "0.001",
+          "lot_size": "0.001",
+          "quantity_precision": 3,
+          "price_precision": 2,
+          "tick_size": 1,
+          "max_market_base_quantity": "119",
+          "max_base_quantity": "952",
+          "risk_limit": "1000000",
+          "maint_margin_rate": "0.56",
+          "taker_fee_rate": "0.00065",
+          "maker_fee_rate": "0.00024",
+          "liq_fee_rate": "0.0075",
+          "quote_asset_precision": 1
+        }
+      }
+    }
+    ```
   
 * **Get Ticker Prices**:
   * **Method**: `GET`
