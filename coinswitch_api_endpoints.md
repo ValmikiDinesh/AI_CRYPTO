@@ -113,7 +113,18 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
     ```json
     {
       "exchange": "EXCHANGE_2",
-      "symbol": "BTCUSDT"
+      "symbol": "BTCUSDT"     // Optional: Omit to cancel across all symbols
+    }
+    ```
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "orders_ids": [
+          "01936be4-2571-7a3f-97fa-a29a2b85d717",
+          "01936be4-9e37-7487-8e31-20fede6ef271"
+        ]
+      }
     }
     ```
   
