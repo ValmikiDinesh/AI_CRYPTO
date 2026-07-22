@@ -1,5 +1,12 @@
 import axios from 'axios';
+import https from 'https';
 import { logger } from '../utils/logger.js';
+
+// Force IPv4 (family: 4) to bypass broken IPv6 routing/timeouts to api.telegram.org on cloud hosts
+const httpsAgent = new https.Agent({
+  family: 4,
+  keepAlive: true
+});
 
 /**
  * Format price values nicely for notification layout.
@@ -44,6 +51,9 @@ export const sendTelegramMessage = async (htmlText, options = {}) => {
         chat_id: chatId,
         text: htmlText,
         parse_mode: 'HTML',
+      }, {
+        httpsAgent,
+        timeout: 10000
       });
       logger.info(`Telegram notification sent successfully to chat ${chatId}`);
       
@@ -58,6 +68,9 @@ export const sendTelegramMessage = async (htmlText, options = {}) => {
               chat_id: chatId,
               message_id: messageId,
               disable_notification: true,
+            }, {
+              httpsAgent,
+              timeout: 10000
             });
             logger.info(`Telegram message ${messageId} pinned successfully in chat ${chatId}`);
           } catch (pinErr) {
