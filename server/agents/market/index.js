@@ -78,9 +78,10 @@ export default class MarketAgent extends BaseAgent {
       const tickers = await fetchAllTickers();
       if (!tickers) return;
 
-      const now = Date.now();
-      // Sync candles every 60 seconds to prevent rate-limit blocks
-      const shouldSyncCandles = (now - this.lastCandleSync) >= 60000;
+      // 2. Smoothly rotate single-asset candle sync across cycles to prevent rate limit spikes
+      const currentAssetIndex = (this.rotationIndex || 0) % SUPPORTED_ASSETS.length;
+      this.rotationIndex = currentAssetIndex + 1;
+      const syncAsset = SUPPORTED_ASSETS[currentAssetIndex];
 
       for (const asset of SUPPORTED_ASSETS) {
         try {
@@ -95,11 +96,9 @@ export default class MarketAgent extends BaseAgent {
 
           let candleData = null;
 
-          // 2. Slower loop: Fetch latest candle to update state and check interval close
-          if (shouldSyncCandles) {
+          // Only sync candles for the 1 target rotated asset in this cycle
+          if (asset === syncAsset) {
             const candles = await fetchCandles(asset, '5m', 1);
-            // Stagger next requests to avoid rate limits (250ms delay)
-            await new Promise(resolve => setTimeout(resolve, 250));
             if (candles && candles.length > 0) {
               const latestCandle = candles[0];
               latestCandle.close = price;
