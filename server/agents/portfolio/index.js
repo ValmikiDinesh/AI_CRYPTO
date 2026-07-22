@@ -603,7 +603,8 @@ export default class PortfolioAgent extends BaseAgent {
         const dbOpenTrades = await Trade.find({ status: 'open' });
         for (const trade of dbOpenTrades) {
           const cleanAsset = trade.asset.replace('/', '').replace(':USDT', '').toUpperCase();
-          if (!liveSymbols.has(cleanAsset)) {
+          const ageMs = Date.now() - new Date(trade.executedAt || trade.createdAt || Date.now()).getTime();
+          if (!liveSymbols.has(cleanAsset) && ageMs > 5 * 60 * 1000) { // 5 minutes grace period
             this.logger.info(`🔄 [RECONCILIATION] Closing stale DB Trade document for ${trade.asset} (ID: ${trade._id}) as it is no longer active on CoinSwitch Pro`);
             trade.status = 'closed';
             trade.closedAt = new Date();
