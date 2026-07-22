@@ -967,7 +967,7 @@ class CoinSwitchExchange {
         logger.info(`✅ Leverage set to ${leverage}x for ${cleanSym}`);
         return res.data;
       } catch (err) {
-        logger.error(`CoinSwitch setLeverage error for ${cleanSym}: ${err.response?.data?.message || err.message}`);
+        logger.warn(`CoinSwitch setLeverage warning for ${cleanSym}: ${err.response?.data?.message || err.message}`);
         throw err;
       }
     }
@@ -978,10 +978,15 @@ class CoinSwitchExchange {
   async ensureLeverage(symbol, leverage = 3) {
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const cached = this.leverageCache.get(cleanSym);
-    if (cached === leverage) return; // already set this session
+    if (cached === leverage) return; // already set or attempted this session
 
-    await this.setLeverage(symbol, leverage);
-    this.leverageCache.set(cleanSym, leverage);
+    try {
+      await this.setLeverage(symbol, leverage);
+    } catch (err) {
+      // Ignore leverage failure if open orders/positions already exist on exchange
+    } finally {
+      this.leverageCache.set(cleanSym, leverage);
+    }
   }
 }
 
