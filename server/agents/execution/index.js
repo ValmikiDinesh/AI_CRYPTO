@@ -106,9 +106,9 @@ export default class ExecutionAgent extends BaseAgent {
               this.logger.warn(`Failed to cancel expired order ${trade.exchangeOrderId} on exchange: ${cancelErr.message}`);
             }
 
-            trade.status = 'cancelled';\r
-            trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)', cancelError };\r
-            trade.markModified('metadata');\r
+            trade.status = 'cancelled';
+            trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)', cancelError };
+            trade.markModified('metadata');
             await trade.save();
             
             // Refund full margin and fees
@@ -142,11 +142,11 @@ export default class ExecutionAgent extends BaseAgent {
           this.logger.error(`Error checking status of pending trade ${trade.exchangeOrderId} for ${trade.asset}: ${fetchErr.message}`);
           
           // Send a Telegram notification ONCE per order to prevent spamming
-          const metadata = trade.metadata || {};\r
-          if (!metadata.notifiedApiError) {\r
-            metadata.notifiedApiError = true;\r
-            trade.metadata = metadata;\r
-            trade.markModified('metadata');\r
+          const metadata = trade.metadata || {};
+          if (!metadata.notifiedApiError) {
+            metadata.notifiedApiError = true;
+            trade.metadata = metadata;
+            trade.markModified('metadata');
             await trade.save();
             
             await sendTelegramMessage(
@@ -313,9 +313,9 @@ export default class ExecutionAgent extends BaseAgent {
               }
             }
           } else {
-            pendingTrade.status = 'cancelled';\r
-            pendingTrade.metadata = { ...(pendingTrade.metadata || {}), cancelReason: 'Superceded by new signal' };\r
-            pendingTrade.markModified('metadata');\r
+            pendingTrade.status = 'cancelled';
+            pendingTrade.metadata = { ...(pendingTrade.metadata || {}), cancelReason: 'Superceded by new signal' };
+            pendingTrade.markModified('metadata');
             await pendingTrade.save();
             
             // Refund full margin and fees
