@@ -157,6 +157,34 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
   * **Method**: `GET`
   * **Path**: `/futures/positions?exchange=EXCHANGE_2` (optionally appends `&symbol={symbol}`)
   * **Usage**: Reconciles currently open margin contracts against database state.
+  * **Response Format**:
+    ```json
+    {
+      "data": [
+        {
+          "exchange": "EXCHANGE_2",
+          "position_id": "8b81b763-df36-4c93-9bc8-9a93d65b8546",
+          "symbol": "DOGEUSDT",
+          "position_side": "LONG",
+          "leverage": "25",
+          "position_size": "65",
+          "position_value": "25.09455",
+          "position_margin": "34.052117186199",
+          "maint_margin": "37.641825",
+          "avg_entry_price": "0.38607",
+          "mark_price": "0.38231",
+          "last_price": "0.38135",
+          "unrealised_pnl": "0.3068",
+          "liquidation_price": "0.129122150942",
+          "client_txn_id": "00000000-0000-0000-0000-000000000000",
+          "margin_type": "ISOLATED",
+          "status": "OPEN",
+          "created_at": 1732617093684,
+          "updated_at": 1732636761825
+        }
+      ]
+    }
+    ```
 
 * **Get Open Futures Orders**:
   * **Method**: `POST`
