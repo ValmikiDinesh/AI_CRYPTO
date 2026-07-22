@@ -402,7 +402,7 @@ class CoinSwitchExchange {
         if (res.data && res.data.data) {
           const o = res.data.data;
           return {
-            id: o.orderId,
+            id: o.order_id || o.orderId,
             symbol: symbol,
             type: 'market',
             side: side,
@@ -457,7 +457,7 @@ class CoinSwitchExchange {
         if (res.data && res.data.data) {
           const o = res.data.data;
           return {
-            id: o.orderId,
+            id: o.order_id || o.orderId,
             symbol: symbol,
             type: 'limit',
             side: side,
@@ -554,7 +554,7 @@ class CoinSwitchExchange {
         if (res.data && res.data.data) {
           const o = res.data.data;
           return {
-            id: o.orderId,
+            id: o.order_id || o.orderId,
             symbol,
             type,
             side,
