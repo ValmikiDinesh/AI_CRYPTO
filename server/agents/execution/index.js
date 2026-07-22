@@ -96,14 +96,18 @@ export default class ExecutionAgent extends BaseAgent {
           const isExpired = age >= EXPIRATION_TIMEOUT_MS;
           if (isExpired && filled === 0) {
             this.logger.info(`⏳ Unfilled pending trade for ${trade.asset} expired (5m old). Cancelling...`);
+            let cancelSuccess = true;
+            let cancelError = null;
             try {
               await cancelOrder(trade.asset, trade.exchangeOrderId);
             } catch (cancelErr) {
+              cancelSuccess = false;
+              cancelError = cancelErr.message;
               this.logger.warn(`Failed to cancel expired order ${trade.exchangeOrderId} on exchange: ${cancelErr.message}`);
             }
 
             trade.status = 'cancelled';
-            trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)' };
+            trade.metadata = { ...(trade.metadata || {}), cancelReason: 'Expired (5m limit)', cancelError };
             await trade.save();
             
             // Refund full margin and fees
@@ -118,15 +122,42 @@ export default class ExecutionAgent extends BaseAgent {
               this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for expired trade on ${trade.asset}`);
             }
             
+            const cancelStatusMsg = cancelSuccess 
+              ? `Successfully cancelled on exchange, and $${marginReserved.toFixed(2)} reserved margin has been refunded to your balance.`
+              : `Failed to cancel automatically on exchange (Error: <i>${cancelError}</i>). Please verify and cancel manually if needed.`;
+
             await sendTelegramMessage(
-              `⏳ <b>Limit Order Expired</b>\n` +
+              `⏳ <b>Limit Order Expired & Cancelled</b>\n` +
               `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
-              `<b>Action</b>: ${trade.action} limit order was cancelled after 5 minutes of no fill.`
+              `<b>Action</b>: ${trade.action} (Limit Order)\n` +
+              `<b>Limit Price</b>: $${formatPrice(trade.entryPrice)}\n` +
+              `<b>Quantity</b>: ${trade.quantity}\n` +
+              `<b>Time Limit</b>: 5 minutes reached without execution.\n` +
+              `<b>Status</b>: ${cancelStatusMsg}`
             );
           }
 
         } catch (fetchErr) {
           this.logger.error(`Error checking status of pending trade ${trade.exchangeOrderId} for ${trade.asset}: ${fetchErr.message}`);
+          
+          // Send a Telegram notification ONCE per order to prevent spamming
+          const metadata = trade.metadata || {};
+          if (!metadata.notifiedApiError) {
+            metadata.notifiedApiError = true;
+            trade.metadata = metadata;
+            await trade.save();
+            
+            await sendTelegramMessage(
+              `⚠️ <b>Order Status Check Error</b>\n` +
+              `<b>Asset</b>: ${trade.asset.replace('USDT', '')}/USDT\n` +
+              `<b>Action</b>: ${trade.action} (Limit Order)\n` +
+              `<b>Order ID</b>: <code>${trade.exchangeOrderId}</code>\n` +
+              `<b>Target Price</b>: $${formatPrice(trade.entryPrice)}\n` +
+              `<b>Quantity</b>: ${trade.quantity}\n` +
+              `<b>Error Detail</b>: <i>${fetchErr.message}</i>\n\n` +
+              `<i>Note: The bot will continue retrying to verify and manage this order in the background.</i>`
+            );
+          }
         }
       }
     } catch (err) {
