@@ -583,4 +583,34 @@ Public market-data sockets for CoinSwitch Pro futures use Socket.IO v4 with a si
            }
          }
          ```
+     * **Ticker Info Event**: `FETCH_TICKER_INFO_CS_PRO`
+       * Payload: `{"event": "subscribe", "pair": "BTCUSDT"}`
+       * Broadcast/Push: Server pushes updates back as events on the name `FETCH_TICKER_INFO_CS_PRO` (keyed by symbol).
+       * Push Format:
+         ```json
+         {
+           "BTCUSDT": {
+             "E": 1732801135779,
+             "s": "BTCUSDT",
+             "o": "93905.00",
+             "h": "97276.00",
+             "l": "93803.00",
+             "c": "95357.00",
+             "e": "EXCHANGE_2",
+             "bv": "124666.7500",
+             "qv": "11922532766.1146",
+             "P": "1.546200",
+             "b": "95357.00",
+             "a": "95357.10",
+             "T": 1732809600000,
+             "p": 95347.19,
+             "i": 95280.65,
+             "r": 0.00024185,
+             "oi": "",
+             "oiv": "",
+             "bs": "",
+             "as": ""
+           }
+         }
+         ```
   3. *Note for KLines: The symbol format is `SYMBOL_INTERVAL` (e.g., `BTCUSDT_5`).*
