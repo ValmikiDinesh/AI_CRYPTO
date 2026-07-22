@@ -372,3 +372,31 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
       }
     }
     ```
+
+* **Get Futures Account Transactions**:
+  * **Method**: `GET`
+  * **Path**: `/futures/transactions?exchange=EXCHANGE_2` (optionally filter with `&symbol={symbol}&type={type}&limit={limit}`)
+  * **Usage**: Lists balance-affecting transactions (fees, funding payments, P&L adjustments, liquidated margins).
+  * **Response Format**:
+    ```json
+    {
+      "data": [
+        {
+          "exchange": "EXCHANGE_2",
+          "transaction_id": "678708aa-507b-4881-8b3f-1a50b63dd0c4-0193677c-0544-77d1-b3a6-2130d671e54c",
+          "symbol": "ADAUSDT",
+          "type": "FUNDING_FEE",
+          "quote_asset": "USDT",
+          "amount": "0.00099946"
+        },
+        {
+          "exchange": "EXCHANGE_2",
+          "transaction_id": "8b81b763-df36-4c93-9bc8-9a93d65b8546",
+          "symbol": "DOGEUSDT",
+          "type": "ADD_MARGIN",
+          "quote_asset": "USDT",
+          "amount": "16"
+        }
+      ]
+    }
+    ```
