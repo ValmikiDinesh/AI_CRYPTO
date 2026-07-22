@@ -100,7 +100,7 @@ export default class PortfolioAgent extends BaseAgent {
 
       let isNativelyClosed = false;
       let closePrice = currentPrice;
-      let closeReason = 'Exchange-side trigger';
+      let closeReason = 'Exchange-side trigger (Stop-Loss / Take-Profit order executed on CoinSwitch Pro)';
 
       if (fetchedExchangeSuccessfully) {
         const exchangePos = exchangePositionMap.get(position.asset);
