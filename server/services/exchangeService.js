@@ -14,6 +14,9 @@ class CoinSwitchExchange {
     this.positionsCache = {};
     this.allTickersCache = null;
     this.ohlcvCache = {};
+    // Global request throttle: minimum 350ms between any two private API calls
+    this._lastRequestTime = 0;
+    this._requestQueue = Promise.resolve();
     this.syncTimeOffset();
   }
 
@@ -148,11 +151,28 @@ class CoinSwitchExchange {
     }
   }
 
+  // Global throttle: ensures minimum gap between private API calls to stay under rate limits
+  async _throttle() {
+    return new Promise(resolve => {
+      this._requestQueue = this._requestQueue.then(async () => {
+        const now = Date.now();
+        const elapsed = now - this._lastRequestTime;
+        const minGap = 350; // minimum 350ms between API requests
+        if (elapsed < minGap) {
+          await new Promise(r => setTimeout(r, minGap - elapsed));
+        }
+        this._lastRequestTime = Date.now();
+        resolve();
+      });
+    });
+  }
+
   // Execute authenticated requests with rate-limit retry support (exponential backoff on 429)
   async _requestWithRetry(method, path, body = {}, maxAttempts = 3) {
     let attempts = 0;
     while (attempts < maxAttempts) {
       try {
+        await this._throttle();
         const auth = await this._signRequest(method, path, body);
         if (!auth) {
           throw new Error(`Failed to sign request for ${method} ${path} (credentials missing)`);
@@ -172,10 +192,9 @@ class CoinSwitchExchange {
       } catch (err) {
         attempts++;
         const status = err.response?.status;
-        const errMsg = err.response?.data?.message || err.message;
         
         if (status === 429 && attempts < maxAttempts) {
-          const delay = 1500 * attempts;
+          const delay = 2000 * attempts;
           logger.warn(`⚠️ CoinSwitch Pro 429 Rate Limit on ${method} ${path}. Retrying attempt ${attempts}/${maxAttempts} in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         } else {
@@ -562,8 +581,14 @@ class CoinSwitchExchange {
     if (orderType === 'TAKE_PROFIT') orderType = 'TAKE_PROFIT_MARKET';
 
     let qty = parseFloat(amount || 0);
-    if (orderType === 'STOP_MARKET' || orderType === 'TAKE_PROFIT_MARKET') {
+    const isTriggerOrder = orderType === 'STOP_MARKET' || orderType === 'TAKE_PROFIT_MARKET';
+    if (isTriggerOrder) {
       qty = 0;
+    }
+
+    // Validate trigger_price for trigger orders BEFORE sending to the exchange
+    if (isTriggerOrder && (stopPrice === undefined || stopPrice === null || isNaN(parseFloat(stopPrice)) || parseFloat(stopPrice) <= 0)) {
+      throw new Error(`Invalid trigger_price (${stopPrice}) for ${orderType} order on ${symbol}. A valid positive trigger price is required.`);
     }
 
     const body = {
@@ -582,22 +607,23 @@ class CoinSwitchExchange {
       body.trigger_price = parseFloat(stopPrice);
     }
 
-    if (reduceOnly !== undefined) {
+    if (isTriggerOrder) {
+      body.reduce_only = true;
+      body.close_position = true;
+    } else if (reduceOnly !== undefined) {
       body.reduce_only = reduceOnly === true || reduceOnly === 'true';
     }
 
     const path = '/futures/order';
-    const auth = await this._signRequest('POST', path, body);
-    if (auth) {
-      try {
-        if (!this.isDemo) {
-          try {
-            await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
-          } catch (levErr) {
-            logger.warn(`Non-blocking leverage setup warning for ${symbol}: ${levErr.message}`);
-          }
+    try {
+      if (!this.isDemo) {
+        try {
+          await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+        } catch (levErr) {
+          logger.warn(`Non-blocking leverage setup warning for ${symbol}: ${levErr.message}`);
         }
-        const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
+      }
+      const res = await this._requestWithRetry('POST', path, body);
         if (res.data && res.data.data) {
           const o = res.data.data;
           return {
@@ -639,9 +665,8 @@ class CoinSwitchExchange {
           ? `/futures/positions?exchange=EXCHANGE_2&symbol=${symbol.replace('/', '').replace(':USDT', '').toUpperCase()}`
           : `/futures/positions?exchange=EXCHANGE_2`;
           
-        const auth = await this._signRequest('GET', path);
-        if (auth) {
-          const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
+        const res = await this._requestWithRetry('GET', path);
+        if (res) {
           if (res.data) {
             if (res.data.message && res.data.message.includes('no open Positions')) {
               this.positionsCache[cacheKey] = { timestamp: now, data: [] };
@@ -746,13 +771,9 @@ class CoinSwitchExchange {
         order_id: id
       };
       const path = '/futures/order';
-      const auth = await this._signRequest('DELETE', path, body);
-      if (auth && !this.isDemo) {
-        const res = await axios.delete(`https://coinswitch.co/trade/api/v2${path}`, {
-          ...auth,
-          data: body
-        });
-        if (res.data && res.data.data) {
+      if (!this.isDemo) {
+        const res = await this._requestWithRetry('DELETE', path, body);
+        if (res && res.data && res.data.data) {
           return { id, symbol, status: 'canceled', raw: res.data.data };
         }
       }
@@ -776,10 +797,9 @@ class CoinSwitchExchange {
         exchange: 'EXCHANGE_2',
         symbol: cleanSym
       };
-      const auth = await this._signRequest('POST', path, body);
-      if (auth && !this.isDemo) {
-        const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
-        if (res.data && res.data.data) {
+      if (!this.isDemo) {
+        const res = await this._requestWithRetry('POST', path, body);
+        if (res && res.data && res.data.data) {
           return { symbol, status: 'all_canceled', raw: res.data.data };
         }
       }
@@ -813,9 +833,8 @@ class CoinSwitchExchange {
         body.limit = limit;
       }
 
-      const auth = await this._signRequest('POST', path, body);
-      if (auth) {
-        const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
+      {
+        const res = await this._requestWithRetry('POST', path, body);
         if (res.data && res.data.data && res.data.data.orders) {
           const orders = res.data.data.orders;
           return orders.map(o => {
@@ -869,9 +888,8 @@ class CoinSwitchExchange {
         body.from_time = since;
       }
 
-      const auth = await this._signRequest('POST', path, body);
-      if (auth) {
-        const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
+      {
+        const res = await this._requestWithRetry('POST', path, body);
         if (res.data && res.data.data && res.data.data.orders) {
           const orders = res.data.data.orders;
           return orders.map(o => {
@@ -913,10 +931,9 @@ class CoinSwitchExchange {
     };
 
     const path = '/futures/leverage';
-    const auth = await this._signRequest('POST', path, body);
-    if (auth && !this.isDemo) {
+    if (!this.isDemo) {
       try {
-        const res = await axios.post(`https://coinswitch.co/trade/api/v2${path}`, body, auth);
+        const res = await this._requestWithRetry('POST', path, body);
         logger.info(`✅ Leverage set to ${leverage}x for ${cleanSym}`);
         return res.data;
       } catch (err) {
