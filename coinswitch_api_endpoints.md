@@ -301,5 +301,40 @@ These endpoints require Ed25519 request signing with `valmiki.pem`.
         "symbol": "BTCUSDT",
         "leverage": "13"
       }
+    ```
+
+* **Add Position Margin**:
+  * **Method**: `POST`
+  * **Path**: `/futures/add_margin`
+  * **Payload Parameters**:
+    ```json
+    {
+      "exchange": "EXCHANGE_2",
+      "symbol": "DOGEUSDT",
+      "margin": 16            // USDT amount to add
+    }
+    ```
+  * **Response Format**:
+    ```json
+    {
+      "data": {
+        "exchange": "EXCHANGE_2",
+        "position_id": "8b81b763-df36-4c93-9bc8-9a93d65b8546",
+        "symbol": "DOGEUSDT",
+        "position_side": "LONG",
+        "leverage": "25",
+        "position_size": "65",
+        "position_value": "25.09455",
+        "position_margin": "50.052117186199",
+        "maint_margin": "37.641825",
+        "avg_entry_price": "0.38607",
+        "mark_price": "0.38694",
+        "last_price": "0.38677",
+        "unrealised_pnl": "-0.0455",
+        "liquidation_price": "-0.3752759970953692",
+        "status": "OPEN",
+        "created_at": 1732617093684,
+        "updated_at": 1732636761825
+      }
     }
     ```
