@@ -562,11 +562,25 @@ Public market-data sockets for CoinSwitch Pro futures use Socket.IO v4 with a si
 
 * **Subscription Protocol**:
   1. Connect to the namespace `/exchange_2`.
-  2. Emit the event name (e.g. `order_book`, `ticker`, `trades`, `klines`) with a subscription payload containing the symbol:
-     ```json
-     {
-       "symbol": "BTCUSDT"
-     }
-     ```
-  3. The server will stream real-time rates back as events on the same event name.
-  4. *Note for KLines: The symbol format is `SYMBOL_INTERVAL` (e.g., `BTCUSDT_5`).*
+  2. Emit the event name with subscription payload:
+     * **Order Book Event**: `FETCH_ORDER_BOOK_CS_PRO`
+       * Payload: `{"event": "subscribe", "pair": "BTCUSDT"}`
+       * Broadcast/Push: Server pushes updates back as events on the same name `FETCH_ORDER_BOOK_CS_PRO`.
+       * Push Format:
+         ```json
+         {
+           "data": {
+             "timestamp": 1732685131699,
+             "asks": [
+               ["3388.92", "0.10"],
+               ["3388.94", "0.01"]
+             ],
+             "bids": [
+               ["3425.71", "2.16"],
+               ["3425.69", "0.01"]
+             ],
+             "symbol": "ETHUSDT"
+           }
+         }
+         ```
+  3. *Note for KLines: The symbol format is `SYMBOL_INTERVAL` (e.g., `BTCUSDT_5`).*
