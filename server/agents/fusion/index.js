@@ -132,8 +132,10 @@ export default class FusionAgent extends BaseAgent {
           limitEntryPrice = Math.min(limitEntryPrice, currentPrice - 0.05 * atr);
           limitEntryPrice = Math.max(0.00000001, limitEntryPrice);
 
-          stopLoss = limitEntryPrice - 1.5 * atr;
-          takeProfit = limitEntryPrice + 3.0 * atr;
+          const minSlDistance = limitEntryPrice * 0.02; // 2.0% minimum Stop Loss distance
+          const slDistance = Math.max(minSlDistance, 1.5 * atr);
+          stopLoss = limitEntryPrice - slDistance;
+          takeProfit = limitEntryPrice + (slDistance * 2.0); // 2:1 Reward-to-Risk Ratio (minimum +4.0% TP)
         }
       } else if (action === ACTIONS.SELL) {
         // Validate and use AI-defined levels if direction-aligned and structurally correct
@@ -162,8 +164,10 @@ export default class FusionAgent extends BaseAgent {
           }
           limitEntryPrice = Math.max(limitEntryPrice, currentPrice + 0.05 * atr);
 
-          stopLoss = limitEntryPrice + 1.5 * atr;
-          takeProfit = limitEntryPrice - 3.0 * atr;
+          const minSlDistance = limitEntryPrice * 0.02; // 2.0% minimum Stop Loss distance
+          const slDistance = Math.max(minSlDistance, 1.5 * atr);
+          stopLoss = limitEntryPrice + slDistance;
+          takeProfit = limitEntryPrice - (slDistance * 2.0); // 2:1 Reward-to-Risk Ratio (minimum -4.0% TP)
         }
       }
     }

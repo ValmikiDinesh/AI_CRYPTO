@@ -171,7 +171,7 @@ export const generateTechnicalSignal = (indicators) => {
 
   const { confidence, rsi } = indicators;
 
-  if (confidence >= 0.52) {
+  if (confidence >= 0.65) {
     return {
       action: 'BUY',
       confidence,
@@ -179,7 +179,7 @@ export const generateTechnicalSignal = (indicators) => {
     };
   }
 
-  if (confidence <= 0.48) {
+  if (confidence <= 0.35) {
     return {
       action: 'SELL',
       confidence: 1 - confidence,

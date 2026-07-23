@@ -102,6 +102,31 @@ export default class RiskAgent extends BaseAgent {
       );
     }
 
+    // 2.5. 1-Hour Macro Trend Alignment Filter (Enforce Trend-Following Strategy)
+    const candles = this.marketAgent ? this.marketAgent.getCandles(signal.asset) : null;
+    if (candles && candles.length >= 12) {
+      const currentClose = candles[candles.length - 1].close;
+      const close1hAgo = candles[candles.length - 12].close; // 12 candles * 5m = 60m (1 hour)
+      const priceChange1hPct = ((currentClose - close1hAgo) / close1hAgo) * 100;
+
+      const isBuyAction = signal.action === ACTIONS.BUY || signal.action === 'BUY' || signal.side === 'long';
+      const isSellAction = signal.action === ACTIONS.SELL || signal.action === 'SELL' || signal.side === 'short';
+
+      if (isBuyAction && priceChange1hPct < -0.15) {
+        return this.reject(
+          `1-Hour macro trend is bearish (${priceChange1hPct.toFixed(2)}%) for ${signal.asset} — counter-trend BUY rejected`,
+          'trend_alignment_mismatch',
+          signal
+        );
+      } else if (isSellAction && priceChange1hPct > 0.15) {
+        return this.reject(
+          `1-Hour macro trend is bullish (+${priceChange1hPct.toFixed(2)}%) for ${signal.asset} — counter-trend SELL rejected`,
+          'trend_alignment_mismatch',
+          signal
+        );
+      }
+    }
+
 
     // 3. Max risk per trade (increased to 16% to support aggressive Kelly allocations)
     const positionPct = parseFloat(signal.positionSize) / 100;
