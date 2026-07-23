@@ -79,6 +79,10 @@ export default function Settings() {
           setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct || 10);
           setCoinSwitchApiKey(res.data.data.coinSwitchApiKey || '');
           setCoinSwitchApiSecret(res.data.data.coinSwitchApiSecret || '');
+          if (res.data.data.usdToInrRate) {
+            setRateInput(res.data.data.usdToInrRate);
+            setStoreRate(res.data.data.usdToInrRate);
+          }
         }
       } catch (err) {
         console.error('Failed to load portfolio settings:', err);
@@ -94,14 +98,15 @@ export default function Settings() {
     setSaving(true);
     setFeedback(null);
 
-    // Save local store currency conversion rate
-    setStoreRate(parseFloat(rateInput || '96.29'));
+    const parsedRate = parseFloat(rateInput || '96.54');
+    setStoreRate(parsedRate);
 
     try {
       const res = await axios.post('/api/portfolio/config', {
         baseTradingCapital: parseFloat(baseTradingCapital),
         basketProfitTargetPct: parseFloat(basketProfitTargetPct),
         sweepTargetProfitPct: parseFloat(sweepTargetProfitPct),
+        usdToInrRate: parsedRate,
         coinSwitchApiKey,
         coinSwitchApiSecret,
       });

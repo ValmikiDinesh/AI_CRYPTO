@@ -126,6 +126,7 @@ router.get('/performance', async (req, res, next) => {
         baseTradingCapital: portfolio.baseTradingCapital,
         basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
         sweepTargetProfitPct: portfolio.sweepTargetProfitPct || 10,
+        usdToInrRate: portfolio.usdToInrRate || 96.54,
         coinSwitchApiKey: portfolio.coinSwitchApiKey || "",
         coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
       },
@@ -317,7 +318,7 @@ router.get('/volatility-profile', async (req, res, next) => {
 // POST /api/portfolio/config — update portfolio configurations (base capital, profit target percentage, keys)
 router.post('/config', async (req, res, next) => {
   try {
-    const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct, coinSwitchApiKey, coinSwitchApiSecret } = req.body;
+    const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct, usdToInrRate, coinSwitchApiKey, coinSwitchApiSecret } = req.body;
 
     const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
@@ -326,7 +327,6 @@ router.post('/config', async (req, res, next) => {
 
     if (baseTradingCapital !== undefined) {
       portfolio.baseTradingCapital = parseFloat(baseTradingCapital);
-      // For paper trading, update totalBalance and availableBalance too to reset to new capital
       if (process.env.TRADING_MODE !== 'live') {
         portfolio.totalBalance = parseFloat(baseTradingCapital);
         portfolio.availableBalance = parseFloat(baseTradingCapital);
@@ -340,6 +340,10 @@ router.post('/config', async (req, res, next) => {
 
     if (sweepTargetProfitPct !== undefined) {
       portfolio.sweepTargetProfitPct = parseFloat(sweepTargetProfitPct);
+    }
+
+    if (usdToInrRate !== undefined) {
+      portfolio.usdToInrRate = parseFloat(usdToInrRate);
     }
 
     if (coinSwitchApiKey !== undefined) {
@@ -377,6 +381,7 @@ router.post('/config', async (req, res, next) => {
       baseTradingCapital: portfolio.baseTradingCapital,
       basketProfitTargetPct: portfolio.basketProfitTargetPct,
       sweepTargetProfitPct: portfolio.sweepTargetProfitPct,
+      usdToInrRate: portfolio.usdToInrRate,
       manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
       autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
       coinSwitchApiKey: portfolio.coinSwitchApiKey || "",
