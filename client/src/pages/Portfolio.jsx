@@ -45,14 +45,14 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
   }
 
   const totalOpenCommission = filteredOpenTrades.reduce((sum, t) => {
-    const fees = t.fees !== undefined && t.fees !== null ? t.fees : (t.entryPrice * t.quantity * 0.0005);
+    const fees = (t.fees && t.fees > 0) ? t.fees : (t.entryPrice * t.quantity * 0.0005);
     return sum + fees;
   }, 0);
 
   const totalOpenNetPnl = filteredOpenTrades.reduce((sum, t) => {
     const currentPrice = prices ? prices[t.asset] : undefined;
     if (!currentPrice) return sum;
-    const fees = t.fees !== undefined && t.fees !== null ? t.fees : (t.entryPrice * t.quantity * 0.0005);
+    const fees = (t.fees && t.fees > 0) ? t.fees : (t.entryPrice * t.quantity * 0.0005);
     const isLong = t.side === 'long' || t.action === 'BUY';
     const grossPnl = isLong ? (currentPrice - t.entryPrice) * t.quantity : (t.entryPrice - currentPrice) * t.quantity;
     return sum + (grossPnl - fees);
@@ -108,7 +108,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
               const currentPrice = (prices && prices[trade.asset] !== undefined)
                 ? prices[trade.asset]
                 : (trade.currentPrice || trade.entryPrice || 0);
-              const fees = trade.fees !== undefined && trade.fees !== null 
+              const fees = (trade.fees && trade.fees > 0)
                 ? trade.fees 
                 : (trade.entryPrice * trade.quantity * 0.0005);
               const isLong = trade.side === 'long' || trade.action === 'BUY';

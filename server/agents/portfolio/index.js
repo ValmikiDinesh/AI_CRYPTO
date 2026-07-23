@@ -555,6 +555,8 @@ export default class PortfolioAgent extends BaseAgent {
           let dynamicTrailingPct = undefined;
           const category = getCategoryForAsset(asset);
 
+          const estimatedEntryFee = entryPrice * quantity * 0.0005;
+
           // Add to portfolio positions array
           portfolio.positions.push({
             asset,
@@ -566,7 +568,7 @@ export default class PortfolioAgent extends BaseAgent {
             unrealizedPnl,
             status: 'open',
             openedAt: new Date(exchangePos.timestamp || Date.now()),
-            fees: activeTrade ? (activeTrade.fees || 0) : 0,
+            fees: (activeTrade && activeTrade.fees > 0) ? activeTrade.fees : estimatedEntryFee,
             stopLoss: calculatedStopLoss,
             takeProfit: calculatedTakeProfit,
             stopLossOrderId,
@@ -588,6 +590,7 @@ export default class PortfolioAgent extends BaseAgent {
               quantity,
               positionSize: ((entryPrice * quantity) / portfolio.totalBalance) * 100,
               leverage,
+              fees: estimatedEntryFee,
               stopLoss: calculatedStopLoss,
               takeProfit: calculatedTakeProfit,
               confidence: 1.0,

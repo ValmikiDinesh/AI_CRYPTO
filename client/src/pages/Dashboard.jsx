@@ -506,7 +506,7 @@ export default function Dashboard() {
                         {trade.quantity?.toFixed(5) || '—'}
                       </td>
                       <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
-                        {trade.fees !== undefined && trade.fees !== null 
+                        {(trade.fees && trade.fees > 0)
                           ? `$${trade.fees.toFixed(4)}` 
                           : `$${((trade.price || trade.entryPrice) * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)).toFixed(4)}`}
                       </td>
@@ -536,7 +536,7 @@ export default function Dashboard() {
                             ? '#86868b' 
                             : trade.status === 'failed'
                               ? '#ff453a'
-                              : (((trade.pnl || 0) - (trade.fees !== undefined && trade.fees !== null ? trade.fees : ((trade.price || trade.entryPrice) * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)))) >= 0 ? '#30d158' : '#ff453a') 
+                              : (((trade.pnl || 0) - ((trade.fees && trade.fees > 0) ? trade.fees : ((trade.price || trade.entryPrice) * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)))) >= 0 ? '#30d158' : '#ff453a') 
                         }}
                       >
                         {trade.status === 'open' 
@@ -544,7 +544,7 @@ export default function Dashboard() {
                           : trade.status === 'failed' 
                             ? 'FAILED' 
                             : (() => {
-                                const fees = trade.fees !== undefined && trade.fees !== null 
+                                const fees = (trade.fees && trade.fees > 0)
                                   ? trade.fees 
                                   : ((trade.price || trade.entryPrice) * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005));
                                 const net = (trade.pnl || 0) - fees;
