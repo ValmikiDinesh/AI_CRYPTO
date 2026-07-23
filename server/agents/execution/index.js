@@ -438,8 +438,11 @@ export default class ExecutionAgent extends BaseAgent {
 
 
 
-    // Enforce safety limits: cap the maximum margin used for a single trade to 35% of total balance (aggressive)
-    const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 3;
+    // Option A: Enforce Minimum $5.00 Margin Floor ($25.00 Notional Value at 5x Leverage)
+    const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 5;
+    const MIN_MARGIN_FLOOR = 5.0; // Minimum $5.00 margin floor per trade
+    const MIN_NOTIONAL = MIN_MARGIN_FLOOR * leverage; // $25.00 notional minimum at 5x leverage
+
     const maxMargin = portfolio.totalBalance * 0.35;
     const maxNotional = maxMargin * leverage;
     
@@ -447,35 +450,26 @@ export default class ExecutionAgent extends BaseAgent {
       positionValue = maxNotional;
     }
 
-    // Enforce minimum notional order limit of 2 USDT for CoinSwitch Pro
-    const MIN_NOTIONAL = 2.0;
-    if (positionValue < MIN_NOTIONAL) {
+    let marginRequired = positionValue / leverage;
+
+    // Enforce Option A floor: Minimum $5.00 margin ($25.00 notional value)
+    if (marginRequired < MIN_MARGIN_FLOOR) {
+      marginRequired = MIN_MARGIN_FLOOR;
       positionValue = MIN_NOTIONAL;
     }
 
-    let marginRequired = positionValue / leverage;
-
+    // Ensure available account balance can cover the $5.00 minimum required margin
     if (portfolio.availableBalance < marginRequired) {
-      // Dynamic Sizing: Scale down positionValue so that required margin is 80% of available balance
-      const targetMargin = portfolio.availableBalance * 0.8;
-      const targetNotional = targetMargin * leverage;
-      
-      if (targetNotional >= MIN_NOTIONAL) {
-        this.logger.info(`Dynamic sizing: scaled down notional from $${positionValue.toFixed(2)} to $${targetNotional.toFixed(2)} (margin: $${targetMargin.toFixed(2)}) to fit available balance of $${portfolio.availableBalance.toFixed(2)}`);
-        positionValue = targetNotional;
-        marginRequired = targetMargin;
-      } else {
-        this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required margin ($${marginRequired.toFixed(2)}) for minimum notional ($${MIN_NOTIONAL}) — skipping`);
-        return;
-      }
+      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required minimum margin ($${marginRequired.toFixed(2)}) for Option A ($5.00 margin / $25.00 position floor) — skipping`);
+      return;
     }
 
     let quantity = positionValue / limitEntryPrice;
 
-    // Enforce dynamic safety risk cap to protect against excessive risk exposure when trades are scaled up
+    // Enforce dynamic safety risk cap while guaranteeing minimum $5.00 margin allocation
     const accountSize = portfolio.totalBalance;
-    const safetyCapPct = accountSize < 50 ? 0.20 : 0.05; // 20% for <$50, 5% for >=$50
-    const marginLimit = accountSize * safetyCapPct;
+    const safetyCapPct = accountSize < 50 ? 0.35 : 0.15; // 35% for <$50 balance
+    const marginLimit = Math.max(MIN_MARGIN_FLOOR, accountSize * safetyCapPct);
 
     if (marginRequired > marginLimit) {
       const targetNotional = marginLimit * leverage;
@@ -485,7 +479,7 @@ export default class ExecutionAgent extends BaseAgent {
         positionValue = targetNotional;
         quantity = positionValue / limitEntryPrice;
       } else {
-        this.logger.warn(`${signal.asset}: scaled-up required margin ($${marginRequired.toFixed(2)}) exceeds the dynamic safety risk limit ($${marginLimit.toFixed(2)}, ${safetyCapPct * 100}% of total balance) — skipping`);
+        this.logger.warn(`${signal.asset}: required margin ($${marginRequired.toFixed(2)}) exceeds dynamic safety risk limit ($${marginLimit.toFixed(2)}) — skipping`);
         return;
       }
     }
