@@ -2,6 +2,7 @@ import express from 'express';
 import Portfolio from '../models/Portfolio.js';
 import Trade from '../models/Trade.js';
 import { SYSTEM_USER_ID } from '../config/constants.js';
+import { sendTelegramMessage } from '../services/telegramService.js';
 
 const router = express.Router();
 
@@ -360,6 +361,23 @@ router.post('/config', async (req, res, next) => {
     portfolio.targetProfitThreshold = baseCap * (1 + sweepPct / 100);
 
     await portfolio.save();
+
+    // Send Telegram notification
+    try {
+      const telegramMsg = `
+<b>⚙️ System Settings Updated</b>
+
+<b>Total Base Capital:</b> $${portfolio.baseTradingCapital?.toFixed(4)} USD
+<b>Sweep Target Profit:</b> ${portfolio.sweepTargetProfitPct}%
+<b>Basket Profit Target:</b> ${portfolio.basketProfitTargetPct}%
+<b>USD to INR Rate:</b> ₹${portfolio.usdToInrRate || 96.54}
+
+<i>All trading agents and risk parameters have been synchronized with these updated configurations.</i>
+`.trim();
+      await sendTelegramMessage(telegramMsg);
+    } catch (tgErr) {
+      console.error('Failed to send Telegram notification on config update:', tgErr);
+    }
 
     // Trigger update on WebSocket/Redis channel
     const { publishEvent, CHANNELS } = await import('../config/redis.js');
