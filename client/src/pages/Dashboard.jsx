@@ -170,11 +170,19 @@ export default function Dashboard() {
     return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
   };
 
-  const displayedAssets = activeTab === 'core' 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(20);
+
+  const filteredAssets = (activeTab === 'core' 
     ? assetCategories.core 
     : activeTab === 'meme' 
       ? assetCategories.meme 
-      : assetCategories.recommended;
+      : assetCategories.recommended).filter((a) => {
+        if (!searchQuery.trim()) return true;
+        return a.toLowerCase().includes(searchQuery.trim().toLowerCase());
+      });
+
+  const displayedAssets = filteredAssets.slice(0, visibleCount);
 
   const displayedSignals = signalHistory.filter((sig) => sig.source === 'fusion' && (assetCategories.all || ASSETS).includes(sig.asset));
 
@@ -382,44 +390,62 @@ export default function Dashboard() {
       <div className="grid-layout-3">
         {/* Tickers section */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between border-b border-[#2c2c2e]/60 pb-2 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#2c2c2e]/60 pb-3 mb-4 gap-3">
             <h3 className="text-xs font-bold text-[#86868b] uppercase tracking-widest flex items-center gap-1.5 font-mono">
               <Zap size={13} className="text-sky-400" />
-              Live Market Prices
+              Live Market Prices ({filteredAssets.length})
             </h3>
-            <div className="flex bg-[#1c1c1e] p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
-              <button 
-                onClick={() => setActiveTab('core')}
-                className={`px-3 py-1 rounded-md transition-all duration-300 ${
-                  activeTab === 'core' 
-                    ? 'bg-[#0071e3] text-white shadow-md' 
-                    : 'text-[#86868b] hover:text-[#f5f5f7]'
-                }`}
-              >
-                Core Crypto
-              </button>
-              <button 
-                onClick={() => setActiveTab('meme')}
-                className={`px-3 py-1 rounded-md transition-all duration-300 ${
-                  activeTab === 'meme' 
-                    ? 'bg-[#0071e3] text-white shadow-md' 
-                    : 'text-[#86868b] hover:text-[#f5f5f7]'
-                }`}
-              >
-                Meme Coins
-              </button>
-              <button 
-                onClick={() => setActiveTab('recommended')}
-                className={`px-3 py-1 rounded-md transition-all duration-300 ${
-                  activeTab === 'recommended' 
-                    ? 'bg-[#0071e3] text-white shadow-md' 
-                    : 'text-[#86868b] hover:text-[#f5f5f7]'
-                }`}
-              >
-                Recommended
-              </button>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Search Bar */}
+              <div className="relative">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input 
+                  type="text" 
+                  placeholder="Search 568 coins..." 
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(20); }}
+                  className="bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-lg pl-7 pr-3 py-1 text-[10px] text-[#f5f5f7] font-mono focus:outline-none focus:border-sky-500/50 w-36 sm:w-44 placeholder:text-zinc-600"
+                />
+              </div>
+
+              {/* Category Tab Selector */}
+              <div className="flex bg-[#1c1c1e] p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
+                <button 
+                  onClick={() => { setActiveTab('core'); setVisibleCount(20); }}
+                  className={`px-2.5 py-1 rounded-md transition-all duration-300 ${
+                    activeTab === 'core' 
+                      ? 'bg-[#0071e3] text-white shadow-md' 
+                      : 'text-[#86868b] hover:text-[#f5f5f7]'
+                  }`}
+                >
+                  Core
+                </button>
+                <button 
+                  onClick={() => { setActiveTab('meme'); setVisibleCount(20); }}
+                  className={`px-2.5 py-1 rounded-md transition-all duration-300 ${
+                    activeTab === 'meme' 
+                      ? 'bg-[#0071e3] text-white shadow-md' 
+                      : 'text-[#86868b] hover:text-[#f5f5f7]'
+                  }`}
+                >
+                  Memes
+                </button>
+                <button 
+                  onClick={() => { setActiveTab('recommended'); setVisibleCount(20); }}
+                  className={`px-2.5 py-1 rounded-md transition-all duration-300 ${
+                    activeTab === 'recommended' 
+                      ? 'bg-[#0071e3] text-white shadow-md' 
+                      : 'text-[#86868b] hover:text-[#f5f5f7]'
+                  }`}
+                >
+                  Recommended ({assetCategories.recommended?.length || 0})
+                </button>
+              </div>
             </div>
           </div>
+
+          {/* Grid of Price Cards */}
           <div className="grid-layout-2">
             {displayedAssets.map((asset) => (
               <LivePriceCard
@@ -428,6 +454,16 @@ export default function Dashboard() {
               />
             ))}
           </div>
+
+          {/* Load More Button */}
+          {filteredAssets.length > visibleCount && (
+            <button 
+              onClick={() => setVisibleCount((prev) => prev + 20)}
+              className="w-full py-2.5 bg-[#1c1c1e] hover:bg-zinc-800/40 border border-[#2c2c2e]/60 text-sky-400 font-mono text-[10px] font-bold rounded-xl transition-all duration-200 mt-3 cursor-pointer"
+            >
+              Load More Coins ({filteredAssets.length - visibleCount} Remaining)
+            </button>
+          )}
         </div>
 
         {/* Signals Feed */}
