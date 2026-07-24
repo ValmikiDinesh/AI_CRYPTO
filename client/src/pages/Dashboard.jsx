@@ -149,6 +149,13 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme' | 'recommended'
   const [comparisonData, setComparisonData] = useState(null);
 
+  const [assetCategories, setAssetCategories] = useState({
+    core: CORE_ASSETS,
+    meme: MEME_ASSETS,
+    recommended: RECOMMENDED_ASSETS,
+    all: ASSETS
+  });
+
   const currency = useCurrencyStore((s) => s.currency);
   const rate = useCurrencyStore((s) => s.rate);
 
@@ -164,14 +171,22 @@ export default function Dashboard() {
   };
 
   const displayedAssets = activeTab === 'core' 
-    ? CORE_ASSETS 
+    ? assetCategories.core 
     : activeTab === 'meme' 
-      ? MEME_ASSETS 
-      : RECOMMENDED_ASSETS;
+      ? assetCategories.meme 
+      : assetCategories.recommended;
 
-  const displayedSignals = signalHistory.filter((sig) => sig.source === 'fusion' && ASSETS.includes(sig.asset));
+  const displayedSignals = signalHistory.filter((sig) => sig.source === 'fusion' && (assetCategories.all || ASSETS).includes(sig.asset));
 
   useEffect(() => {
+    const fetchAssetCategories = async () => {
+      try {
+        const res = await axios.get('/api/market/asset-categories');
+        if (res.data.success && res.data.data) {
+          setAssetCategories(res.data.data);
+        }
+      } catch {}
+    };
     const fetchPortfolio = async () => {
       try {
         const res = await axios.get('/api/portfolio/performance');
@@ -212,6 +227,7 @@ export default function Dashboard() {
         }
       } catch {}
     };
+    fetchAssetCategories();
     fetchPortfolio();
     fetchSignals();
     fetchPrices();

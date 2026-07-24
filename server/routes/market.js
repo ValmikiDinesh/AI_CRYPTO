@@ -1,6 +1,6 @@
 import express from 'express';
 import MarketData from '../models/MarketData.js';
-import { SUPPORTED_ASSETS } from '../config/constants.js';
+import { SUPPORTED_ASSETS, CORE_ASSETS, MEME_ASSETS, RECOMMENDED_ASSETS } from '../config/constants.js';
 
 const router = express.Router();
 
@@ -47,6 +47,19 @@ router.get('/candles/:asset', async (req, res, next) => {
 // GET /api/market/assets — list of supported assets
 router.get('/assets', (req, res) => {
   res.json({ success: true, data: SUPPORTED_ASSETS });
+});
+
+// GET /api/market/asset-categories — asset lists by category
+router.get('/asset-categories', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      core: CORE_ASSETS,
+      meme: MEME_ASSETS,
+      recommended: RECOMMENDED_ASSETS,
+      all: SUPPORTED_ASSETS
+    }
+  });
 });
 
 export default router;

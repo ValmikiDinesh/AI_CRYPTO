@@ -18,7 +18,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
     if (openLedgerTab === 'all') return true;
     if (openLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (openLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
-    if (openLedgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
+    if (openLedgerTab === 'recommended') return !CORE_ASSETS.includes(trade.asset) && !MEME_ASSETS.includes(trade.asset);
     return true;
   });
 
@@ -279,7 +279,7 @@ export default function Portfolio() {
     if (closedLedgerTab === 'all') return true;
     if (closedLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (closedLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
-    if (closedLedgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
+    if (closedLedgerTab === 'recommended') return !CORE_ASSETS.includes(trade.asset) && !MEME_ASSETS.includes(trade.asset);
     return true;
   });
 
@@ -291,7 +291,7 @@ export default function Portfolio() {
     if (ledgerTab === 'all') return true;
     if (ledgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (ledgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
-    if (ledgerTab === 'recommended') return RECOMMENDED_ASSETS.includes(trade.asset);
+    if (ledgerTab === 'recommended') return !CORE_ASSETS.includes(trade.asset) && !MEME_ASSETS.includes(trade.asset);
     return true;
   });
 

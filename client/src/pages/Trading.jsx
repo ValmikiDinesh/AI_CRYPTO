@@ -185,71 +185,65 @@ export default function Trading() {
       if (res.data.success) {
         usePortfolioStore.getState().setPortfolio(res.data.data);
       }
-    } catch (err) {
-      console.error("Failed to toggle asset:", err);
-    }
-  };
-
-  const isAssetDisabled = portfolio?.manuallyDisabledAssets?.includes(selectedAsset) || false;
-  const isAssetIgnored = portfolio?.autoIgnoredAssets?.includes(selectedAsset) || false;
-
   return (
     <div className="page-layout">
-      {/* Selector & Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 border-b border-[#2c2c2e]/60 pb-5">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#2c2c2e]/60 pb-5">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-[#f5f5f7]">Trading Desk</h2>
           <p className="text-[11px] text-[#86868b] mt-1 font-medium">
-            Analyze assets, configure technical indicators, and submit manual transactions.
+            Execute manual trades or configure automated agent overrides.
           </p>
         </div>
+      </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          {/* Tab Selector Switcher */}
-          <div className="flex bg-[#1c1c1e] p-0.5 rounded-full border border-[#2c2c2e]/60 text-[10px] font-bold font-mono">
+      {/* Asset Selection & Category Selector Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#2c2c2e]/60 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex bg-[#1c1c1e] p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
             <button 
               onClick={() => handleTabChange('core')}
-              className={`px-3 py-1 rounded-full transition-all duration-300 ${
+              className={`px-3 py-1 rounded-md transition-all duration-300 ${
                 activeTab === 'core' 
                   ? 'bg-[#0071e3] text-white shadow-md' 
                   : 'text-[#86868b] hover:text-[#f5f5f7]'
               }`}
             >
-              Core
+              Core Crypto
             </button>
             <button 
               onClick={() => handleTabChange('meme')}
-              className={`px-3 py-1 rounded-full transition-all duration-300 ${
+              className={`px-3 py-1 rounded-md transition-all duration-300 ${
                 activeTab === 'meme' 
                   ? 'bg-[#0071e3] text-white shadow-md' 
                   : 'text-[#86868b] hover:text-[#f5f5f7]'
               }`}
             >
-              Memes
+              Meme Coins
             </button>
             <button 
               onClick={() => handleTabChange('recommended')}
-              className={`px-3 py-1 rounded-full transition-all duration-300 ${
+              className={`px-3 py-1 rounded-md transition-all duration-300 ${
                 activeTab === 'recommended' 
                   ? 'bg-[#0071e3] text-white shadow-md' 
                   : 'text-[#86868b] hover:text-[#f5f5f7]'
               }`}
             >
-              Recommended
+              Recommended ({assetCategories.recommended?.length || 0})
             </button>
           </div>
 
           {/* Asset List Buttons */}
-          <div className="flex flex-wrap gap-1 p-1 bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-full">
+          <div className="flex flex-wrap gap-1 p-1 bg-[#1c1c1e] border border-[#2c2c2e]/60 rounded-full max-h-[120px] overflow-y-auto">
             {(activeTab === 'core' 
-              ? CORE_ASSETS 
+              ? assetCategories.core 
               : activeTab === 'meme' 
-                ? MEME_ASSETS 
-                : RECOMMENDED_ASSETS).map((asset) => (
+                ? assetCategories.meme 
+                : assetCategories.recommended).map((asset) => (
               <button
                 key={asset}
                 onClick={() => setSelectedAsset(asset)}
-                className={`px-4 py-1 rounded-full text-xs font-bold transition-all duration-300 cursor-pointer font-mono ${
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all duration-300 cursor-pointer font-mono ${
                   selectedAsset === asset
                     ? 'bg-[#f5f5f7] text-black shadow-sm'
                     : 'bg-transparent text-[#86868b] hover:text-[#f5f5f7]'
