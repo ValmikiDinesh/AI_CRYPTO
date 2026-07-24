@@ -31,7 +31,26 @@ function MetricProgress({ label, value, isRisk = false }) {
 export default function Trading() {
   const [selectedAsset, setSelectedAsset] = useState('BTCUSDT');
   const [activePosition, setActivePosition] = useState(null);
-  const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme'
+  const [activeTab, setActiveTab] = useState('core'); // 'core' | 'meme' | 'recommended'
+
+  const [assetCategories, setAssetCategories] = useState({
+    core: CORE_ASSETS,
+    meme: MEME_ASSETS,
+    recommended: RECOMMENDED_ASSETS,
+    all: ASSETS
+  });
+
+  useEffect(() => {
+    const fetchAssetCategories = async () => {
+      try {
+        const res = await axiosActual.get('/api/market/asset-categories');
+        if (res.data.success && res.data.data) {
+          setAssetCategories(res.data.data);
+        }
+      } catch {}
+    };
+    fetchAssetCategories();
+  }, []);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
