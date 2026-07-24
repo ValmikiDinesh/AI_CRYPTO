@@ -185,6 +185,10 @@ export default function Trading() {
       if (res.data.success) {
         usePortfolioStore.getState().setPortfolio(res.data.data);
       }
+    } catch (err) {
+      console.error("Failed to toggle asset:", err);
+    }
+  };
   return (
     <div className="page-layout">
       {/* Header */}
