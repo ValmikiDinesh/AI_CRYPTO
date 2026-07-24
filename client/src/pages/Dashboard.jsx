@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useMarketStore, useSignalStore, usePortfolioStore, useTradeStore, useCurrencyStore } from '../store.js';
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, BarChart3, Bot, Zap, ArrowUpRight, ArrowDownRight, ShieldCheck, Star } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, BarChart3, Bot, Zap, ArrowUpRight, ArrowDownRight, ShieldCheck, Star, Search } from 'lucide-react';
 import axios from 'axios';
 
 const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
