@@ -195,6 +195,9 @@ export default function Trading() {
     }
   };
 
+  const isAssetDisabled = portfolio?.manuallyDisabledAssets?.includes(selectedAsset) || false;
+  const isAssetIgnored = portfolio?.autoIgnoredAssets?.includes(selectedAsset) || false;
+
   const handleToggleAsset = async () => {
     try {
       const res = await axiosActual.post('/api/portfolio/toggle-asset', {
