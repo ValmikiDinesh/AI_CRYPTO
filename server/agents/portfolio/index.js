@@ -627,6 +627,13 @@ export default class PortfolioAgent extends BaseAgent {
       } catch (tradeSyncErr) {
         this.logger.error(`Failed to reconcile DB Trade documents with exchange positions: ${tradeSyncErr.message}`);
       }
+
+      // 5. Sync executed closed trades history from CoinSwitch Pro
+      try {
+        await this.syncClosedTradesFromExchange();
+      } catch (closedSyncErr) {
+        this.logger.error(`Failed to sync closed trades history from exchange: ${closedSyncErr.message}`);
+      }
     }
 
     // Recalculate total balance using leverage-adjusted universal equity formula
@@ -1348,6 +1355,58 @@ export default class PortfolioAgent extends BaseAgent {
         this.logger.warn(`[PROFIT SWEEP] Net worth is not above base capital after closing liquid positions. No sweep performed.`);
       }
       await portfolio.save();
+    }
+  }
+
+  /** Sync closed trades and fill history directly from CoinSwitch Pro exchange */
+  async syncClosedTradesFromExchange() {
+    try {
+      const { getExchange } = await import('../../services/exchangeService.js');
+      const exchange = getExchange();
+      if (exchange.isDemo) return;
+
+      const closedOrders = await exchange.fetchClosedOrders(undefined, undefined, 50);
+      const executedOrders = (closedOrders || []).filter(o => o.status === 'closed' && o.filled > 0);
+
+      for (const order of executedOrders) {
+        const asset = order.symbol.split(':')[0].replace('/', '').toUpperCase();
+
+        const existingTrade = await Trade.findOne({
+          $or: [
+            { exchangeOrderId: order.id },
+            { asset, status: 'closed', exitPrice: order.price }
+          ]
+        });
+
+        if (!existingTrade && order.reduceOnly) {
+          this.logger.info(`🔄 [CLOSED TRADES SYNC] Syncing closed order ${order.id} for ${asset} from CoinSwitch Pro...`);
+          
+          const realizedPnl = order.realisedPnl || 0;
+          const feeUsdt = (order.executionFee || 0) / 96.56;
+
+          await Trade.create({
+            userId: SYSTEM_USER_ID,
+            asset,
+            action: order.side === 'buy' ? 'BUY' : 'SELL',
+            side: order.side === 'buy' ? 'short' : 'long',
+            entryPrice: order.price,
+            exitPrice: order.price,
+            quantity: order.filled,
+            realizedPnl,
+            pnlPercentage: (order.price > 0 && order.filled > 0) ? (realizedPnl / (order.price * order.filled)) * 100 : 0,
+            status: 'closed',
+            exitReason: order.raw?.order_type === 'STOP_MARKET' 
+              ? 'Native Stop-Loss Triggered on Exchange' 
+              : order.raw?.order_type === 'TAKE_PROFIT_MARKET' 
+                ? 'Native Take-Profit Triggered on Exchange' 
+                : 'Closed Manually on CoinSwitch Pro',
+            closedAt: new Date(order.timestamp || Date.now()),
+            fees: feeUsdt
+          });
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Failed to sync closed trades from CoinSwitch Pro: ${err.message}`);
     }
   }
 }

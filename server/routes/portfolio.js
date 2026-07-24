@@ -6,6 +6,25 @@ import { sendTelegramMessage } from '../services/telegramService.js';
 
 const router = express.Router();
 
+let portfolioAgentRef = null;
+export const setPortfolioAgentRef = (agent) => {
+  portfolioAgentRef = agent;
+};
+
+// GET /api/portfolio/sync-closed-trades — trigger exchange closed trades sync
+router.get('/sync-closed-trades', async (req, res, next) => {
+  try {
+    if (portfolioAgentRef) {
+      await portfolioAgentRef.syncClosedTradesFromExchange();
+      res.json({ success: true, message: 'Exchange closed trades synchronized successfully.' });
+    } else {
+      res.status(500).json({ success: false, message: 'Portfolio agent not available' });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/portfolio — current portfolio overview
 router.get('/', async (req, res, next) => {
   try {

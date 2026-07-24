@@ -16,7 +16,7 @@ import { sendTelegramMessage } from './services/telegramService.js';
 // Routes
 import authRoutes from './routes/auth.js';
 import tradeRoutes from './routes/trade.js';
-import portfolioRoutes from './routes/portfolio.js';
+import portfolioRoutes, { setPortfolioAgentRef } from './routes/portfolio.js';
 import agentRoutes, { setAgentReferences } from './routes/agent.js';
 import marketRoutes, { setMarketAgentRef } from './routes/market.js';
 
@@ -136,6 +136,7 @@ async function bootAgents() {
   // Inject references into routes
   setAgentReferences(supervisorAgent);
   setMarketAgentRef(marketAgent);
+  setPortfolioAgentRef(portfolioAgent);
 
   // Start agents with staggered, decoupled intervals
   await marketAgent.start(5_000);                                // 5s — price refresh

@@ -940,6 +940,9 @@ class CoinSwitchExchange {
               filled: parseFloat(o.exec_quantity || o.executedQuantity || 0),
               stopPrice: parseFloat(o.trigger_price || 0),
               reduceOnly: o.reduce_only === true,
+              realisedPnl: parseFloat(o.realised_pnl || 0),
+              executionFee: parseFloat(o.execution_fee || 0),
+              timestamp: o.updated_at || o.created_at,
               raw: o
             };
           });

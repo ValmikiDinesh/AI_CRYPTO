@@ -295,11 +295,28 @@ export default function Portfolio() {
     return true;
   });
 
+  const [isSyncingExchange, setIsSyncingExchange] = useState(false);
+
+  const handleSyncExchange = async () => {
+    setIsSyncingExchange(true);
+    try {
+      await axios.get('/api/portfolio/sync-closed-trades');
+      await fetchAllTrades();
+      await fetchPerformance();
+      await fetchStats();
+    } catch {}
+    setIsSyncingExchange(false);
+  };
+
   useEffect(() => {
     fetchTrades();
     fetchStats();
     fetchPerformance();
     fetchAllTrades();
+    axios.get('/api/portfolio/sync-closed-trades').then(() => {
+      fetchAllTrades();
+      fetchPerformance();
+    }).catch(() => {});
   }, []);
 
   const fetchPerformance = async () => {
