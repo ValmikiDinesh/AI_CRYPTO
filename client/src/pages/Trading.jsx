@@ -448,7 +448,7 @@ export default function Trading() {
                   </div>
                 )}
 
-                {portfolio.tradingPaused && (
+                {portfolio?.tradingPaused && (
                   <div className="p-3 bg-red-950/20 border border-red-500/20 text-red-300 rounded-xl text-[10px] font-bold font-mono">
                     ⚠️ Trading is paused because the profit target has been met. Resume the bot from the Portfolio page.
                   </div>
@@ -456,14 +456,14 @@ export default function Trading() {
 
                 <button
                   type="submit"
-                  disabled={portfolio.tradingPaused}
+                  disabled={portfolio?.tradingPaused}
                   className={`w-full py-2.5 text-xs font-bold rounded-full tracking-wider uppercase transition-all duration-300 shadow-sm mt-2 cursor-pointer ${
-                    portfolio.tradingPaused
+                    portfolio?.tradingPaused
                       ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-[#2c2c2e]'
                       : 'bg-[#f5f5f7] hover:bg-[#e5e5ea] text-black hover:scale-[1.01]'
                   }`}
                 >
-                  {portfolio.tradingPaused ? 'Trading Paused' : 'Submit Order'}
+                  {portfolio?.tradingPaused ? 'Trading Paused' : 'Submit Order'}
                 </button>
               </form>
             </div>
