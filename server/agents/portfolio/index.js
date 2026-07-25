@@ -269,7 +269,10 @@ export default class PortfolioAgent extends BaseAgent {
               }
               
               // Calculate total matching quantity
-              const totalMatchingQty = matchingSLOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
+              // NOTE: CoinSwitch Pro STOP_MARKET trigger orders with close_position=true return amount=0.
+              // Any matching trigger order (amount=0 means close_position covers full qty) is treated as full coverage.
+              const hasFullCoverageSL = matchingSLOrders.some(o => parseFloat(o.amount || 0) === 0);
+              const totalMatchingQty = hasFullCoverageSL ? position.quantity : matchingSLOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
               
               // If matching qty is less than position qty, place the missing amount
               const remainingQty = position.quantity - totalMatchingQty;
@@ -368,10 +371,13 @@ export default class PortfolioAgent extends BaseAgent {
               }
               
               // Calculate total matching quantity
-              const totalMatchingQty = matchingTPOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
+              // NOTE: CoinSwitch Pro TAKE_PROFIT_MARKET trigger orders with close_position=true return amount=0.
+              // Any matching trigger order (amount=0 means close_position covers full qty) is treated as full coverage.
+              const hasFullCoverageTP = matchingTPOrders.some(o => parseFloat(o.amount || 0) === 0);
+              const totalMatchingTPQty = hasFullCoverageTP ? position.quantity : matchingTPOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
               
               // If matching qty is less than position qty, place the missing amount
-              const remainingQty = position.quantity - totalMatchingQty;
+              const remainingQty = position.quantity - totalMatchingTPQty;
               if (remainingQty > 0.0001) {
                 this.logger.info(`🔄 [TP SYNC] Take Profit missing/insufficient for ${position.asset}. Placing trigger order for remaining qty: ${remainingQty}`);
                 

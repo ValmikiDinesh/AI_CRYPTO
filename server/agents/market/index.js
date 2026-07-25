@@ -70,7 +70,7 @@ export default class MarketAgent extends BaseAgent {
       }
     } catch (pErr) {}
 
-    const BATCH_SIZE = 15;
+    const BATCH_SIZE = 5; // Keep small to avoid HTTP 429 rate limits from CoinSwitch Pro
     for (let i = 0; i < SUPPORTED_ASSETS.length; i += BATCH_SIZE) {
       const batch = SUPPORTED_ASSETS.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (asset) => {
@@ -105,7 +105,7 @@ export default class MarketAgent extends BaseAgent {
           this.candles[asset] = [];
         }
       }));
-      await new Promise(r => setTimeout(r, 100)); // Small 100ms throttle between batches
+      await new Promise(r => setTimeout(r, 500)); // 500ms throttle between batches to prevent 429 rate limits
     }
     this.logger.info('✅ Background candle preloading complete for all assets.');
 

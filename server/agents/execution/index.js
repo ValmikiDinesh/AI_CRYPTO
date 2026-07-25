@@ -511,7 +511,7 @@ export default class ExecutionAgent extends BaseAgent {
         marginRequired = MIN_MARGIN_FLOOR;
         positionValue = MIN_MARGIN_FLOOR * leverage;
       } else {
-        this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than minimum margin ($${MIN_MARGIN_FLOOR.toFixed(2)}) — skipping`);
+        this.logger.debug(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than minimum margin ($${MIN_MARGIN_FLOOR.toFixed(2)}) — skipping`);
         return;
       }
     }
@@ -561,7 +561,7 @@ export default class ExecutionAgent extends BaseAgent {
     const entryFee = positionValue * futuresMakerFeeRate;
 
     if (portfolio.availableBalance < (marginRequired + entryFee)) {
-      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required ($${(marginRequired + entryFee).toFixed(2)}) including margin and 0.02% Maker fee — skipping`);
+      this.logger.debug(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required ($${(marginRequired + entryFee).toFixed(2)}) including margin and 0.02% Maker fee — skipping`);
       return;
     }
 
