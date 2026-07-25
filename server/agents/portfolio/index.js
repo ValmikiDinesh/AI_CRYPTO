@@ -803,6 +803,9 @@ export default class PortfolioAgent extends BaseAgent {
       }
       if (!currentPrice) continue;
 
+      // Evaluate Net Scalp Target ($0.25+) during periodic checkExits loop as well
+      await this.evaluateRealtimeExit(position.asset, currentPrice);
+
 
 
       let shouldClose = false;
