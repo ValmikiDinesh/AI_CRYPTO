@@ -429,29 +429,6 @@ class CoinSwitchExchange {
       }
     }
 
-    // 2. Check Spot Portfolio for INR and convert it to USDT equivalent (since CoinSwitch Pro automatically converts INR for futures margin)
-    const spotAuth = await this._signRequest('GET', '/user/portfolio');
-    if (spotAuth && !this.isDemo) {
-      try {
-        const res = await axios.get(`https://coinswitch.co/trade/api/v2/user/portfolio`, spotAuth);
-        if (res.data && res.data.data) {
-          const inrBal = res.data.data.find(item => item.currency === 'INR' || item.name === 'Indian Rupee' || item.asset === 'INR');
-          if (inrBal) {
-            const rawInr = parseFloat(inrBal.main_balance || inrBal.available_balance || 0);
-            if (rawInr > 0) {
-              // Convert INR to USDT using a stable exchange premium rate
-              const inrRate = 96.56;
-              const convertedUsdt = rawInr / inrRate;
-              usdtTotal += convertedUsdt;
-              usdtFree += convertedUsdt;
-            }
-          }
-        }
-      } catch (err) {
-        logger.error(`CoinSwitch fetchBalance spot INR error: ${err.message}`);
-      }
-    }
-
     if (usdtTotal > 0) {
       return {
         USDT: {
