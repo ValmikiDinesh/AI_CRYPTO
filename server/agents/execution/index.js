@@ -541,10 +541,16 @@ export default class ExecutionAgent extends BaseAgent {
     let attempt = 0;
     let order = null;
 
+    const entryOrderType = portfolio.entryOrderType || 'market';
+
     while (attempt < this.maxRetries) {
       try {
         attempt++;
-        order = await placeLimitOrder(signal.asset, side, quantity, limitEntryPrice);
+        if (entryOrderType === 'market') {
+          order = await placeMarketOrder(signal.asset, side, quantity);
+        } else {
+          order = await placeLimitOrder(signal.asset, side, quantity, limitEntryPrice);
+        }
         break;
       } catch (err) {
         this.logger.warn(`Order attempt ${attempt}/${this.maxRetries} failed: ${err.message}`);

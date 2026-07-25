@@ -2,7 +2,7 @@ import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS, SYSTEM_USER_ID } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
-import { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange, checkAssetLiquidity, fetchBalance } from '../../services/exchangeService.js';
+import { placeMarketOrder, placeLimitOrder, cancelOrder, cancelAllOrders, getExchange, checkAssetLiquidity, fetchBalance } from '../../services/exchangeService.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
 import { computeIndicators } from '../../services/indicatorService.js';
@@ -824,10 +824,13 @@ export default class PortfolioAgent extends BaseAgent {
             this.logger.warn(`Failed to fetch fresh position size before exit, falling back to local quantity: ${fetchErr.message}`);
           }
 
-          this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} order on Exchange for ${position.asset} (${closeQty} units)`);
+          const exitOrderType = portfolio.exitOrderType || 'market';
+          this.logger.info(`🚨 [EXCHANGE EXIT TRIGGERED] Placing offsetting ${exitSide.toUpperCase()} (${exitOrderType.toUpperCase()}) order on Exchange for ${position.asset} (${closeQty} units)`);
           
           // Await close order and retrieve actual executed parameters from response
-          const closeOrder = await placeMarketOrder(position.asset, exitSide, closeQty);
+          const closeOrder = exitOrderType === 'market' 
+            ? await placeMarketOrder(position.asset, exitSide, closeQty)
+            : await placeLimitOrder(position.asset, exitSide, closeQty, closePrice);
           
           actualClosePrice = closeOrder.average || closeOrder.price || closePrice;
           if (closeOrder.fee && closeOrder.fee.cost) {

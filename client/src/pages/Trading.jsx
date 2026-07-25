@@ -211,15 +211,74 @@ export default function Trading() {
       console.error("Failed to toggle asset:", err);
     }
   };
+  const entryOrderType = portfolio?.entryOrderType || 'market';
+  const exitOrderType = portfolio?.exitOrderType || 'market';
+
+  const handleToggleOrderType = async (typeField, value) => {
+    try {
+      const res = await axiosActual.put('/api/portfolio/config', {
+        [typeField]: value
+      });
+      if (res.data.success) {
+        usePortfolioStore.getState().setPortfolio(res.data.data);
+      }
+    } catch (err) {
+      console.error(`Failed to update ${typeField}:`, err);
+    }
+  };
+
   return (
     <div className="page-layout">
-      {/* Header */}
+      {/* Header & Order Type Settings Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#2c2c2e]/60 pb-5">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-[#f5f5f7]">Trading Desk</h2>
           <p className="text-[11px] text-[#86868b] mt-1 font-medium">
             Execute manual trades or configure automated agent overrides.
           </p>
+        </div>
+
+        {/* Order Type Controls */}
+        <div className="flex flex-wrap items-center gap-4 bg-[#1c1c1e] p-2.5 rounded-xl border border-[#2c2c2e]/60">
+          {/* Entry Order Type */}
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono">Entry Order:</span>
+            <div className="flex bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
+              <button
+                onClick={() => handleToggleOrderType('entryOrderType', 'market')}
+                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${entryOrderType === 'market' ? 'bg-[#0071e3] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                MARKET
+              </button>
+              <button
+                onClick={() => handleToggleOrderType('entryOrderType', 'limit')}
+                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${entryOrderType === 'limit' ? 'bg-[#0071e3] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                LIMIT
+              </button>
+            </div>
+          </div>
+
+          <div className="h-4 w-[1px] bg-[#2c2c2e]/80" />
+
+          {/* Exit Order Type */}
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-[#86868b] uppercase tracking-widest font-bold font-mono">Exit Order:</span>
+            <div className="flex bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
+              <button
+                onClick={() => handleToggleOrderType('exitOrderType', 'market')}
+                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${exitOrderType === 'market' ? 'bg-[#30d158] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                MARKET
+              </button>
+              <button
+                onClick={() => handleToggleOrderType('exitOrderType', 'limit')}
+                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${exitOrderType === 'limit' ? 'bg-[#30d158] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                LIMIT
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -64,6 +64,8 @@ const portfolioSchema = new mongoose.Schema({
   autoIgnoredAssets: { type: [String], default: [] },
   coinSwitchApiKey: { type: String, default: "" },
   coinSwitchApiSecret: { type: String, default: "" },
+  entryOrderType: { type: String, enum: ['market', 'limit'], default: 'market' },
+  exitOrderType: { type: String, enum: ['market', 'limit'], default: 'market' },
   usdToInrRate: { type: Number, default: 96.54 },
   lastRebalancedAt: { type: Date },
   lastDailyDigestDate: { type: String },
