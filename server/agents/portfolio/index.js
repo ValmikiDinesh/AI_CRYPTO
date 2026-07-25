@@ -946,9 +946,22 @@ export default class PortfolioAgent extends BaseAgent {
     const totalPositionFees = (position.fees || 0) + exitFee;
     position.fees = totalPositionFees;
 
-    // Return funds (collateral + realized PnL - exit fee) to available balance
-    const returnValue = ((position.entryPrice * position.quantity) / (position.leverage || 1)) + position.realizedPnl - exitFee;
-    portfolio.availableBalance += returnValue;
+    // Return funds to available balance
+    if (process.env.TRADING_MODE === 'live') {
+      try {
+        const { fetchBalance } = await import('../../services/exchangeService.js');
+        const liveBal = await fetchBalance();
+        if (liveBal && liveBal.USDT) {
+          portfolio.availableBalance = liveBal.USDT.free;
+          portfolio.totalBalance = liveBal.USDT.total;
+        }
+      } catch (balErr) {
+        this.logger.warn(`Failed to fetch live balance on closePosition: ${balErr.message}`);
+      }
+    } else {
+      const returnValue = ((position.entryPrice * position.quantity) / (position.leverage || 1)) + position.realizedPnl - exitFee;
+      portfolio.availableBalance += returnValue;
+    }
     portfolio.totalPnl += (position.realizedPnl - totalPositionFees);
     portfolio.dailyLossToday += (position.realizedPnl - totalPositionFees); // track net daily PnL (after fees)
 

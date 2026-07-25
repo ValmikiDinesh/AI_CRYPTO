@@ -621,7 +621,21 @@ export default class ExecutionAgent extends BaseAgent {
       }
 
       // Update portfolio positions
-      portfolio.availableBalance -= (finalMarginRequired + actualFee);
+      if (process.env.TRADING_MODE === 'live') {
+        try {
+          const { fetchBalance } = await import('../../services/exchangeService.js');
+          const liveBal = await fetchBalance();
+          if (liveBal && liveBal.USDT) {
+            portfolio.availableBalance = liveBal.USDT.free;
+            portfolio.totalBalance = liveBal.USDT.total;
+          }
+        } catch (balErr) {
+          portfolio.availableBalance = Math.max(0, portfolio.availableBalance - (finalMarginRequired + actualFee));
+        }
+      } else {
+        portfolio.availableBalance -= (finalMarginRequired + actualFee);
+      }
+
       portfolio.totalTrades += 1;
       portfolio.positions.push({
         asset: signal.asset,
@@ -645,11 +659,22 @@ export default class ExecutionAgent extends BaseAgent {
         maxDrawdownReached: 0,
       });
 
-      // Recalculate total balance using leverage-adjusted universal equity formula
-      const marginValue = portfolio.positions
-        .filter((p) => p.status === 'open')
-        .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
-      portfolio.totalBalance = portfolio.availableBalance + marginValue;
+      // Recalculate total balance
+      if (process.env.TRADING_MODE === 'live') {
+        try {
+          const { fetchBalance } = await import('../../services/exchangeService.js');
+          const liveBal = await fetchBalance();
+          if (liveBal && liveBal.USDT) {
+            portfolio.totalBalance = liveBal.USDT.total;
+            portfolio.availableBalance = liveBal.USDT.free;
+          }
+        } catch (bErr) {}
+      } else {
+        const marginValue = portfolio.positions
+          .filter((p) => p.status === 'open')
+          .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+        portfolio.totalBalance = portfolio.availableBalance + marginValue;
+      }
 
       if (portfolio.totalBalance > portfolio.peakBalance) {
         portfolio.peakBalance = portfolio.totalBalance;
