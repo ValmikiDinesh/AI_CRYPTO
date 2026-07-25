@@ -59,6 +59,9 @@ async function reconcileNow() {
     let existing = portfolio.positions.find(p => p && p.asset === asset && p.status === 'open');
     if (!existing) {
       console.log(`Importing live position from CoinSwitch: ${asset}`);
+      const calculatedStopLoss = liveP.side === 'long' ? liveP.entryPrice * 0.95 : liveP.entryPrice * 1.05;
+      const calculatedTakeProfit = liveP.side === 'long' ? liveP.entryPrice * 1.10 : liveP.entryPrice * 0.90;
+
       portfolio.positions.push({
         asset,
         side: liveP.side,
@@ -66,6 +69,8 @@ async function reconcileNow() {
         currentPrice: liveP.markPrice || liveP.entryPrice,
         quantity: liveP.contracts,
         leverage: liveP.leverage || 5,
+        stopLoss: calculatedStopLoss,
+        takeProfit: calculatedTakeProfit,
         openedAt: new Date(),
         status: 'open',
         fees: (liveP.entryPrice * liveP.contracts * 0.0005)
@@ -78,9 +83,24 @@ async function reconcileNow() {
         entryPrice: liveP.entryPrice,
         quantity: liveP.contracts,
         leverage: liveP.leverage || 5,
+        stopLoss: calculatedStopLoss,
+        takeProfit: calculatedTakeProfit,
         status: 'open',
         exchangeOrderId: 'synced_from_coinswitch'
       });
+
+      try {
+        await sendTelegramMessage(
+          `🔔 <b>Live Position Synced from CoinSwitch!</b>\n` +
+          `<b>Asset</b>: ${asset.replace('USDT', '')}/USDT\n` +
+          `<b>Action</b>: ${liveP.side.toUpperCase()} (${liveP.leverage || 5}x)\n` +
+          `<b>Entry Price</b>: $${liveP.entryPrice}\n` +
+          `<b>Quantity</b>: ${liveP.contracts}\n` +
+          `<b>Stop Loss</b>: $${calculatedStopLoss.toFixed(4)}\n` +
+          `<b>Target</b>: $${calculatedTakeProfit.toFixed(4)}\n` +
+          `<b>Status</b>: Active & Monitored for Net Scalp Target ($0.25+)`
+        );
+      } catch (tErr) {}
     } else {
       // Sync quantity and entry price
       console.log(`Syncing entryPrice for existing position ${asset}: ${existing.entryPrice} -> ${liveP.entryPrice}`);

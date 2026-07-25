@@ -157,9 +157,20 @@ export default class ExecutionAgent extends BaseAgent {
             
             let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
             if (portfolio) {
-              portfolio.availableBalance += (marginReserved + feeReserved);
+              if (process.env.TRADING_MODE === 'live') {
+                try {
+                  const { fetchBalance } = await import('../../services/exchangeService.js');
+                  const liveBal = await fetchBalance();
+                  if (liveBal && liveBal.USDT) {
+                    portfolio.availableBalance = liveBal.USDT.free;
+                    portfolio.totalBalance = liveBal.USDT.total;
+                  }
+                } catch (bErr) {}
+              } else {
+                portfolio.availableBalance += (marginReserved + feeReserved);
+              }
               await portfolio.save();
-              this.logger.info(`Refunded reserved margin $${marginReserved.toFixed(2)} for expired trade on ${trade.asset}`);
+              this.logger.info(`Updated available balance for expired trade on ${trade.asset}`);
             }
             
             const cancelStatusMsg = cancelSuccess 

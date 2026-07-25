@@ -139,10 +139,18 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
                     {currentPrice ? `$${currentPrice.toFixed(6)}` : '—'}
                   </td>
                   <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
-                    {trade.stopLoss ? `$${trade.stopLoss.toFixed(6)}` : '—'}
+                    {(() => {
+                      const isLong = trade.side === 'long' || trade.action === 'BUY';
+                      const sl = trade.stopLoss || (trade.entryPrice ? (isLong ? trade.entryPrice * 0.95 : trade.entryPrice * 1.05) : null);
+                      return sl ? (sl >= 1 ? `$${sl.toFixed(2)}` : `$${sl.toFixed(6)}`) : '—';
+                    })()}
                   </td>
                   <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
-                    {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
+                    {(() => {
+                      const isLong = trade.side === 'long' || trade.action === 'BUY';
+                      const tp = trade.takeProfit || (trade.entryPrice ? (isLong ? trade.entryPrice * 1.10 : trade.entryPrice * 0.90) : null);
+                      return tp ? (tp >= 1 ? `$${tp.toFixed(2)}` : `$${tp.toFixed(6)}`) : '—';
+                    })()}
                   </td>
                   <td className="px-6 py-4 text-right text-[#86868b] font-mono">
                     {trade.quantity?.toFixed(5) || '—'}

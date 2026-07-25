@@ -637,6 +637,19 @@ export default class PortfolioAgent extends BaseAgent {
               exchange: 'binance_testnet',
             });
             this.logger.info(`✅ [RECONCILIATION] Created matching Trade record for ${asset} (${side.toUpperCase()}) with fallback targets (SL: ${calculatedStopLoss}, TP: ${calculatedTakeProfit})`);
+            
+            try {
+              await sendTelegramMessage(
+                `🔔 <b>Live Position Synced!</b>\n` +
+                `<b>Asset</b>: ${asset.replace('USDT', '')}/USDT\n` +
+                `<b>Action</b>: ${side === 'long' ? 'BUY (LONG)' : 'SELL (SHORT)'}\n` +
+                `<b>Entry Price</b>: $${formatPrice(entryPrice)}\n` +
+                `<b>Quantity</b>: ${quantity}\n` +
+                `<b>Stop Loss</b>: $${formatPrice(calculatedStopLoss)}\n` +
+                `<b>Target</b>: $${formatPrice(calculatedTakeProfit)}\n` +
+                `<b>Status</b>: Active & Monitored for Net Scalp Target ($0.25+)`
+              );
+            } catch (tErr) {}
           }
         }
       }
