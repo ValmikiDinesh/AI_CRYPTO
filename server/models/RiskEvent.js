@@ -16,6 +16,8 @@ const riskEventSchema = new mongoose.Schema({
       'high_risk_score',
       'duplicate_position',
       'macro_trend_blocked',
+      'trend_alignment_mismatch',
+      'counter_trend_blocked',
       'whipsaw_cooldown',
       'portfolio_square_off',
     ],

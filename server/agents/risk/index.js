@@ -112,15 +112,16 @@ export default class RiskAgent extends BaseAgent {
       const isBuyAction = signal.action === ACTIONS.BUY || signal.action === 'BUY' || signal.side === 'long';
       const isSellAction = signal.action === ACTIONS.SELL || signal.action === 'SELL' || signal.side === 'short';
 
-      if (isBuyAction && priceChange1hPct < -0.15) {
+      // Relax macro trend check for rapid micro-scalping (only block extreme 15%+ crashes/surges)
+      if (isBuyAction && priceChange1hPct < -15.0) {
         return this.reject(
-          `1-Hour macro trend is bearish (${priceChange1hPct.toFixed(2)}%) for ${signal.asset} — counter-trend BUY rejected`,
+          `1-Hour macro trend is severely crashing (${priceChange1hPct.toFixed(2)}%) for ${signal.asset} — extreme crash BUY rejected`,
           'trend_alignment_mismatch',
           signal
         );
-      } else if (isSellAction && priceChange1hPct > 0.15) {
+      } else if (isSellAction && priceChange1hPct > 15.0) {
         return this.reject(
-          `1-Hour macro trend is bullish (+${priceChange1hPct.toFixed(2)}%) for ${signal.asset} — counter-trend SELL rejected`,
+          `1-Hour macro trend is severely surging (+${priceChange1hPct.toFixed(2)}%) for ${signal.asset} — extreme surge SELL rejected`,
           'trend_alignment_mismatch',
           signal
         );

@@ -1170,7 +1170,7 @@ export const fetchAllTickers = async () => {
 export const setLeverage = async (symbol, leverage) => {
   try {
     const exchange = getExchange();
-    return await exchange.setLeverage(symbol, leverage);
+    return await exchange.ensureLeverage(symbol, leverage);
   } catch (err) {
     logger.error(`setLeverage(${symbol}, ${leverage}) error: ${err.message}`);
     throw err;
