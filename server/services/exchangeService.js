@@ -703,15 +703,16 @@ class CoinSwitchExchange {
               return [];
             }
             if (res.data.data) {
-              const data = Array.isArray(res.data.data) ? res.data.data : [res.data.data];
-              const result = data.filter(Boolean).map(p => ({
-                symbol: p.symbol,
-                contracts: parseFloat(p.quantity || p.position_size || p.positionSize || 0),
+              const rawData = res.data.data.positions || res.data.data.orders || res.data.data;
+              const data = Array.isArray(rawData) ? rawData : [rawData];
+              const result = data.filter(p => p && (p.symbol || p.asset)).map(p => ({
+                symbol: (p.symbol || p.asset || '').replace('/', '').replace(':USDT', '').toUpperCase(),
+                contracts: parseFloat(p.quantity || p.position_size || p.positionSize || p.contracts || 0),
                 side: (p.side || p.position_side || p.positionSide || 'LONG').toLowerCase(),
-                entryPrice: parseFloat(p.entryPrice || p.avg_entry_price || p.avgEntryPrice || 0),
+                entryPrice: parseFloat(p.entryPrice || p.avg_entry_price || p.avgEntryPrice || p.entry_price || 0),
                 markPrice: parseFloat(p.mark_price || p.markPrice || p.currentPrice || p.entryPrice || 0),
                 unrealizedPnl: parseFloat(p.unrealised_pnl || p.unrealizedPnl || 0),
-                leverage: parseFloat(p.leverage || 0)
+                leverage: parseFloat(p.leverage || 5)
               }));
               this.positionsCache[cacheKey] = { timestamp: now, data: result };
               return result;
