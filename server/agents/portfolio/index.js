@@ -1532,6 +1532,18 @@ export default class PortfolioAgent extends BaseAgent {
     }
 
     const netPnl = grossPnl - openFee - closeFee;
+    position.currentPrice = currentPrice;
+    position.unrealizedPnl = netPnl;
+
+    // Broadcast live portfolio update to Redis / Socket.io for active open position (throttled to 250ms per asset)
+    const now = Date.now();
+    if (!this._lastWsBroadcastMap) this._lastWsBroadcastMap = {};
+    if (!this._lastWsBroadcastMap[asset] || (now - this._lastWsBroadcastMap[asset]) >= 250) {
+      this._lastWsBroadcastMap[asset] = now;
+      try {
+        publishEvent(CHANNELS.PORTFOLIO_UPDATES, portfolio);
+      } catch (pErr) {}
+    }
 
     // Track peak net PnL for trailing stop
     if (!position.highestNetPnl || netPnl > position.highestNetPnl) {

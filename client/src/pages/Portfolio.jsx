@@ -333,6 +333,13 @@ export default function Portfolio() {
       fetchAllTrades();
       fetchPerformance();
     }).catch(() => {});
+
+    const liveTimer = setInterval(() => {
+      fetchPerformance();
+      fetchAllTrades();
+    }, 1000);
+
+    return () => clearInterval(liveTimer);
   }, []);
 
   const fetchPerformance = async () => {

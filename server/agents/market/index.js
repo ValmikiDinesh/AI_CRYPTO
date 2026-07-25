@@ -25,18 +25,23 @@ export default class MarketAgent extends BaseAgent {
 
     // Connect to live CoinSwitch Pro WebSocket stream for sub-second price ticks
     try {
+      this.lastEmitted = {};
       coinswitchWs.onPriceUpdate((asset, price) => {
         if (SUPPORTED_ASSETS.includes(asset)) {
           this.prices[asset] = price;
           if (this.candles[asset] && this.candles[asset].length > 0) {
             this.candles[asset][this.candles[asset].length - 1].close = price;
           }
-          publishEvent(CHANNELS.MARKET_DATA, {
-            asset,
-            price,
-            timestamp: Date.now(),
-            source: 'coinswitch_ws'
-          });
+          const now = Date.now();
+          if (!this.lastEmitted[asset] || (now - this.lastEmitted[asset]) >= 100) {
+            this.lastEmitted[asset] = now;
+            publishEvent(CHANNELS.MARKET_DATA, {
+              asset,
+              price,
+              timestamp: now,
+              source: 'coinswitch_ws'
+            });
+          }
         }
       });
       coinswitchWs.connect();
