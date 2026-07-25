@@ -218,7 +218,7 @@ export default function Portfolio() {
   const [trades, setTrades] = useState([]);
   const [allTrades, setAllTrades] = useState([]);
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'analytics' | 'history' | 'open' | 'closed'
+  const [activeTab, setActiveTab] = useState('open'); // default to active open positions tab
   const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [closedLedgerTab, setClosedLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [dateFilter, setDateFilter] = useState('all'); // 'all' | 'today' | 'yesterday' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
