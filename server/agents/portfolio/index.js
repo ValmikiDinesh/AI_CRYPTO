@@ -529,28 +529,9 @@ export default class PortfolioAgent extends BaseAgent {
       (p) => p && p.status === 'open' && !manuallyDisabled.includes(p.asset)
     );
 
-    // Dynamic Liquidity Check (cached per asset for 60 seconds to avoid hammering exchange API on every cycle)
-    const liquidPositions = [];
+    // Instant Liquidity Check for active open positions (avoids network latency during exit checks)
+    const liquidPositions = activeOpenPositions;
     const illiquidPositions = [];
-    if (!this._liquidityCache) this._liquidityCache = {};
-
-    await Promise.all(
-      activeOpenPositions.map(async (pos) => {
-        const cacheEntry = this._liquidityCache[pos.asset];
-        let isLiquid;
-        if (cacheEntry && Date.now() - cacheEntry.ts < 60000) {
-          isLiquid = cacheEntry.isLiquid;
-        } else {
-          isLiquid = await checkAssetLiquidity(pos.asset, pos.side);
-          this._liquidityCache[pos.asset] = { isLiquid, ts: Date.now() };
-        }
-        if (isLiquid) {
-          liquidPositions.push(pos);
-        } else {
-          illiquidPositions.push(pos);
-        }
-      })
-    );
 
     // Sort liquid positions by absolute unrealized PnL descending
     liquidPositions.sort((a, b) => Math.abs(b.unrealizedPnl || 0) - Math.abs(a.unrealizedPnl || 0));
