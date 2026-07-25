@@ -192,6 +192,11 @@ export default class PortfolioAgent extends BaseAgent {
           }
 
           // Reconcile and synchronize Stop-Loss and Take-Profit trigger orders on the exchange
+          // Throttled to once per 60 seconds per asset — avoids blocking the main cycle with 429-prone API calls
+          if (!this._lastTriggerSync) this._lastTriggerSync = {};
+          const triggerSyncAge = Date.now() - (this._lastTriggerSync[position.asset] || 0);
+          if (triggerSyncAge >= 60000) {
+          this._lastTriggerSync[position.asset] = Date.now();
           try {
             const exchange = getExchange();
             const symbol = `${position.asset.replace('USDT', '')}/USDT:USDT`;
@@ -456,6 +461,7 @@ export default class PortfolioAgent extends BaseAgent {
               );
             }
           }
+          } // end triggerSyncAge >= 60000 throttle
         }
       }
 
