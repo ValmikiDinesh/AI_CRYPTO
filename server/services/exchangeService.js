@@ -720,13 +720,13 @@ class CoinSwitchExchange {
   // Private API: fetchOrder (Simulated or Live)
   async fetchOrder(id, symbol) {
     try {
-      if (id && id.startsWith('sim_')) {
+      if (!id || id === 'undefined' || id.startsWith('sim_') || id.startsWith('mock_') || id.startsWith('synced_')) {
         const { default: Trade } = await import('../models/Trade.js');
-        const trade = await Trade.findOne({ exchangeOrderId: id });
+        const trade = id ? await Trade.findOne({ exchangeOrderId: id }) : null;
         if (trade) {
           return { id, symbol, status: 'closed', filled: trade.quantity, amount: trade.quantity };
         }
-        return { id, symbol, status: 'closed', filled: 1.0, amount: 1.0 };
+        return { id: id || 'mock', symbol, status: 'closed', filled: 1.0, amount: 1.0 };
       }
 
       if (!this.isDemo) {
