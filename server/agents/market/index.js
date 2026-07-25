@@ -56,10 +56,25 @@ export default class MarketAgent extends BaseAgent {
   }
 
   async preloadCandlesInBackground() {
+    try {
+      const { default: Portfolio } = await import('../../models/Portfolio.js');
+      const portfolio = await Portfolio.findOne({});
+      if (portfolio && portfolio.positions) {
+        const activeAssets = portfolio.positions.filter(p => p && p.status === 'open').map(p => p.asset);
+        for (const asset of activeAssets) {
+          try {
+            const candles = await fetchCandles(asset, '5m', 100);
+            if (candles && candles.length > 0) this.candles[asset] = candles;
+          } catch (aErr) {}
+        }
+      }
+    } catch (pErr) {}
+
     const BATCH_SIZE = 15;
     for (let i = 0; i < SUPPORTED_ASSETS.length; i += BATCH_SIZE) {
       const batch = SUPPORTED_ASSETS.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (asset) => {
+        if (this.candles[asset] && this.candles[asset].length > 0) return;
         try {
           let candles = await fetchCandles(asset, '5m', 100);
           if (!candles || candles.length === 0) {

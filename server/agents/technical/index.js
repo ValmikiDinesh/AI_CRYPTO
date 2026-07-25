@@ -24,7 +24,6 @@ export default class TechnicalAgent extends BaseAgent {
         const candles = this.marketAgent.getCandles(asset);
 
         if (!candles || candles.length < 30) {
-          this.logger.debug(`${asset}: insufficient candles (${candles?.length || 0})`);
           continue;
         }
 
