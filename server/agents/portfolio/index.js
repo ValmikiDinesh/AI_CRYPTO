@@ -1132,66 +1132,58 @@ export default class PortfolioAgent extends BaseAgent {
 
       const totalClosed = closedTrades.length;
 
-      // 2. Calculate true available balance
-      let baseCap = portfolio.baseTradingCapital || 100;
-      let trueAvailable = baseCap + trueTotalPnl - (portfolio.walletBalance || 0);
-
-      if (process.env.TRADING_MODE === 'live') {
-        try {
-          const now = Date.now();
-          if (!this.lastBalanceFetch || now - this.lastBalanceFetch > 60000 || !this.cachedBalance) {
-            const bal = await fetchBalance();
-            if (bal && bal.USDT) {
-              this.cachedBalance = bal.USDT;
-              this.lastBalanceFetch = now;
-            }
-          }
-          if (this.cachedBalance) {
-            trueAvailable = this.cachedBalance.free;
-          }
-        } catch (balErr) {
-          this.logger.error(`Error fetching live exchange balance in updateMetrics: ${balErr.message}`);
-        }
-      }
-
       let openExposure = 0;
       let openUnrealized = 0;
-
       openPositions.forEach(p => {
         const leverage = p.leverage && p.leverage > 1 ? p.leverage : 10;
         const exposure = p.entryPrice * p.quantity;
-        const margin = exposure / leverage;
-        const entryFee = p.fees || 0;
-
-        if (process.env.TRADING_MODE !== 'live') {
-          trueAvailable -= (margin + entryFee);
-        }
-        openExposure += margin;
+        openExposure += (exposure / leverage);
         openUnrealized += p.unrealizedPnl;
       });
 
-      // Deduct margin and fees for pending limit orders
       let pendingMargin = 0;
       const pendingTrades = await Trade.find({ status: 'pending' });
       pendingTrades.forEach(t => {
         const leverage = t.leverage && t.leverage > 1 ? t.leverage : 3;
         const exposure = t.entryPrice * t.quantity;
-        const margin = exposure / leverage;
-        const entryFee = t.fees || 0;
-        if (process.env.TRADING_MODE !== 'live') {
-          trueAvailable -= (margin + entryFee);
-        }
-        pendingMargin += (margin + entryFee);
+        pendingMargin += ((exposure / leverage) + (t.fees || 0));
       });
 
-      // 3. Calculate true total balance (Net Worth)
-      const trueTotalBalance = process.env.TRADING_MODE === 'live' && this.cachedBalance
-        ? this.cachedBalance.total + openUnrealized
-        : trueAvailable + pendingMargin + openExposure + openUnrealized;
+      if (process.env.TRADING_MODE === 'live') {
+        try {
+          const bal = await fetchBalance();
+          if (bal && bal.USDT) {
+            portfolio.availableBalance = bal.USDT.free;
+            portfolio.totalBalance = bal.USDT.total;
+          }
+        } catch (balErr) {
+          this.logger.error(`Error fetching live exchange balance in updateMetrics: ${balErr.message}`);
+        }
+      } else {
+        let baseCap = portfolio.baseTradingCapital || 100;
+        let trueAvailable = baseCap + trueTotalPnl - (portfolio.walletBalance || 0);
+
+        openPositions.forEach(p => {
+          const leverage = p.leverage && p.leverage > 1 ? p.leverage : 10;
+          const exposure = p.entryPrice * p.quantity;
+          const margin = exposure / leverage;
+          const entryFee = p.fees || 0;
+          trueAvailable -= (margin + entryFee);
+        });
+
+        pendingTrades.forEach(t => {
+          const leverage = t.leverage && t.leverage > 1 ? t.leverage : 3;
+          const exposure = t.entryPrice * t.quantity;
+          const margin = exposure / leverage;
+          const entryFee = t.fees || 0;
+          trueAvailable -= (margin + entryFee);
+        });
+
+        portfolio.availableBalance = trueAvailable;
+        portfolio.totalBalance = trueAvailable + pendingMargin + openExposure + openUnrealized;
+      }
 
       portfolio.totalPnl = trueTotalPnl;
-      portfolio.availableBalance = trueAvailable;
-      portfolio.totalBalance = trueTotalBalance;
 
       portfolio.winningTrades = winners;
       portfolio.losingTrades = losers;

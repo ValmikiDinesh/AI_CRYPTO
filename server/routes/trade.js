@@ -176,7 +176,18 @@ router.post('/manual', async (req, res, next) => {
     }
 
     // Deduct from available balance (margin + entry fee)
-    portfolio.availableBalance -= (marginRequired + entryFee);
+    if (process.env.TRADING_MODE === 'live') {
+      try {
+        const { fetchBalance } = await import('../services/exchangeService.js');
+        const liveBal = await fetchBalance();
+        if (liveBal && liveBal.USDT) {
+          portfolio.availableBalance = liveBal.USDT.free;
+          portfolio.totalBalance = liveBal.USDT.total;
+        }
+      } catch (bErr) {}
+    } else {
+      portfolio.availableBalance -= (marginRequired + entryFee);
+    }
     portfolio.totalTrades += 1;
 
     // Create open position in portfolio
@@ -404,7 +415,18 @@ router.post('/manual-close', async (req, res, next) => {
 
     // Refund capital and PnL (minus exit fee) to availableBalance
     const capitalCost = (pos.entryPrice * pos.quantity) / (pos.leverage || 1);
-    portfolio.availableBalance += (capitalCost + pnl - finalExitFee);
+    if (process.env.TRADING_MODE === 'live') {
+      try {
+        const { fetchBalance } = await import('../services/exchangeService.js');
+        const liveBal = await fetchBalance();
+        if (liveBal && liveBal.USDT) {
+          portfolio.availableBalance = liveBal.USDT.free;
+          portfolio.totalBalance = liveBal.USDT.total;
+        }
+      } catch (bErr) {}
+    } else {
+      portfolio.availableBalance += (capitalCost + pnl - finalExitFee);
+    }
     portfolio.totalPnl += (pnl - totalPositionFees);
     portfolio.dailyLossToday = (portfolio.dailyLossToday || 0) + pnl; // update daily loss with net PnL
 
