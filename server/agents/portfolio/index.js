@@ -35,6 +35,8 @@ export default class PortfolioAgent extends BaseAgent {
 
   async initialize() {
     await super.initialize();
+
+    // Link WebSocket price stream for sub-50ms realtime exits
     try {
       const { coinswitchWs } = await import('../../services/coinswitchWsService.js');
       coinswitchWs.onPriceUpdate((asset, price) => {
@@ -43,6 +45,77 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.info('⚡ Linked CoinSwitch WebSocket price stream to PortfolioAgent for sub-50ms realtime exits');
     } catch (wsErr) {
       this.logger.warn(`Failed to link WebSocket price stream to PortfolioAgent: ${wsErr.message}`);
+    }
+
+    // Kick off the slow background exchange sync loop (runs every 60s, fully non-blocking)
+    this._runBackgroundSync();
+    this._bgSyncInterval = setInterval(() => this._runBackgroundSync(), 60000);
+  }
+
+  /** Fire-and-forget background sync: runs all slow exchange API calls outside the main 2s cycle */
+  async _runBackgroundSync() {
+    try {
+      const portfolios = await Portfolio.find({});
+      for (const portfolio of portfolios) {
+        const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
+        if (!openPositions.length) continue;
+
+        // 1. Fetch all live positions from exchange (one call, all symbols)
+        try {
+          const { fetchPositions } = await import('../../services/exchangeService.js');
+          const livePositions = await fetchPositions();
+          this._cachedExchangePositions = livePositions || [];
+          this._exchangePositionsFetchedAt = Date.now();
+          this._fetchedExchangeSuccessfully = true;
+        } catch (e) {
+          this.logger.debug(`[BG SYNC] fetchPositions failed: ${e.message}`);
+          this._fetchedExchangeSuccessfully = false;
+        }
+
+        // 2. Fetch live balance
+        if (process.env.TRADING_MODE === 'live') {
+          try {
+            const { fetchBalance } = await import('../../services/exchangeService.js');
+            const liveBal = await fetchBalance();
+            if (liveBal && liveBal.USDT) {
+              this._cachedLiveBalance = { total: liveBal.USDT.total, free: liveBal.USDT.free };
+            }
+          } catch (e) {
+            this.logger.debug(`[BG SYNC] fetchBalance failed: ${e.message}`);
+          }
+        }
+
+        // 3. SL/TP trigger order sync (sequential per position, throttled internally)
+        for (const position of openPositions) {
+          if (!this._lastTriggerSync) this._lastTriggerSync = {};
+          // Already synced within the last 60s — skip
+          if (Date.now() - (this._lastTriggerSync[position.asset] || 0) < 60000) continue;
+          this._lastTriggerSync[position.asset] = Date.now();
+          try {
+            const { getExchange } = await import('../../services/exchangeService.js');
+            const exchange = getExchange();
+            const symbol = `${position.asset.replace('USDT', '')}/USDT:USDT`;
+            const openOrders = await exchange.fetchOpenOrders(symbol, undefined, undefined, { 'trigger': true });
+            if (!this._cachedTriggerOrders) this._cachedTriggerOrders = {};
+            this._cachedTriggerOrders[position.asset] = { orders: openOrders, ts: Date.now() };
+            this.logger.info(`🔍 [TRIGGER SYNC] ${symbol}: fetched ${openOrders.length} open trigger orders`);
+          } catch (e) {
+            this.logger.debug(`[BG SYNC] fetchOpenOrders for ${position.asset} failed: ${e.message}`);
+          }
+        }
+
+        // 4. Sync closed trades from exchange (once per 5 min)
+        if (!this._lastClosedSync || Date.now() - this._lastClosedSync > 300000) {
+          this._lastClosedSync = Date.now();
+          try {
+            await this.syncClosedTradesFromExchange();
+          } catch (e) {
+            this.logger.debug(`[BG SYNC] syncClosedTrades failed: ${e.message}`);
+          }
+        }
+      }
+    } catch (bgErr) {
+      this.logger.debug(`[BG SYNC] background sync cycle error: ${bgErr.message}`);
     }
   }
 
@@ -65,17 +138,10 @@ export default class PortfolioAgent extends BaseAgent {
   /** Update current prices and unrealized PnL for all open positions. */
   async updatePositions(portfolio) {
     let totalUnrealizedPnl = 0;
-    let activeExchangePositions = [];
-    let fetchedExchangeSuccessfully = false;
 
-    // 1. Fetch all active positions from Binance in a single call to prevent timeouts and rate-limiting
-    try {
-      const { fetchPositions } = await import('../../services/exchangeService.js');
-      activeExchangePositions = await fetchPositions();
-      fetchedExchangeSuccessfully = true;
-    } catch (err) {
-      this.logger.warn(`🔄 [RECONCILIATION] Failed to fetch active positions from Binance: ${err.message}. Falling back to local price updates.`);
-    }
+    // 1. Use background-synced exchange positions (never await exchange API here — keeps cycle < 50ms)
+    const activeExchangePositions = this._cachedExchangePositions || [];
+    const fetchedExchangeSuccessfully = this._fetchedExchangeSuccessfully || false;
 
     // Create a map of active exchange positions for fast lookup (asset -> CCXT position)
     const exchangePositionMap = new Map();
@@ -190,278 +256,7 @@ export default class PortfolioAgent extends BaseAgent {
           } catch (tradeSyncErr) {
             this.logger.error(`Failed to sync Trade quantity/entryPrice for ${position.asset}: ${tradeSyncErr.message}`);
           }
-
-          // Reconcile and synchronize Stop-Loss and Take-Profit trigger orders on the exchange
-          // Throttled to once per 60 seconds per asset — avoids blocking the main cycle with 429-prone API calls
-          if (!this._lastTriggerSync) this._lastTriggerSync = {};
-          const triggerSyncAge = Date.now() - (this._lastTriggerSync[position.asset] || 0);
-          if (triggerSyncAge >= 60000) {
-          this._lastTriggerSync[position.asset] = Date.now();
-          try {
-            const exchange = getExchange();
-            const symbol = `${position.asset.replace('USDT', '')}/USDT:USDT`;
-            
-            // Fetch open trigger orders for this symbol from the exchange
-            const openOrders = await exchange.fetchOpenOrders(symbol, undefined, undefined, { 'trigger': true });
-            const exitSide = position.side === 'long' ? 'sell' : 'buy';
-            
-            // Filter trigger orders matching the exit side
-            const triggerOrders = openOrders.filter(o => o.side === exitSide);
-            
-            const existingSLOrders = [];
-            const existingTPOrders = [];
-            
-            triggerOrders.forEach(o => {
-              const triggerPrice = parseFloat(o.stopPrice || o.triggerPrice || (o.info && o.info.stopPrice) || 0);
-              if (triggerPrice <= 0) return;
-              
-              if (position.side === 'long') {
-                if (triggerPrice < position.entryPrice) {
-                  existingSLOrders.push(o);
-                } else {
-                  existingTPOrders.push(o);
-                }
-              } else {
-                if (triggerPrice > position.entryPrice) {
-                  existingSLOrders.push(o);
-                } else {
-                  existingTPOrders.push(o);
-                }
-              }
-            });
-
-            this.logger.info(`🔍 [TRIGGER SYNC debug] ${symbol}: found ${existingSLOrders.length} SL orders and ${existingTPOrders.length} TP orders among ${openOrders.length} fetched open trigger orders`);
-
-            // Fetch current mark price for trigger direction validation
-            let currentMarkPrice = position.markPrice || position.currentPrice || 0;
-            if (!currentMarkPrice || currentMarkPrice <= 0) {
-              try {
-                const ticker = await exchange.fetchTicker(symbol);
-                currentMarkPrice = ticker.markPrice || ticker.last || 0;
-              } catch (e) {
-                currentMarkPrice = 0;
-              }
-            }
-
-            // 1. Reconcile Stop Loss
-            if (position.stopLoss) {
-              const formattedStopLoss = parseFloat(exchange.priceToPrecision(symbol, position.stopLoss));
-              
-              const matchingSLOrders = [];
-              const mismatchingSLOrders = [];
-              
-              existingSLOrders.forEach(o => {
-                const triggerPrice = parseFloat(o.stopPrice || o.triggerPrice || (o.info && o.info.stopPrice) || 0);
-                if (formattedStopLoss > 0 && Math.abs(triggerPrice - formattedStopLoss) / formattedStopLoss < 0.0001) {
-                  matchingSLOrders.push(o);
-                } else {
-                  mismatchingSLOrders.push(o);
-                }
-              });
-              
-              // Cancel any mismatching stop-loss orders
-              for (const o of mismatchingSLOrders) {
-                try {
-                  this.logger.info(`🔄 [SL SYNC] Cancelling mismatching stop-loss order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedStopLoss})`);
-                  await exchange.cancelOrder(o.id, symbol, { trigger: true });
-                } catch (cancelErr) {
-                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
-                    this.logger.debug(`[SL SYNC] Stop-loss order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
-                  } else {
-                    throw cancelErr;
-                  }
-                }
-              }
-              
-              // Calculate total matching quantity
-              // NOTE: CoinSwitch Pro STOP_MARKET trigger orders with close_position=true return amount=0.
-              // Any matching trigger order (amount=0 means close_position covers full qty) is treated as full coverage.
-              const hasFullCoverageSL = matchingSLOrders.some(o => parseFloat(o.amount || 0) === 0);
-              const totalMatchingQty = hasFullCoverageSL ? position.quantity : matchingSLOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
-              
-              // If matching qty is less than position qty, place the missing amount
-              const remainingQty = position.quantity - totalMatchingQty;
-              if (remainingQty > 0.0001) {
-                this.logger.info(`🔄 [SL SYNC] Stop Loss missing/insufficient for ${position.asset}. Placing trigger order for remaining qty: ${remainingQty}`);
-                
-                // Validate SL direction: for LONG, SL (sell stop) must be BELOW mark price; for SHORT, SL (buy stop) must be ABOVE mark price
-                const slDirectionValid = currentMarkPrice <= 0 || 
-                  (position.side === 'long' ? formattedStopLoss < currentMarkPrice : formattedStopLoss > currentMarkPrice);
-                
-                if (!slDirectionValid) {
-                  this.logger.warn(`⚠️ [SL SYNC SKIP] ${position.asset}: SL price ${formattedStopLoss} is in invalid direction vs mark ${currentMarkPrice} (${position.side}). Local backup will handle.`);
-                } else {
-                const market = exchange.market(symbol);
-                const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE');
-                const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
-                
-                let quantityToPlace = remainingQty;
-                while (quantityToPlace > 0) {
-                  const chunk = maxQty ? Math.min(quantityToPlace, maxQty) : quantityToPlace;
-                  const formattedChunk = parseFloat(exchange.amountToPrecision(symbol, chunk));
-                  if (formattedChunk <= 0) break;
-                  
-                  try {
-                    const slOrderResult = await exchange.createOrder(
-                      symbol,
-                      'stop_market',
-                      exitSide,
-                      formattedChunk,
-                      undefined,
-                      {
-                        stopPrice: formattedStopLoss,
-                        reduceOnly: true
-                      }
-                    );
-                    this.logger.info(`✅ [SL SYNC PLACED] stopPrice=${formattedStopLoss} size=${formattedChunk} id=${slOrderResult.id} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}`);
-                  } catch (orderErr) {
-                    if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
-                      this.logger.warn(`⚠️ [SL SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
-                      break;
-                    } else if (orderErr.message.includes('invalid direction') || orderErr.message.includes('already exists')) {
-                        this.logger.warn(`⚠️ [SL SYNC SKIP] ${position.asset}: Exchange rejected SL: ${orderErr.message}. Local backup active.`);
-                        break;
-                      } else {
-                        throw orderErr;
-                      }
-                  }
-                  quantityToPlace -= chunk;
-                }
-                } // end slDirectionValid
-              }
-            } else {
-              // DB has no stopLoss, cancel any existing stop-loss orders
-              for (const o of existingSLOrders) {
-                try {
-                  this.logger.info(`🔄 [SL SYNC] DB has no Stop Loss. Cancelling existing stop-loss order ${o.id} for ${position.asset}`);
-                  await exchange.cancelOrder(o.id, symbol, { trigger: true });
-                } catch (cancelErr) {
-                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
-                    this.logger.debug(`[SL SYNC] Stop-loss order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
-                  } else {
-                    throw cancelErr;
-                  }
-                }
-              }
-            }
-            
-            // 2. Reconcile Take Profit
-            if (position.takeProfit) {
-              const formattedTakeProfit = parseFloat(exchange.priceToPrecision(symbol, position.takeProfit));
-              
-              const matchingTPOrders = [];
-              const mismatchingTPOrders = [];
-              
-              existingTPOrders.forEach(o => {
-                const triggerPrice = parseFloat(o.stopPrice || o.triggerPrice || (o.info && o.info.stopPrice) || 0);
-                if (formattedTakeProfit > 0 && Math.abs(triggerPrice - formattedTakeProfit) / formattedTakeProfit < 0.0001) {
-                  matchingTPOrders.push(o);
-                } else {
-                  mismatchingTPOrders.push(o);
-                }
-              });
-              
-              // Cancel any mismatching take-profit orders
-              for (const o of mismatchingTPOrders) {
-                try {
-                  this.logger.info(`🔄 [TP SYNC] Cancelling mismatching take-profit order ${o.id} for ${position.asset} (Price: ${o.stopPrice || o.triggerPrice} vs DB: ${formattedTakeProfit})`);
-                  await exchange.cancelOrder(o.id, symbol, { trigger: true });
-                } catch (cancelErr) {
-                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
-                    this.logger.debug(`[TP SYNC] Take-profit order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
-                  } else {
-                    throw cancelErr;
-                  }
-                }
-              }
-              
-              // Calculate total matching quantity
-              // NOTE: CoinSwitch Pro TAKE_PROFIT_MARKET trigger orders with close_position=true return amount=0.
-              // Any matching trigger order (amount=0 means close_position covers full qty) is treated as full coverage.
-              const hasFullCoverageTP = matchingTPOrders.some(o => parseFloat(o.amount || 0) === 0);
-              const totalMatchingTPQty = hasFullCoverageTP ? position.quantity : matchingTPOrders.reduce((sum, o) => sum + parseFloat(o.amount || 0), 0);
-              
-              // If matching qty is less than position qty, place the missing amount
-              const remainingQty = position.quantity - totalMatchingTPQty;
-              if (remainingQty > 0.0001) {
-                this.logger.info(`🔄 [TP SYNC] Take Profit missing/insufficient for ${position.asset}. Placing trigger order for remaining qty: ${remainingQty}`);
-                
-                // Validate TP direction: for LONG, TP (sell take_profit) must be ABOVE mark price; for SHORT, TP (buy take_profit) must be BELOW mark price
-                const tpDirectionValid = currentMarkPrice <= 0 || 
-                  (position.side === 'long' ? formattedTakeProfit > currentMarkPrice : formattedTakeProfit < currentMarkPrice);
-                
-                if (!tpDirectionValid) {
-                  this.logger.warn(`⚠️ [TP SYNC SKIP] ${position.asset}: TP price ${formattedTakeProfit} is in invalid direction vs mark ${currentMarkPrice} (${position.side}). Local backup will handle.`);
-                } else {
-                const market = exchange.market(symbol);
-                const marketLotSize = market.info?.filters?.find(f => f.filterType === 'MARKET_LOT_SIZE');
-                const maxQty = marketLotSize ? parseFloat(marketLotSize.maxQty) : null;
-                
-                let quantityToPlace = remainingQty;
-                while (quantityToPlace > 0) {
-                  const chunk = maxQty ? Math.min(quantityToPlace, maxQty) : quantityToPlace;
-                  const formattedChunk = parseFloat(exchange.amountToPrecision(symbol, chunk));
-                  if (formattedChunk <= 0) break;
-                  
-                  try {
-                    const tpOrderResult = await exchange.createOrder(
-                      symbol,
-                      'take_profit_market',
-                      exitSide,
-                      formattedChunk,
-                      undefined,
-                      {
-                        stopPrice: formattedTakeProfit,
-                        reduceOnly: true
-                      }
-                    );
-                    this.logger.info(`✅ [TP SYNC PLACED] takeProfitPrice=${formattedTakeProfit} size=${formattedChunk} id=${tpOrderResult.id} on ${exchange.isDemo ? 'CoinSwitch Pro (Demo)' : 'CoinSwitch Pro'}`);
-                  } catch (orderErr) {
-                    if (orderErr.message.includes('-4045') || orderErr.message.includes('max stop') || orderErr.name === 'OperationRejected') {
-                      this.logger.warn(`⚠️ [TP SYNC REJECTED] Reach max stop order limit (10) for ${symbol} on Binance Futures. Skipping remaining chunk placement.`);
-                      break;
-                    } else if (orderErr.message.includes('invalid direction') || orderErr.message.includes('already exists')) {
-                        this.logger.warn(`⚠️ [TP SYNC SKIP] ${position.asset}: Exchange rejected TP: ${orderErr.message}. Local backup active.`);
-                        break;
-                      } else {
-                        throw orderErr;
-                      }
-                  }
-                  quantityToPlace -= chunk;
-                }
-                } // end tpDirectionValid
-              }
-            } else {
-              // DB has no takeProfit, cancel any existing take-profit orders
-              for (const o of existingTPOrders) {
-                try {
-                  this.logger.info(`🔄 [TP SYNC] DB has no Take Profit. Cancelling existing take-profit order ${o.id} for ${position.asset}`);
-                  await exchange.cancelOrder(o.id, symbol, { trigger: true });
-                } catch (cancelErr) {
-                  if (cancelErr.name === 'OrderNotFound' || cancelErr.message.includes('Unknown order') || cancelErr.message.includes('-2011')) {
-                    this.logger.debug(`[TP SYNC] Take-profit order ${o.id} for ${position.asset} was already filled or cancelled on exchange.`);
-                  } else {
-                    throw cancelErr;
-                  }
-                }
-              }
-            }
-          } catch (syncErr) {
-            this.logger.error(`❌ [TRIGGER SYNC FAILED] Failed to reconcile trigger orders for ${position.asset}: ${syncErr.stack || syncErr.message}`);
-            
-            const errKey = `${portfolio._id}_${position.asset}_${syncErr.message}`;
-            if (!this.notifiedSyncErrors.has(errKey)) {
-              this.notifiedSyncErrors.add(errKey);
-              await sendTelegramMessage(
-                `⚠️ <b>SL/TP Trigger Sync Failure</b>\n` +
-                `<b>Asset</b>: ${position.asset.replace('USDT', '')}/USDT\n` +
-                `<b>Details</b>: Failed to synchronize native SL/TP trigger orders on the exchange.\n` +
-                `<b>Error</b>: <i>${syncErr.message}</i>\n\n` +
-                `<i>Note: Local software backup monitoring remains ACTIVE. The bot will automatically market-close the position if it hits the Stop-Loss ($${position.stopLoss ? formatPrice(position.stopLoss) : '—'}) or Take-Profit ($${position.takeProfit ? formatPrice(position.takeProfit) : '—'}) price levels.</i>`
-              );
-            }
-          }
-          } // end triggerSyncAge >= 60000 throttle
+          // SL/TP trigger order sync is handled by _runBackgroundSync() — not here
         }
       }
 
@@ -682,15 +477,14 @@ export default class PortfolioAgent extends BaseAgent {
       }
     }
 
-    // 4. Sync MongoDB Trade collection with CoinSwitch active exchange positions
-    if (fetchedExchangeSuccessfully) {
+      // Stale DB trade cleanup uses cached exchange positions (already fast, O(n) over DB only)
       try {
         const liveSymbols = new Set(activeExchangePositions.map(p => p.symbol.split(':')[0].replace('/', '').toUpperCase()));
         const dbOpenTrades = await Trade.find({ status: 'open' });
         for (const trade of dbOpenTrades) {
           const cleanAsset = trade.asset.replace('/', '').replace(':USDT', '').toUpperCase();
           const ageMs = Date.now() - new Date(trade.executedAt || trade.createdAt || Date.now()).getTime();
-          if (!liveSymbols.has(cleanAsset) && ageMs > 15000) { // 15 seconds grace period
+          if (!liveSymbols.has(cleanAsset) && ageMs > 15000) {
             this.logger.info(`🔄 [RECONCILIATION] Closing stale DB Trade document for ${trade.asset} (ID: ${trade._id}) as it is no longer active on CoinSwitch Pro`);
             trade.status = 'closed';
             trade.closedAt = new Date();
@@ -701,37 +495,14 @@ export default class PortfolioAgent extends BaseAgent {
       } catch (tradeSyncErr) {
         this.logger.error(`Failed to reconcile DB Trade documents with exchange positions: ${tradeSyncErr.message}`);
       }
+      // Note: syncClosedTradesFromExchange() runs in _runBackgroundSync() — not here
 
-      // 5. Sync executed closed trades history from CoinSwitch Pro (throttled to once per 5 minutes)
-      if (!this._lastClosedSync || Date.now() - this._lastClosedSync > 300000) {
-        this._lastClosedSync = Date.now();
-        try {
-          await this.syncClosedTradesFromExchange();
-        } catch (closedSyncErr) {
-          this.logger.error(`Failed to sync closed trades history from exchange: ${closedSyncErr.message}`);
-        }
-      }
-    }
-
-    // Recalculate total balance (live balance fetch throttled to once per 30 seconds)
+    // Recalculate total balance from background-cached live balance (no API call here)
     if (process.env.TRADING_MODE === 'live') {
-      if (!this._lastBalanceFetch || Date.now() - this._lastBalanceFetch > 30000) {
-        this._lastBalanceFetch = Date.now();
-        try {
-          const { fetchBalance } = await import('../../services/exchangeService.js');
-          const liveBal = await fetchBalance();
-          if (liveBal && liveBal.USDT) {
-            portfolio.totalBalance = liveBal.USDT.total;
-            portfolio.availableBalance = liveBal.USDT.free;
-            portfolio.baseTradingCapital = liveBal.USDT.total;
-            this._cachedLiveBalance = { total: liveBal.USDT.total, free: liveBal.USDT.free };
-          }
-        } catch (balErr) {
-          this.logger.warn(`Failed to fetch live balance from CoinSwitch Pro: ${balErr.message}`);
-        }
-      } else if (this._cachedLiveBalance) {
+      if (this._cachedLiveBalance) {
         portfolio.totalBalance = this._cachedLiveBalance.total;
         portfolio.availableBalance = this._cachedLiveBalance.free;
+        portfolio.baseTradingCapital = this._cachedLiveBalance.total;
       }
     } else {
       const marginValue = portfolio.positions
