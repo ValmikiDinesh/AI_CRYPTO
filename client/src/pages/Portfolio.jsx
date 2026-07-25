@@ -18,7 +18,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
   useEffect(() => {
     const timer = setInterval(() => {
       setTick((t) => t + 1);
-    }, 1000);
+    }, 250);
     return () => clearInterval(timer);
   }, []);
 
@@ -285,8 +285,19 @@ export default function Portfolio() {
     return true;
   };
 
-  const onlyOpenTrades = allTrades
-    .filter((trade) => trade.status === 'open')
+  const livePositions = (portfolio && portfolio.positions && Array.isArray(portfolio.positions))
+    ? portfolio.positions.filter((p) => p && p.status === 'open')
+    : [];
+
+  const rawOpenTrades = livePositions.length > 0
+    ? livePositions.map((p) => ({
+        ...p,
+        createdAt: p.openedAt || p.createdAt || new Date(),
+        action: p.action || (p.side === 'long' ? 'BUY' : 'SELL'),
+      }))
+    : allTrades.filter((trade) => trade.status === 'open');
+
+  const onlyOpenTrades = rawOpenTrades
     .filter((trade, index, self) => index === self.findIndex((t) => t.asset === trade.asset));
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
 

@@ -194,6 +194,11 @@ socket.on('portfolio:update', (data) => {
         }
         return true;
       });
+      data.positions.forEach((p) => {
+        if (p && p.asset && p.currentPrice > 0) {
+          useMarketStore.getState().setPrice(p.asset, p.currentPrice);
+        }
+      });
     }
     usePortfolioStore.getState().setPortfolio(data);
   }
