@@ -630,7 +630,7 @@ export default class PortfolioAgent extends BaseAgent {
         for (const trade of dbOpenTrades) {
           const cleanAsset = trade.asset.replace('/', '').replace(':USDT', '').toUpperCase();
           const ageMs = Date.now() - new Date(trade.executedAt || trade.createdAt || Date.now()).getTime();
-          if (!liveSymbols.has(cleanAsset) && ageMs > 5 * 60 * 1000) { // 5 minutes grace period
+          if (!liveSymbols.has(cleanAsset) && ageMs > 15000) { // 15 seconds grace period
             this.logger.info(`🔄 [RECONCILIATION] Closing stale DB Trade document for ${trade.asset} (ID: ${trade._id}) as it is no longer active on CoinSwitch Pro`);
             trade.status = 'closed';
             trade.closedAt = new Date();
@@ -650,12 +650,26 @@ export default class PortfolioAgent extends BaseAgent {
       }
     }
 
-    // Recalculate total balance using leverage-adjusted universal equity formula
-    const marginValue = portfolio.positions
-      .filter((p) => p && p.status === 'open')
-      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+    // Recalculate total balance
+    if (process.env.TRADING_MODE === 'live') {
+      try {
+        const { fetchBalance } = await import('../../services/exchangeService.js');
+        const liveBal = await fetchBalance();
+        if (liveBal && liveBal.USDT) {
+          portfolio.totalBalance = liveBal.USDT.total;
+          portfolio.availableBalance = liveBal.USDT.free;
+          portfolio.baseTradingCapital = liveBal.USDT.total;
+        }
+      } catch (balErr) {
+        this.logger.warn(`Failed to fetch live balance from CoinSwitch Pro: ${balErr.message}`);
+      }
+    } else {
+      const marginValue = portfolio.positions
+        .filter((p) => p && p.status === 'open')
+        .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
 
-    portfolio.totalBalance = portfolio.availableBalance + marginValue;
+      portfolio.totalBalance = portfolio.availableBalance + marginValue;
+    }
 
     // Update peak balance for drawdown tracking
     if (portfolio.totalBalance > portfolio.peakBalance) {
