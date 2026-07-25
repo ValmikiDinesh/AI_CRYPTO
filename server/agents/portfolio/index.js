@@ -1,5 +1,5 @@
 import BaseAgent from '../base/BaseAgent.js';
-import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
+import { AGENT_NAMES, SUPPORTED_ASSETS, SYSTEM_USER_ID } from '../../config/constants.js';
 import { publishEvent, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, formatPrice, escapeHtml } from '../../services/telegramService.js';
 import { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange, checkAssetLiquidity, fetchBalance } from '../../services/exchangeService.js';
