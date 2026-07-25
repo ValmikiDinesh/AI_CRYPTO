@@ -59,8 +59,13 @@ async function reconcileNow() {
     let existing = portfolio.positions.find(p => p && p.asset === asset && p.status === 'open');
     if (!existing) {
       console.log(`Importing live position from CoinSwitch: ${asset}`);
-      const calculatedStopLoss = liveP.side === 'long' ? liveP.entryPrice * 0.95 : liveP.entryPrice * 1.05;
-      const calculatedTakeProfit = liveP.side === 'long' ? liveP.entryPrice * 1.10 : liveP.entryPrice * 0.90;
+      const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+      const totalFeeEst = liveP.entryPrice * liveP.contracts * 0.001;
+      const priceDeltaTarget = liveP.contracts > 0 ? ((minTarget + totalFeeEst) / liveP.contracts) : (liveP.entryPrice * 0.02);
+      const priceDeltaRisk = liveP.contracts > 0 ? ((0.40 + totalFeeEst) / liveP.contracts) : (liveP.entryPrice * 0.03);
+
+      const calculatedStopLoss = liveP.side === 'long' ? Math.max(0.000001, liveP.entryPrice - priceDeltaRisk) : liveP.entryPrice + priceDeltaRisk;
+      const calculatedTakeProfit = liveP.side === 'long' ? liveP.entryPrice + priceDeltaTarget : Math.max(0.000001, liveP.entryPrice - priceDeltaTarget);
 
       portfolio.positions.push({
         asset,

@@ -140,15 +140,13 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
                   </td>
                   <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
                     {(() => {
-                      const isLong = trade.side === 'long' || trade.action === 'BUY';
-                      const sl = trade.stopLoss || (trade.entryPrice ? (isLong ? trade.entryPrice * 0.95 : trade.entryPrice * 1.05) : null);
+                      const sl = trade.stopLoss;
                       return sl ? (sl >= 1 ? `$${sl.toFixed(2)}` : `$${sl.toFixed(6)}`) : '—';
                     })()}
                   </td>
                   <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
                     {(() => {
-                      const isLong = trade.side === 'long' || trade.action === 'BUY';
-                      const tp = trade.takeProfit || (trade.entryPrice ? (isLong ? trade.entryPrice * 1.10 : trade.entryPrice * 0.90) : null);
+                      const tp = trade.takeProfit;
                       return tp ? (tp >= 1 ? `$${tp.toFixed(2)}` : `$${tp.toFixed(6)}`) : '—';
                     })()}
                   </td>

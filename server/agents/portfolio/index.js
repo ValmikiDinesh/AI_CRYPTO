@@ -585,8 +585,18 @@ export default class PortfolioAgent extends BaseAgent {
             );
           }
 
-          const calculatedStopLoss = (activeTrade && activeTrade.stopLoss) ? activeTrade.stopLoss : (side === 'long' ? entryPrice * 0.95 : entryPrice * 1.05);
-          const calculatedTakeProfit = (activeTrade && activeTrade.takeProfit) ? activeTrade.takeProfit : (side === 'long' ? entryPrice * 1.10 : entryPrice * 0.90);
+          const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+          const totalFeeEst = entryPrice * quantity * 0.001; // 0.1% total round-trip fee estimate
+          const priceDeltaTarget = quantity > 0 ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
+          const priceDeltaRisk = quantity > 0 ? ((0.40 + totalFeeEst) / quantity) : (entryPrice * 0.03);
+
+          const calculatedStopLoss = (activeTrade && activeTrade.stopLoss) 
+            ? activeTrade.stopLoss 
+            : (side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk);
+            
+          const calculatedTakeProfit = (activeTrade && activeTrade.takeProfit) 
+            ? activeTrade.takeProfit 
+            : (side === 'long' ? entryPrice + priceDeltaTarget : Math.max(0.000001, entryPrice - priceDeltaTarget));
 
           let dynamicTrailingPct = undefined;
           const category = getCategoryForAsset(asset);
