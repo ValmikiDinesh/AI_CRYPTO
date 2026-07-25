@@ -28,10 +28,8 @@ class CoinSwitchWsService {
       this.isConnected = true;
       logger.info(`✅ Connected to CoinSwitch Pro WebSocket (ID: ${this.socket.id})`);
 
-      // Subscribe to live price tickers for all supported assets
-      SUPPORTED_ASSETS.forEach((asset) => {
-        this.socket.emit('FETCH_TICKER_INFO_CS_PRO', { event: 'subscribe', pair: asset });
-      });
+      // Subscribe to live price tickers in staggered batches of 20
+      this.subscribeAllAssets();
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -66,6 +64,23 @@ class CoinSwitchWsService {
         }
       });
     });
+  }
+
+  subscribe(asset) {
+    if (this.socket && this.isConnected && asset) {
+      const cleanAsset = asset.replace('/', '').replace(':USDT', '').toUpperCase();
+      this.socket.emit('FETCH_TICKER_INFO_CS_PRO', { event: 'subscribe', pair: cleanAsset });
+    }
+  }
+
+  async subscribeAllAssets() {
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < SUPPORTED_ASSETS.length; i += BATCH_SIZE) {
+      const batch = SUPPORTED_ASSETS.slice(i, i + BATCH_SIZE);
+      batch.forEach((asset) => this.subscribe(asset));
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    logger.info('✅ WebSocket subscriptions sent for all supported assets.');
   }
 
   onPriceUpdate(callback) {

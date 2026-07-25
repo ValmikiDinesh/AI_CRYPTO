@@ -13,6 +13,14 @@ const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'PORTAL
 function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
   const prices = useMarketStore((s) => s.prices);
   const [openLedgerTab, setOpenLedgerTab] = useState('all');
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const filteredOpenTrades = onlyOpenTrades.filter((trade) => {
     if (openLedgerTab === 'all') return true;

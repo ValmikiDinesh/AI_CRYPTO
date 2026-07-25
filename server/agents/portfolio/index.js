@@ -91,6 +91,11 @@ export default class PortfolioAgent extends BaseAgent {
     for (const position of portfolio.positions) {
       if (!position || position.status !== 'open') continue;
 
+      // Ensure live WebSocket ticker subscription for active open position
+      try {
+        coinswitchWs.subscribe(position.asset);
+      } catch (subErr) {}
+
       let currentPrice = this.marketAgent.getPrice(position.asset);
       if (!currentPrice && fetchedExchangeSuccessfully) {
         const exchangePos = exchangePositionMap.get(position.asset);
