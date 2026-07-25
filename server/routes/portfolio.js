@@ -382,6 +382,10 @@ router.post('/config', async (req, res, next) => {
       portfolio.exitOrderType = req.body.exitOrderType;
     }
 
+    if (req.body.minNetProfitTarget !== undefined && !isNaN(parseFloat(req.body.minNetProfitTarget))) {
+      portfolio.minNetProfitTarget = parseFloat(req.body.minNetProfitTarget);
+    }
+
     // Recalculate targetProfitThreshold dynamically based on Sweep Target Profit Pct
     const baseCap = portfolio.baseTradingCapital || 100;
     const sweepPct = portfolio.sweepTargetProfitPct !== undefined ? portfolio.sweepTargetProfitPct : 10;
@@ -433,6 +437,7 @@ router.post('/config', async (req, res, next) => {
       coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
       entryOrderType: portfolio.entryOrderType || "market",
       exitOrderType: portfolio.exitOrderType || "market",
+      minNetProfitTarget: portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25,
     });
 
     res.json({ success: true, message: 'Portfolio configuration updated successfully', data: portfolio });

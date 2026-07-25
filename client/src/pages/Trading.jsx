@@ -279,6 +279,33 @@ export default function Trading() {
               </button>
             </div>
           </div>
+
+          <div className="h-4 w-[1px] bg-[#2c2c2e]/80" />
+
+          {/* Net Scalp Target ($ USDT) */}
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-[#bf5af2] uppercase tracking-widest font-bold font-mono">Scalp Target:</span>
+            <div className="flex bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
+              <button
+                onClick={() => handleToggleOrderType('minNetProfitTarget', 0.25)}
+                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${(portfolio?.minNetProfitTarget || 0.25) === 0.25 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                $0.25
+              </button>
+              <button
+                onClick={() => handleToggleOrderType('minNetProfitTarget', 0.50)}
+                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${portfolio?.minNetProfitTarget === 0.50 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                $0.50
+              </button>
+              <button
+                onClick={() => handleToggleOrderType('minNetProfitTarget', 1.00)}
+                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${portfolio?.minNetProfitTarget === 1.00 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                $1.00
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

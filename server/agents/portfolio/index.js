@@ -456,7 +456,21 @@ export default class PortfolioAgent extends BaseAgent {
       totalUnrealizedPnl += position.unrealizedPnl;
     }
 
-    // 3. Binance-to-Database Sync (Import active positions found on Binance but missing in DB)
+    // 3. Position Deduplication & Binance-to-Database Sync
+    const seenOpenAssets = new Set();
+    for (let i = portfolio.positions.length - 1; i >= 0; i--) {
+      const pos = portfolio.positions[i];
+      if (pos && pos.status === 'open') {
+        if (seenOpenAssets.has(pos.asset)) {
+          this.logger.warn(`🧹 [DEDUPLICATION] Marking duplicate open position for ${pos.asset} as closed`);
+          pos.status = 'closed';
+          pos.closedAt = new Date();
+        } else {
+          seenOpenAssets.add(pos.asset);
+        }
+      }
+    }
+
     if (fetchedExchangeSuccessfully) {
       for (const exchangePos of activeExchangePositions) {
         const asset = exchangePos.symbol.split(':')[0].replace('/', '');
@@ -1496,17 +1510,19 @@ export default class PortfolioAgent extends BaseAgent {
     let shouldClose = false;
     let reason = '';
 
-    // 1. Half-Dollar Net PnL Scalp Exit & Minimum Floor Trailing Stop ($0.50+ Floor)
-    if (position.highestNetPnl >= 0.50) {
-      // Minimum floor is ALWAYS $0.50 (never locks in less than $0.50)
-      const lockedInFloor = Math.max(0.50, position.highestNetPnl - 0.15);
+    const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+
+    // 1. Dynamic Net PnL Scalp Exit & Minimum Floor Trailing Stop ($0.25+ Floor by default, configurable)
+    if (position.highestNetPnl >= minTarget) {
+      // Minimum floor is ALWAYS minTarget (never locks in less than minTarget)
+      const lockedInFloor = Math.max(minTarget, position.highestNetPnl - 0.10);
       if (netPnl <= lockedInFloor) {
         shouldClose = true;
-        reason = `Half-Dollar Scalp Target/Trailing Floor Reached (+$${lockedInFloor.toFixed(2)} Net PnL)`;
+        reason = `Net Scalp Target/Trailing Floor Reached (+$${lockedInFloor.toFixed(2)} Net PnL)`;
       }
-    } else if (netPnl >= 0.50) {
+    } else if (netPnl >= minTarget) {
       shouldClose = true;
-      reason = `Half-Dollar Net PnL Scalp Target Reached (+$${netPnl.toFixed(2)} Net)`;
+      reason = `Net Scalp Target Reached (+$${netPnl.toFixed(2)} Net)`;
     } else if (netPnl <= -0.40) { // Dynamic Risk Floor (-$0.40 Risk Floor)
       shouldClose = true;
       reason = `Stop-Loss Risk Floor Triggered (-$${Math.abs(netPnl).toFixed(2)} Net PnL)`;

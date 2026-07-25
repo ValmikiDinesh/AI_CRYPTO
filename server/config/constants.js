@@ -27,7 +27,7 @@ export const RISK = {
   MAX_MEME_POSITIONS: parseInt(process.env.MAX_MEME_POSITIONS) || 50,
   MAX_RECOMMENDED_POSITIONS: parseInt(process.env.MAX_RECOMMENDED_POSITIONS) || 50,
   MIN_CONFIDENCE_THRESHOLD: parseFloat(process.env.MIN_CONFIDENCE_THRESHOLD) || 0.55,
-  MIN_NET_PROFIT_TARGET: parseFloat(process.env.MIN_NET_PROFIT_TARGET) || 0.50, // $0.50 Net PnL floor
+  MIN_NET_PROFIT_TARGET: parseFloat(process.env.MIN_NET_PROFIT_TARGET) || 0.25, // $0.25 Net PnL floor
   MIN_MARGIN_FLOOR: parseFloat(process.env.MIN_MARGIN_FLOOR) || 5.0, // $5.00 minimum margin floor
   MARGIN_BALANCE_PERCENTAGE: parseFloat(process.env.MARGIN_BALANCE_PERCENTAGE) || 0.20, // 20% balance auto-scale
   MAX_DAILY_TRADES: parseInt(process.env.MAX_DAILY_TRADES) || 1000,
