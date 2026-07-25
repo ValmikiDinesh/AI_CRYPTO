@@ -568,8 +568,23 @@ export default class ExecutionAgent extends BaseAgent {
     }
 
     // Confirm execution parameters from CCXT order response
-    const executionPrice = order.average || order.price || limitEntryPrice;
-    const executionQuantity = order.filled || order.amount || quantity;
+    let executionPrice = order.average || order.price || limitEntryPrice;
+    let executionQuantity = order.filled || order.amount || quantity;
+
+    // In live mode, query real position entry price directly from exchange right after market order fill
+    if (process.env.TRADING_MODE === 'live' || (order && !order.id?.startsWith('mock_'))) {
+      try {
+        const { fetchPositions } = await import('../../services/exchangeService.js');
+        const activePos = await fetchPositions(signal.asset);
+        if (activePos && activePos.length > 0 && activePos[0].entryPrice > 0) {
+          executionPrice = activePos[0].entryPrice;
+          executionQuantity = activePos[0].contracts || executionQuantity;
+          this.logger.info(`🎯 [REAL EXCHANGE FILL] ${signal.asset}: Verified exact exchange entryPrice: $${executionPrice}`);
+        }
+      } catch (posErr) {
+        this.logger.warn(`Could not verify exact exchange fill price for ${signal.asset}: ${posErr.message}`);
+      }
+    }
 
     let actualFee = entryFee;
     if (order.fee && order.fee.cost) {

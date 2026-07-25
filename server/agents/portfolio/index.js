@@ -154,22 +154,28 @@ export default class PortfolioAgent extends BaseAgent {
               : `Closed Manually / Native TP Triggered on Exchange (${position.side.toUpperCase()} @ $${formatPrice(position.entryPrice)} vs Exit $${formatPrice(closePrice)})`;
           }
         } else {
-          // Position exists in both DB and Binance. Sync entry price and contracts just in case of slight drift.
-          position.entryPrice = exchangePos.entryPrice || position.entryPrice;
-          position.quantity = exchangePos.contracts || position.quantity;
-          position.currentPrice = exchangePos.markPrice || currentPrice;
+          // Position exists in both DB and Exchange. Always sync exact entry price and contracts.
+          if (exchangePos.entryPrice && exchangePos.entryPrice > 0) {
+            position.entryPrice = exchangePos.entryPrice;
+          }
+          if (exchangePos.contracts && exchangePos.contracts > 0) {
+            position.quantity = exchangePos.contracts;
+          }
+          if (exchangePos.markPrice && exchangePos.markPrice > 0) {
+            position.currentPrice = exchangePos.markPrice;
+          }
 
           // Also sync corresponding open Trade record quantity and entryPrice to avoid DB-exchange drift
           try {
             const activeTrade = await Trade.findOne({ asset: position.asset, status: 'open' });
             if (activeTrade) {
               let changed = false;
-              if (activeTrade.quantity !== position.quantity) {
-                activeTrade.quantity = position.quantity;
+              if (position.entryPrice > 0 && activeTrade.entryPrice !== position.entryPrice) {
+                activeTrade.entryPrice = position.entryPrice;
                 changed = true;
               }
-              if (activeTrade.entryPrice !== position.entryPrice) {
-                activeTrade.entryPrice = position.entryPrice;
+              if (position.quantity > 0 && activeTrade.quantity !== position.quantity) {
+                activeTrade.quantity = position.quantity;
                 changed = true;
               }
               if (changed) {

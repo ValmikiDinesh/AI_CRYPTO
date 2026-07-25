@@ -83,9 +83,17 @@ async function reconcileNow() {
       });
     } else {
       // Sync quantity and entry price
+      console.log(`Syncing entryPrice for existing position ${asset}: ${existing.entryPrice} -> ${liveP.entryPrice}`);
       existing.entryPrice = liveP.entryPrice;
       existing.quantity = liveP.contracts;
       existing.currentPrice = liveP.markPrice || existing.currentPrice;
+
+      const activeTrade = await Trade.findOne({ asset, status: 'open' });
+      if (activeTrade) {
+        activeTrade.entryPrice = liveP.entryPrice;
+        activeTrade.quantity = liveP.contracts;
+        await activeTrade.save();
+      }
     }
   }
 
