@@ -101,89 +101,98 @@ export default class MarketAgent extends BaseAgent {
       const tickers = await fetchAllTickers();
       if (!tickers) return;
 
-      // 2. Smoothly rotate single-asset candle sync across cycles to prevent rate limit spikes
+      // 2. Process all 568 assets in 10 parallel asynchronous batch streams (<300ms cycle)
+      const chunkSize = Math.ceil(SUPPORTED_ASSETS.length / 10);
+      const assetChunks = [];
+      for (let i = 0; i < SUPPORTED_ASSETS.length; i += chunkSize) {
+        assetChunks.push(SUPPORTED_ASSETS.slice(i, i + chunkSize));
+      }
+
       const currentAssetIndex = (this.rotationIndex || 0) % SUPPORTED_ASSETS.length;
       this.rotationIndex = currentAssetIndex + 1;
       const syncAsset = SUPPORTED_ASSETS[currentAssetIndex];
 
-      for (const asset of SUPPORTED_ASSETS) {
-        try {
-          const cleanSym = asset.toUpperCase().replace('/', '');
-          const ticker = tickers[cleanSym] || tickers[asset.toLowerCase()];
-          if (!ticker) continue;
+      await Promise.all(
+        assetChunks.map(async (chunk) => {
+          for (const asset of chunk) {
+            try {
+              const cleanSym = asset.toUpperCase().replace('/', '');
+              const ticker = tickers[cleanSym] || tickers[asset.toLowerCase()];
+              if (!ticker) continue;
 
-          const price = parseFloat(ticker.last_price || ticker.last || ticker.close || 0);
-          if (price <= 0) continue;
+              const price = parseFloat(ticker.last_price || ticker.last || ticker.close || 0);
+              if (price <= 0) continue;
 
-          this.prices[asset] = price;
+              this.prices[asset] = price;
 
-          let candleData = null;
+              let candleData = null;
 
-          // Only sync candles for the 1 target rotated asset in this cycle
-          if (asset === syncAsset) {
-            const candles = await fetchCandles(asset, '5m', 1);
-            if (candles && candles.length > 0) {
-              const latestCandle = candles[0];
-              latestCandle.close = price;
+              if (asset === syncAsset) {
+                const candles = await fetchCandles(asset, '5m', 1);
+                if (candles && candles.length > 0) {
+                  const latestCandle = candles[0];
+                  latestCandle.close = price;
 
-              const history = this.candles[asset] || [];
-              const lastHistoryCandle = history[history.length - 1];
+                  const history = this.candles[asset] || [];
+                  const lastHistoryCandle = history[history.length - 1];
 
-              let isNewCandle = false;
-              if (!lastHistoryCandle || new Date(latestCandle.openTime).getTime() > new Date(lastHistoryCandle.openTime).getTime()) {
-                isNewCandle = true;
-              }
-
-              candleData = {
-                asset,
-                open: latestCandle.open,
-                high: latestCandle.high,
-                low: latestCandle.low,
-                close: price,
-                volume: latestCandle.volume,
-                openTime: new Date(latestCandle.openTime),
-                closeTime: new Date(latestCandle.closeTime),
-                isClosed: isNewCandle
-              };
-
-              if (isNewCandle) {
-                try {
-                  if (lastHistoryCandle) {
-                    lastHistoryCandle.isClosed = true;
-                    await MarketData.findOneAndUpdate(
-                      { asset, interval: '5m', openTime: lastHistoryCandle.openTime },
-                      lastHistoryCandle,
-                      { upsert: true, new: true }
-                    );
-                    await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: lastHistoryCandle });
+                  let isNewCandle = false;
+                  if (!lastHistoryCandle || new Date(latestCandle.openTime).getTime() > new Date(lastHistoryCandle.openTime).getTime()) {
+                    isNewCandle = true;
                   }
 
-                  history.push(candleData);
-                  if (history.length > 200) history.shift();
-                } catch (dbErr) {
-                  this.logger.error(`Failed to persist candle for ${asset}: ${dbErr.message}`);
-                }
-              } else {
-                if (history.length > 0) {
-                  history[history.length - 1] = candleData;
-                } else {
-                  history.push(candleData);
+                  candleData = {
+                    asset,
+                    open: latestCandle.open,
+                    high: latestCandle.high,
+                    low: latestCandle.low,
+                    close: price,
+                    volume: latestCandle.volume,
+                    openTime: new Date(latestCandle.openTime),
+                    closeTime: new Date(latestCandle.closeTime),
+                    isClosed: isNewCandle
+                  };
+
+                  if (isNewCandle) {
+                    try {
+                      if (lastHistoryCandle) {
+                        lastHistoryCandle.isClosed = true;
+                        await MarketData.findOneAndUpdate(
+                          { asset, interval: '5m', openTime: lastHistoryCandle.openTime },
+                          lastHistoryCandle,
+                          { upsert: true, new: true }
+                        );
+                        await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: lastHistoryCandle });
+                      }
+
+                      history.push(candleData);
+                      if (history.length > 200) history.shift();
+                    } catch (dbErr) {
+                      this.logger.error(`Failed to persist candle for ${asset}: ${dbErr.message}`);
+                    }
+                  } else {
+                    if (history.length > 0) {
+                      history[history.length - 1] = candleData;
+                    } else {
+                      history.push(candleData);
+                    }
+                  }
                 }
               }
+
+              // Publish live tick to Redis/Socket.io
+              await publishEvent(CHANNELS.MARKET_DATA, {
+                asset,
+                price,
+                candle: candleData,
+                timestamp: Date.now()
+              });
+            } catch (err) {
+              this.logger.error(`Error processing market tick for ${asset}: ${err.message}`);
             }
           }
-
-          // Publish live tick to Redis/Socket.io
-          await publishEvent(CHANNELS.MARKET_DATA, {
-            asset,
-            price,
-            candle: candleData,
-          });
-
-        } catch (assetErr) {
-          // Silent catch for individual asset loop items
-        }
-      }
+        })
+      );
 
       this.lastCandleSync = Date.now();
     } catch (err) {

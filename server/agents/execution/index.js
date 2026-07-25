@@ -438,51 +438,30 @@ export default class ExecutionAgent extends BaseAgent {
 
 
 
-    // Option A: Enforce Minimum $5.00 Margin Floor ($25.00 Notional Value at 5x Leverage)
+    // Dynamic 20% Auto-Scaling Margin ($5.00 Floor)
     const leverage = parseInt(process.env.DEFAULT_LEVERAGE) || 5;
     const MIN_MARGIN_FLOOR = 5.0; // Minimum $5.00 margin floor per trade
-    const MIN_NOTIONAL = MIN_MARGIN_FLOOR * leverage; // $25.00 notional minimum at 5x leverage
-
-    const maxMargin = portfolio.totalBalance * 0.35;
-    const maxNotional = maxMargin * leverage;
     
-    if (positionValue > maxNotional) {
-      positionValue = maxNotional;
-    }
+    // Dynamic 20% auto-scaling margin calculation based on account balance
+    const targetMargin = Math.max(MIN_MARGIN_FLOOR, portfolio.totalBalance * 0.20);
+    const targetNotional = targetMargin * leverage;
 
-    let marginRequired = positionValue / leverage;
+    let marginRequired = targetMargin;
+    let positionValue = targetNotional;
 
-    // Enforce Option A floor: Minimum $5.00 margin ($25.00 notional value)
-    if (marginRequired < MIN_MARGIN_FLOOR) {
-      marginRequired = MIN_MARGIN_FLOOR;
-      positionValue = MIN_NOTIONAL;
-    }
-
-    // Ensure available account balance can cover the $5.00 minimum required margin
+    // Ensure available account balance can cover the required margin
     if (portfolio.availableBalance < marginRequired) {
-      this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than required minimum margin ($${marginRequired.toFixed(2)}) for Option A ($5.00 margin / $25.00 position floor) — skipping`);
-      return;
-    }
-
-    let quantity = positionValue / limitEntryPrice;
-
-    // Enforce dynamic safety risk cap while guaranteeing minimum $5.00 margin allocation
-    const accountSize = portfolio.totalBalance;
-    const safetyCapPct = accountSize < 50 ? 0.35 : 0.15; // 35% for <$50 balance
-    const marginLimit = Math.max(MIN_MARGIN_FLOOR, accountSize * safetyCapPct);
-
-    if (marginRequired > marginLimit) {
-      const targetNotional = marginLimit * leverage;
-      if (targetNotional >= MIN_NOTIONAL) {
-        this.logger.info(`Safety cap scaling: scaled down required margin for ${signal.asset} from $${marginRequired.toFixed(2)} to safety cap $${marginLimit.toFixed(2)} (notional: $${targetNotional.toFixed(2)})`);
-        marginRequired = marginLimit;
-        positionValue = targetNotional;
-        quantity = positionValue / limitEntryPrice;
+      // If balance is at least $5.00, fallback to $5.00 margin
+      if (portfolio.availableBalance >= MIN_MARGIN_FLOOR) {
+        marginRequired = MIN_MARGIN_FLOOR;
+        positionValue = MIN_MARGIN_FLOOR * leverage;
       } else {
-        this.logger.warn(`${signal.asset}: required margin ($${marginRequired.toFixed(2)}) exceeds dynamic safety risk limit ($${marginLimit.toFixed(2)}) — skipping`);
+        this.logger.warn(`${signal.asset}: available balance ($${portfolio.availableBalance.toFixed(2)}) is less than minimum margin ($${MIN_MARGIN_FLOOR.toFixed(2)}) — skipping`);
         return;
       }
     }
+
+    let quantity = positionValue / limitEntryPrice;
 
     // Retrieve exchange metadata and enforce dynamic limits & lot step sizing
     try {

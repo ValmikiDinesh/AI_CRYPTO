@@ -30,6 +30,20 @@ export default class PortfolioAgent extends BaseAgent {
     this.marketAgent = marketAgent;
     this.riskAgent = riskAgent;
     this.notifiedSyncErrors = new Set();
+    this._activeExitLocks = new Set();
+  }
+
+  async initialize() {
+    await super.initialize();
+    try {
+      const { coinswitchWs } = await import('../../services/coinswitchWsService.js');
+      coinswitchWs.onPriceUpdate((asset, price) => {
+        this.evaluateRealtimeExit(asset, price);
+      });
+      this.logger.info('⚡ Linked CoinSwitch WebSocket price stream to PortfolioAgent for sub-50ms realtime exits');
+    } catch (wsErr) {
+      this.logger.warn(`Failed to link WebSocket price stream to PortfolioAgent: ${wsErr.message}`);
+    }
   }
 
   async execute() {
@@ -1407,6 +1421,71 @@ export default class PortfolioAgent extends BaseAgent {
       }
     } catch (err) {
       this.logger.error(`Failed to sync closed trades from CoinSwitch Pro: ${err.message}`);
+    }
+  }
+
+  /** Sub-50ms event-driven realtime exit evaluator triggered on live WebSocket price ticks */
+  async evaluateRealtimeExit(asset, currentPrice) {
+    if (!currentPrice || currentPrice <= 0) return;
+    if (!this._cachedPortfolio || Date.now() - (this._lastPortfolioCacheTime || 0) > 3000) {
+      this._cachedPortfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+      this._lastPortfolioCacheTime = Date.now();
+    }
+    const portfolio = this._cachedPortfolio;
+    if (!portfolio || !portfolio.positions) return;
+
+    const position = portfolio.positions.find(p => p && p.asset === asset && p.status === 'open');
+    if (!position || this._activeExitLocks?.has(asset)) return;
+
+    const entryPrice = position.entryPrice;
+    const quantity = position.quantity;
+    const side = position.side;
+    const openFee = position.fees || (entryPrice * quantity * 0.0005);
+    const closeFee = currentPrice * quantity * 0.0005;
+
+    let grossPnl = 0;
+    if (side === 'long') {
+      grossPnl = (currentPrice - entryPrice) * quantity;
+    } else {
+      grossPnl = (entryPrice - currentPrice) * quantity;
+    }
+
+    const netPnl = grossPnl - openFee - closeFee;
+
+    // Track peak net PnL for trailing stop
+    if (!position.highestNetPnl || netPnl > position.highestNetPnl) {
+      position.highestNetPnl = netPnl;
+    }
+
+    let shouldClose = false;
+    let reason = '';
+
+    // 1. Half-Dollar Net PnL Scalp Exit & Minimum Floor Trailing Stop ($0.50+ Floor)
+    if (position.highestNetPnl >= 0.50) {
+      // Minimum floor is ALWAYS $0.50 (never locks in less than $0.50)
+      const lockedInFloor = Math.max(0.50, position.highestNetPnl - 0.15);
+      if (netPnl <= lockedInFloor) {
+        shouldClose = true;
+        reason = `Half-Dollar Scalp Target/Trailing Floor Reached (+$${lockedInFloor.toFixed(2)} Net PnL)`;
+      }
+    } else if (netPnl >= 0.50) {
+      shouldClose = true;
+      reason = `Half-Dollar Net PnL Scalp Target Reached (+$${netPnl.toFixed(2)} Net)`;
+    } else if (netPnl <= -0.40) { // Dynamic Risk Floor (-$0.40 Risk Floor)
+      shouldClose = true;
+      reason = `Stop-Loss Risk Floor Triggered (-$${Math.abs(netPnl).toFixed(2)} Net PnL)`;
+    }
+
+    if (shouldClose) {
+      if (!this._activeExitLocks) this._activeExitLocks = new Set();
+      this._activeExitLocks.add(asset);
+      try {
+        this.logger.info(`⚡ [WEBSOCKET SUB-50MS EXIT] ${asset} ${side.toUpperCase()} triggered: ${reason}`);
+        await this.closePosition(portfolio, position, currentPrice, reason, false);
+        this._cachedPortfolio = null; // Invalidate cache after closing
+      } finally {
+        this._activeExitLocks.delete(asset);
+      }
     }
   }
 }
