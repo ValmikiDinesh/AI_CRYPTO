@@ -1196,8 +1196,8 @@ export default class PortfolioAgent extends BaseAgent {
       portfolio.totalTrades = totalClosed + openPositions.length;
       portfolio.winRate = totalClosed > 0 ? winners / totalClosed : 0;
 
-      if (trueTotalBalance > portfolio.peakBalance) {
-        portfolio.peakBalance = trueTotalBalance;
+      if (portfolio.totalBalance > portfolio.peakBalance) {
+        portfolio.peakBalance = portfolio.totalBalance;
       }
     } catch (dbErr) {
       this.logger.error(`Error during self-healing portfolio metrics recalculation: ${dbErr.message}`);
