@@ -122,6 +122,19 @@ async function reconcileNow() {
     }
   }
 
+  // 4. Close any stale/paper Trade documents in MongoDB whose asset is not active on CoinSwitch Pro
+  const allOpenTrades = await Trade.find({ status: 'open' });
+  for (const trade of allOpenTrades) {
+    const cleanAsset = trade.asset.replace('/', '').replace(':USDT', '').toUpperCase();
+    if (!liveSymbolMap.has(cleanAsset)) {
+      console.log(`Closing stale Trade document for ${trade.asset}`);
+      trade.status = 'closed';
+      trade.closedAt = new Date();
+      trade.exitReason = 'CoinSwitch exchange sync cleanup';
+      await trade.save();
+    }
+  }
+
   await portfolio.save();
   console.log('\n✅ RECONCILIATION COMPLETE! DB is 100% in sync with CoinSwitch Pro!');
   process.exit(0);

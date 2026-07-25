@@ -131,22 +131,7 @@ router.get('/performance', async (req, res, next) => {
       dailyPnl = netDailyPnl;
     }
 
-    if (process.env.TRADING_MODE === 'live') {
-      try {
-        const { fetchBalance } = await import('../services/exchangeService.js');
-        const liveBal = await fetchBalance();
-        if (liveBal && liveBal.USDT) {
-          portfolio.availableBalance = liveBal.USDT.free;
-          portfolio.totalBalance = liveBal.USDT.total;
-          await portfolio.save();
-        }
-      } catch (balErr) {}
-    }
-
-    const openTradesList = await Trade.find({ status: 'open' }).lean();
-    const uniqueTradeAssets = new Set(openTradesList.map((t) => t.asset)).size;
-    const dbPositionsCount = portfolio.positions ? portfolio.positions.filter((p) => p && p.status === 'open').length : 0;
-    const openPositionsCount = Math.max(dbPositionsCount, uniqueTradeAssets);
+    const openPositionsCount = portfolio.positions ? portfolio.positions.filter(p => p && p.status === 'open').length : 0;
 
     res.json({
       success: true,
@@ -163,6 +148,7 @@ router.get('/performance', async (req, res, next) => {
         drawdown: portfolio.currentDrawdown,
         peakBalance: portfolio.peakBalance,
         allocation: portfolio.allocationBreakdown,
+        positions: portfolio.positions || [],
         openPositions: openPositionsCount,
         walletBalance: portfolio.walletBalance,
         tradingPaused: portfolio.tradingPaused,
