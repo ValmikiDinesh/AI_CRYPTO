@@ -447,7 +447,7 @@ export default class ExecutionAgent extends BaseAgent {
     const targetNotional = targetMargin * leverage;
 
     let marginRequired = targetMargin;
-    let positionValue = targetNotional;
+    positionValue = targetNotional;
 
     // Ensure available account balance can cover the required margin
     if (portfolio.availableBalance < marginRequired) {
