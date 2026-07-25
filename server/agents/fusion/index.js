@@ -82,20 +82,22 @@ export default class FusionAgent extends BaseAgent {
     // Compute confidence (average of individual confidences, weighted)
     const confidence = Math.abs(composite);
 
-    // Determine action with micro-momentum boost
+    // Determine action with Pure Micro-Trend Execution (Zero Confidence Filter Barrier)
     let action = ACTIONS.HOLD;
     const ema9 = technical.indicators?.ema?.ema9;
     const rsi = technical.indicators?.rsi || 50;
 
-    // Check micro-momentum directional rules
-    const isMicroBuy = (ema9 && currentPrice > ema9 && rsi > 45) || (rsi < 32);
-    const isMicroSell = (ema9 && currentPrice < ema9 && rsi < 55) || (rsi > 68);
+    // Direct micro-trend directional signals
+    const isMicroBuy = (ema9 && currentPrice > ema9) || (rsi < 35) || (technical.action === 'BUY');
+    const isMicroSell = (ema9 && currentPrice < ema9) || (rsi > 65) || (technical.action === 'SELL');
 
-    if ((composite > 0.10 || isMicroBuy) && (confidence >= RISK.MIN_CONFIDENCE_THRESHOLD || isMicroBuy)) {
+    if (isMicroBuy) {
       action = ACTIONS.BUY;
-    } else if ((composite < -0.10 || isMicroSell) && (confidence >= RISK.MIN_CONFIDENCE_THRESHOLD || isMicroSell)) {
+    } else if (isMicroSell) {
       action = ACTIONS.SELL;
     }
+
+    const finalConfidence = (isMicroBuy || isMicroSell) ? 1.0 : confidence;
     let limitEntryPrice = currentPrice;
     let stopLoss = currentPrice;
     let takeProfit = currentPrice;
@@ -201,7 +203,7 @@ export default class FusionAgent extends BaseAgent {
     return {
       asset,
       action,
-      confidence,
+      confidence: finalConfidence,
       riskScore,
       source: 'fusion',
       positionSize: `${positionPercent.toFixed(1)}%`,
