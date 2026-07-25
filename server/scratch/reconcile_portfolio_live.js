@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
+dotenv.config({ path: './server/.env' });
+dotenv.config({ path: '../.env' });
 import connectDB from '../config/db.js';
 import Portfolio from '../models/Portfolio.js';
 import Trade from '../models/Trade.js';
