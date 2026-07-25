@@ -702,26 +702,36 @@ export default class PortfolioAgent extends BaseAgent {
         this.logger.error(`Failed to reconcile DB Trade documents with exchange positions: ${tradeSyncErr.message}`);
       }
 
-      // 5. Sync executed closed trades history from CoinSwitch Pro
-      try {
-        await this.syncClosedTradesFromExchange();
-      } catch (closedSyncErr) {
-        this.logger.error(`Failed to sync closed trades history from exchange: ${closedSyncErr.message}`);
+      // 5. Sync executed closed trades history from CoinSwitch Pro (throttled to once per 5 minutes)
+      if (!this._lastClosedSync || Date.now() - this._lastClosedSync > 300000) {
+        this._lastClosedSync = Date.now();
+        try {
+          await this.syncClosedTradesFromExchange();
+        } catch (closedSyncErr) {
+          this.logger.error(`Failed to sync closed trades history from exchange: ${closedSyncErr.message}`);
+        }
       }
     }
 
-    // Recalculate total balance
+    // Recalculate total balance (live balance fetch throttled to once per 30 seconds)
     if (process.env.TRADING_MODE === 'live') {
-      try {
-        const { fetchBalance } = await import('../../services/exchangeService.js');
-        const liveBal = await fetchBalance();
-        if (liveBal && liveBal.USDT) {
-          portfolio.totalBalance = liveBal.USDT.total;
-          portfolio.availableBalance = liveBal.USDT.free;
-          portfolio.baseTradingCapital = liveBal.USDT.total;
+      if (!this._lastBalanceFetch || Date.now() - this._lastBalanceFetch > 30000) {
+        this._lastBalanceFetch = Date.now();
+        try {
+          const { fetchBalance } = await import('../../services/exchangeService.js');
+          const liveBal = await fetchBalance();
+          if (liveBal && liveBal.USDT) {
+            portfolio.totalBalance = liveBal.USDT.total;
+            portfolio.availableBalance = liveBal.USDT.free;
+            portfolio.baseTradingCapital = liveBal.USDT.total;
+            this._cachedLiveBalance = { total: liveBal.USDT.total, free: liveBal.USDT.free };
+          }
+        } catch (balErr) {
+          this.logger.warn(`Failed to fetch live balance from CoinSwitch Pro: ${balErr.message}`);
         }
-      } catch (balErr) {
-        this.logger.warn(`Failed to fetch live balance from CoinSwitch Pro: ${balErr.message}`);
+      } else if (this._cachedLiveBalance) {
+        portfolio.totalBalance = this._cachedLiveBalance.total;
+        portfolio.availableBalance = this._cachedLiveBalance.free;
       }
     } else {
       const marginValue = portfolio.positions
@@ -748,13 +758,21 @@ export default class PortfolioAgent extends BaseAgent {
       (p) => p && p.status === 'open' && !manuallyDisabled.includes(p.asset)
     );
 
-    // Dynamic Liquidity Check
+    // Dynamic Liquidity Check (cached per asset for 60 seconds to avoid hammering exchange API on every cycle)
     const liquidPositions = [];
     const illiquidPositions = [];
+    if (!this._liquidityCache) this._liquidityCache = {};
 
     await Promise.all(
       activeOpenPositions.map(async (pos) => {
-        const isLiquid = await checkAssetLiquidity(pos.asset, pos.side);
+        const cacheEntry = this._liquidityCache[pos.asset];
+        let isLiquid;
+        if (cacheEntry && Date.now() - cacheEntry.ts < 60000) {
+          isLiquid = cacheEntry.isLiquid;
+        } else {
+          isLiquid = await checkAssetLiquidity(pos.asset, pos.side);
+          this._liquidityCache[pos.asset] = { isLiquid, ts: Date.now() };
+        }
         if (isLiquid) {
           liquidPositions.push(pos);
         } else {
