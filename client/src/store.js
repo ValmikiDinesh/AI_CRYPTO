@@ -184,7 +184,19 @@ socket.on('signal:fused', (data) => {
 });
 
 socket.on('portfolio:update', (data) => {
-  usePortfolioStore.getState().setPortfolio(data);
+  if (data) {
+    if (data.positions && Array.isArray(data.positions)) {
+      const seen = new Set();
+      data.positions = data.positions.filter((p) => {
+        if (p && p.status === 'open') {
+          if (seen.has(p.asset)) return false;
+          seen.add(p.asset);
+        }
+        return true;
+      });
+    }
+    usePortfolioStore.getState().setPortfolio(data);
+  }
 });
 
 socket.on('agents:health', (data) => {

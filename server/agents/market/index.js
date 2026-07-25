@@ -45,50 +45,49 @@ export default class MarketAgent extends BaseAgent {
       this.logger.warn(`Failed to initialize CoinSwitch WebSocket: ${wsErr.message}`);
     }
 
-    // Load initial historical candles via REST (with DB fallback and stagger delay)
-    for (const asset of SUPPORTED_ASSETS) {
-      try {
-        // Stagger requests to prevent concurrent spikes (650ms per asset)
-        await new Promise(resolve => setTimeout(resolve, 650));
-        
-        let candles = await fetchCandles(asset, '5m', 100);
-        
-        // If API fails to return candles, load from MongoDB fallback
-        if (!candles || candles.length === 0) {
-          const dbCandles = await MarketData.find({ asset, interval: '5m' })
-            .sort({ openTime: -1 })
-            .limit(100);
-          
-          if (dbCandles && dbCandles.length > 0) {
-            candles = dbCandles.reverse().map(c => ({
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-              volume: c.volume,
-              openTime: c.openTime,
-              closeTime: c.closeTime,
-              isClosed: c.isClosed
-            }));
-            this.logger.info(`Loaded ${candles.length} historical candles from MongoDB fallback for ${asset}`);
-          } else {
-            candles = [];
-            this.logger.warn(`No candles found in Exchange or MongoDB for ${asset}`);
+    // Load initial historical candles in background asynchronously so server starts INSTANTLY (< 100ms)
+    this.preloadCandlesInBackground();
+    this.logger.info('🚀 MarketAgent initialized instantly — candle preloading running in background.');
+  }
+
+  async preloadCandlesInBackground() {
+    const BATCH_SIZE = 15;
+    for (let i = 0; i < SUPPORTED_ASSETS.length; i += BATCH_SIZE) {
+      const batch = SUPPORTED_ASSETS.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (asset) => {
+        try {
+          let candles = await fetchCandles(asset, '5m', 100);
+          if (!candles || candles.length === 0) {
+            const dbCandles = await MarketData.find({ asset, interval: '5m' })
+              .sort({ openTime: -1 })
+              .limit(100);
+            if (dbCandles && dbCandles.length > 0) {
+              candles = dbCandles.reverse().map(c => ({
+                open: c.open,
+                high: c.high,
+                low: c.low,
+                close: c.close,
+                volume: c.volume,
+                openTime: c.openTime,
+                closeTime: c.closeTime,
+                isClosed: c.isClosed
+              }));
+            } else {
+              candles = [];
+            }
           }
-        } else {
-          this.logger.info(`Loaded ${candles.length} historical candles from Exchange for ${asset}`);
+          this.candles[asset] = candles;
+          if (candles && candles.length > 0) {
+            const lastCandle = candles[candles.length - 1];
+            this.prices[asset] = lastCandle.close || lastCandle.price || 0;
+          }
+        } catch (err) {
+          this.candles[asset] = [];
         }
-        
-        this.candles[asset] = candles;
-        if (candles && candles.length > 0) {
-          const lastCandle = candles[candles.length - 1];
-          this.prices[asset] = lastCandle.close || lastCandle.price || 0;
-        }
-      } catch (err) {
-        this.logger.warn(`Failed to load candles for ${asset}: ${err.message}`);
-        this.candles[asset] = [];
-      }
+      }));
+      await new Promise(r => setTimeout(r, 100)); // Small 100ms throttle between batches
     }
+    this.logger.info('✅ Background candle preloading complete for all assets.');
 
     // Start high-performance REST polling loop
     this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);

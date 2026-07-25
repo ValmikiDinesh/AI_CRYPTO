@@ -43,6 +43,18 @@ router.get('/', async (req, res, next) => {
       });
     }
 
+    // Deduplicate open positions before sending response to UI
+    if (portfolio && portfolio.positions) {
+      const seenAssets = new Set();
+      portfolio.positions = portfolio.positions.filter((pos) => {
+        if (pos && pos.status === 'open') {
+          if (seenAssets.has(pos.asset)) return false;
+          seenAssets.add(pos.asset);
+        }
+        return true;
+      });
+    }
+
     res.json({ success: true, data: portfolio });
   } catch (err) {
     next(err);

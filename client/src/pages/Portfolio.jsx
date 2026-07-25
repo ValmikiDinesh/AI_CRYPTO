@@ -271,7 +271,9 @@ export default function Portfolio() {
     return true;
   };
 
-  const onlyOpenTrades = allTrades.filter((trade) => trade.status === 'open');
+  const onlyOpenTrades = allTrades
+    .filter((trade) => trade.status === 'open')
+    .filter((trade, index, self) => index === self.findIndex((t) => t.asset === trade.asset));
   const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
 
   const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
