@@ -28,7 +28,7 @@ router.get('/sync-closed-trades', (req, res, next) => {
 // GET /api/portfolio — current portfolio overview
 router.get('/', async (req, res, next) => {
   try {
-    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID }).lean();
     if (!portfolio) {
       portfolio = await Portfolio.findOne({});
       if (portfolio) {
@@ -103,12 +103,6 @@ router.get('/performance', async (req, res, next) => {
         success: true,
         data: { totalPnl: 0, totalPnlPercent: 0, winRate: 0, drawdown: 0 },
       });
-    }
-
-    if (portfolioAgentRef) {
-      try {
-        await portfolioAgentRef.updatePositions(portfolio);
-      } catch (pErr) {}
     }
 
     // Dynamic stats override since reset timestamp
