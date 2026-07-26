@@ -332,6 +332,9 @@ export default function Trading() {
           {(() => {
             const currentScalp = parseFloat(portfolio?.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25);
             const currentSl = parseFloat(portfolio?.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40);
+            const isCustomScalp = ![0.10, 0.25, 0.50].some(preset => Math.abs(currentScalp - preset) < 0.001);
+            const isCustomSl = ![0.10, 0.25, 0.40, 1.00].some(preset => Math.abs(currentSl - preset) < 0.001);
+
             return (
               <>
                 <div className="flex items-center gap-2">
@@ -355,7 +358,7 @@ export default function Trading() {
                     >
                       $0.50
                     </button>
-                    <div className="flex items-center gap-1 pl-1.5 pr-1 border-l border-[#2c2c2e]/80 ml-0.5">
+                    <div className={`flex items-center gap-1 pl-1.5 pr-1 border-l border-[#2c2c2e]/80 ml-0.5 rounded ${isCustomScalp ? 'bg-[#bf5af2]/20 border border-[#bf5af2]' : ''}`}>
                       <span className="text-[#bf5af2] text-[10px] font-bold">$</span>
                       <input
                         type="number"
@@ -374,7 +377,7 @@ export default function Trading() {
                             if (!isNaN(val) && val > 0) handleToggleOrderType('minNetProfitTarget', val);
                           }
                         }}
-                        className="w-12 bg-[#1c1c1e] text-white text-[10px] font-mono px-1 py-0.5 rounded border border-[#3a3a3c] focus:outline-none focus:border-[#bf5af2]"
+                        className={`w-12 text-white text-[10px] font-mono px-1 py-0.5 rounded border focus:outline-none ${isCustomScalp ? 'bg-transparent border-[#bf5af2] text-[#bf5af2] font-bold' : 'bg-[#1c1c1e] border-[#3a3a3c] focus:border-[#bf5af2]'}`}
                         placeholder="0.25"
                       />
                     </div>
@@ -411,7 +414,7 @@ export default function Trading() {
                     >
                       $1.00
                     </button>
-                    <div className="flex items-center gap-1 pl-1.5 pr-1 border-l border-[#2c2c2e]/80 ml-0.5">
+                    <div className={`flex items-center gap-1 pl-1.5 pr-1 border-l border-[#2c2c2e]/80 ml-0.5 rounded ${isCustomSl ? 'bg-[#ff453a]/20 border border-[#ff453a]' : ''}`}>
                       <span className="text-[#ff453a] text-[10px] font-bold">$</span>
                       <input
                         type="number"
@@ -430,7 +433,7 @@ export default function Trading() {
                             if (!isNaN(val) && val > 0) handleToggleOrderType('trailingStopUsd', val);
                           }
                         }}
-                        className="w-12 bg-[#1c1c1e] text-white text-[10px] font-mono px-1 py-0.5 rounded border border-[#3a3a3c] focus:outline-none focus:border-[#ff453a]"
+                        className={`w-12 text-white text-[10px] font-mono px-1 py-0.5 rounded border focus:outline-none ${isCustomSl ? 'bg-transparent border-[#ff453a] text-[#ff453a] font-bold' : 'bg-[#1c1c1e] border-[#3a3a3c] focus:border-[#ff453a]'}`}
                         placeholder="0.40"
                       />
                     </div>
