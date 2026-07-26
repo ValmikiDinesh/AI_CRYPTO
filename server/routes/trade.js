@@ -319,7 +319,10 @@ router.post('/manual-close', async (req, res, next) => {
     
     try {
       const activeTrade = await Trade.findOne({ asset, status: 'open' });
-      if ((process.env.TRADING_MODE === 'live' || process.env.BINANCE_TESTNET_API_KEY) && (!activeTrade || !activeTrade.exchangeOrderId || !activeTrade.exchangeOrderId.startsWith('mock_'))) {
+      const isLiveMode = process.env.TRADING_MODE === 'live' || !!process.env.COINSWITCH_API_KEY;
+      const isMockOrder = activeTrade && activeTrade.exchangeOrderId && activeTrade.exchangeOrderId.startsWith('mock_');
+
+      if (isLiveMode && !isMockOrder) {
         const { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange } = await import('../services/exchangeService.js');
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         
@@ -342,10 +345,18 @@ router.post('/manual-close', async (req, res, next) => {
           if (activePos) {
             closeQty = parseFloat(activePos.contracts);
             positionExistsOnExchange = true;
+          } else {
+            // If fetchPositions filter by symbol didn't match, check all positions
+            const allPositions = await exchange.fetchPositions();
+            const matchingPos = allPositions.find(p => p.symbol.split(':')[0].replace('/', '') === asset && parseFloat(p.contracts) > 0);
+            if (matchingPos) {
+              closeQty = parseFloat(matchingPos.contracts);
+              positionExistsOnExchange = true;
+            }
           }
         } catch (fetchErr) {
           console.warn(`Failed to fetch fresh position size before exit: ${fetchErr.message}`);
-          positionExistsOnExchange = true; // Fallback
+          positionExistsOnExchange = true; // Fallback to executing close order
         }
 
         if (positionExistsOnExchange) {

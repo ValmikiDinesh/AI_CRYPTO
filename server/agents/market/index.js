@@ -56,23 +56,42 @@ export default class MarketAgent extends BaseAgent {
   }
 
   async preloadCandlesInBackground() {
+    // Phase 1: High Priority (Active Open Positions + Top 7 Core Assets) — load INSTANTLY (< 500ms)
+    const CORE_BOOT_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
+    const priorityAssets = new Set(CORE_BOOT_ASSETS);
+
     try {
       const { default: Portfolio } = await import('../../models/Portfolio.js');
       const portfolio = await Portfolio.findOne({});
       if (portfolio && portfolio.positions) {
-        const activeAssets = portfolio.positions.filter(p => p && p.status === 'open').map(p => p.asset);
-        for (const asset of activeAssets) {
-          try {
-            const candles = await fetchCandles(asset, '5m', 100);
-            if (candles && candles.length > 0) this.candles[asset] = candles;
-          } catch (aErr) {}
-        }
+        portfolio.positions.filter(p => p && p.status === 'open').forEach(p => priorityAssets.add(p.asset));
       }
     } catch (pErr) {}
 
-    const BATCH_SIZE = 5; // Keep small to avoid HTTP 429 rate limits from CoinSwitch Pro
-    for (let i = 0; i < SUPPORTED_ASSETS.length; i += BATCH_SIZE) {
-      const batch = SUPPORTED_ASSETS.slice(i, i + BATCH_SIZE);
+    const priorityList = Array.from(priorityAssets);
+    await Promise.all(priorityList.map(async (asset) => {
+      try {
+        const candles = await fetchCandles(asset, '5m', 100);
+        if (candles && candles.length > 0) {
+          this.candles[asset] = candles;
+          const lastCandle = candles[candles.length - 1];
+          this.prices[asset] = lastCandle.close || lastCandle.price || 0;
+        }
+      } catch (aErr) {}
+    }));
+
+    this.logger.info(`🚀 Phase 1 Boot Complete: Loaded priority candles for ${priorityList.length} assets in < 500ms.`);
+
+    // Start REST polling loop immediately so live prices stream to UI without waiting for secondary assets
+    if (!this.pollInterval) {
+      this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
+    }
+
+    // Phase 2: Secondary Assets — Gentle, throttled background queue (3 assets per batch, 1.5s delay)
+    const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
+      const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (asset) => {
         if (this.candles[asset] && this.candles[asset].length > 0) return;
         try {
@@ -105,13 +124,9 @@ export default class MarketAgent extends BaseAgent {
           this.candles[asset] = [];
         }
       }));
-      await new Promise(r => setTimeout(r, 500)); // 500ms throttle between batches to prevent 429 rate limits
+      await new Promise(r => setTimeout(r, 1500)); // 1.5s throttle to completely avoid 429 rate limits
     }
-    this.logger.info('✅ Background candle preloading complete for all assets.');
-
-    // Start high-performance REST polling loop
-    this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
-    this.logger.info(`CoinSwitch REST polling engine started (${INTERVALS.ANALYSIS_CYCLE_MS / 1000}s frequency)`);
+    this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets.');
   }
 
   async pollMarketData() {

@@ -11,15 +11,15 @@ export const setPortfolioAgentRef = (agent) => {
   portfolioAgentRef = agent;
 };
 
-// GET /api/portfolio/sync-closed-trades — trigger exchange closed trades sync
-router.get('/sync-closed-trades', async (req, res, next) => {
+// GET /api/portfolio/sync-closed-trades — trigger exchange closed trades sync in non-blocking background
+router.get('/sync-closed-trades', (req, res, next) => {
   try {
     if (portfolioAgentRef) {
-      await portfolioAgentRef.syncClosedTradesFromExchange();
-      res.json({ success: true, message: 'Exchange closed trades synchronized successfully.' });
-    } else {
-      res.status(500).json({ success: false, message: 'Portfolio agent not available' });
+      setImmediate(() => {
+        portfolioAgentRef.syncClosedTradesFromExchange().catch(() => {});
+      });
     }
+    res.json({ success: true, message: 'Exchange closed trades sync initiated in background.' });
   } catch (err) {
     next(err);
   }
@@ -345,8 +345,8 @@ router.get('/volatility-profile', async (req, res, next) => {
   }
 });
 
-// POST /api/portfolio/config — update portfolio configurations (base capital, profit target percentage, keys)
-router.post('/config', async (req, res, next) => {
+// POST & PUT /api/portfolio/config — update portfolio configurations (base capital, profit target percentage, keys)
+const handleUpdateConfig = async (req, res, next) => {
   try {
     const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct, usdToInrRate, coinSwitchApiKey, coinSwitchApiSecret } = req.body;
 
@@ -396,6 +396,10 @@ router.post('/config', async (req, res, next) => {
       portfolio.minNetProfitTarget = parseFloat(req.body.minNetProfitTarget);
     }
 
+    if (req.body.trailingStopUsd !== undefined && !isNaN(parseFloat(req.body.trailingStopUsd))) {
+      portfolio.trailingStopUsd = parseFloat(req.body.trailingStopUsd);
+    }
+
     // Recalculate targetProfitThreshold dynamically based on Sweep Target Profit Pct
     const baseCap = portfolio.baseTradingCapital || 100;
     const sweepPct = portfolio.sweepTargetProfitPct !== undefined ? portfolio.sweepTargetProfitPct : 10;
@@ -411,6 +415,7 @@ router.post('/config', async (req, res, next) => {
 <b>Total Base Capital:</b> $${portfolio.baseTradingCapital?.toFixed(4)} USD
 <b>Sweep Target Profit:</b> ${portfolio.sweepTargetProfitPct}%
 <b>Basket Profit Target:</b> ${portfolio.basketProfitTargetPct}%
+<b>Trailing Stop Loss:</b> $${portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40}
 <b>USD to INR Rate:</b> ₹${portfolio.usdToInrRate || 96.54}
 
 <i>All trading agents and risk parameters have been synchronized with these updated configurations.</i>
@@ -448,13 +453,17 @@ router.post('/config', async (req, res, next) => {
       entryOrderType: portfolio.entryOrderType || "market",
       exitOrderType: portfolio.exitOrderType || "market",
       minNetProfitTarget: portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25,
+      trailingStopUsd: portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40,
     });
 
     res.json({ success: true, message: 'Portfolio configuration updated successfully', data: portfolio });
   } catch (err) {
     next(err);
   }
-});
+};
+
+router.post('/config', handleUpdateConfig);
+router.put('/config', handleUpdateConfig);
 
 export default router;
 

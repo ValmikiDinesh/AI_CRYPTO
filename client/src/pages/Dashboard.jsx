@@ -241,6 +241,13 @@ export default function Dashboard() {
     fetchPrices();
     fetchTrades();
     fetchComparison();
+
+    const interval = setInterval(() => {
+      fetchPortfolio();
+      fetchPrices();
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, []);
 
   return (

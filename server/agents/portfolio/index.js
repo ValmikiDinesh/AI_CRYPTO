@@ -47,19 +47,16 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.warn(`Failed to link WebSocket price stream to PortfolioAgent: ${wsErr.message}`);
     }
 
-    // Kick off the slow background exchange sync loop (runs every 60s, fully non-blocking)
+    // Kick off the fast background exchange sync loop (runs every 5s, fully non-blocking)
     this._runBackgroundSync();
-    this._bgSyncInterval = setInterval(() => this._runBackgroundSync(), 60000);
+    this._bgSyncInterval = setInterval(() => this._runBackgroundSync(), 5000);
   }
 
-  /** Fire-and-forget background sync: runs all slow exchange API calls outside the main 2s cycle */
+  /** Fire-and-forget background sync: runs exchange API calls outside the main 2s cycle */
   async _runBackgroundSync() {
     try {
       const portfolios = await Portfolio.find({});
       for (const portfolio of portfolios) {
-        const openPositions = portfolio.positions.filter(p => p && p.status === 'open');
-        if (!openPositions.length) continue;
-
         // 1. Fetch all live positions from exchange (one call, all symbols)
         try {
           const { fetchPositions } = await import('../../services/exchangeService.js');
@@ -104,8 +101,8 @@ export default class PortfolioAgent extends BaseAgent {
           }
         }
 
-        // 4. Sync closed trades from exchange (once per 5 min)
-        if (!this._lastClosedSync || Date.now() - this._lastClosedSync > 300000) {
+        // 4. Sync closed trades from exchange (every 5 seconds)
+        if (!this._lastClosedSync || Date.now() - this._lastClosedSync > 5000) {
           this._lastClosedSync = Date.now();
           try {
             await this.syncClosedTradesFromExchange();
@@ -195,7 +192,7 @@ export default class PortfolioAgent extends BaseAgent {
         // If the position is open in DB but does not exist on CoinSwitch Pro, it has been natively closed!
         if (!exchangePos) {
           const positionAgeMs = Date.now() - new Date(position.openedAt || Date.now()).getTime();
-          const MIN_RECONCILIATION_AGE_MS = 15000; // 15 seconds
+          const MIN_RECONCILIATION_AGE_MS = 3000; // 3 seconds
 
           // Check if position is old enough to reconcile (to prevent racing with order placement)
           if (positionAgeMs >= MIN_RECONCILIATION_AGE_MS) {
@@ -266,6 +263,66 @@ export default class PortfolioAgent extends BaseAgent {
       }
 
       totalUnrealizedPnl += position.unrealizedPnl;
+    }
+
+    // 2b. Reverse Reconciliation: Import missing active exchange positions from CoinSwitch Pro into DB
+    if (fetchedExchangeSuccessfully && activeExchangePositions.length > 0) {
+      for (const p of activeExchangePositions) {
+        const asset = p.symbol ? p.symbol.split(':')[0].replace('/', '') : '';
+        if (!asset || p.contracts <= 0) continue;
+
+        const existingInDb = portfolio.positions.find((pos) => pos && pos.asset === asset && pos.status === 'open');
+        if (!existingInDb) {
+          this.logger.info(`📥 [RECONCILIATION] Found active position for ${asset} on CoinSwitch Pro missing in local DB. Importing immediately!`);
+
+          const side = (p.side || 'long').toLowerCase();
+          const entryPrice = p.entryPrice || p.markPrice || 0;
+          const quantity = p.contracts || p.amount || 0;
+          const leverage = p.leverage || portfolio.defaultLeverage || 5;
+          const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+          const totalFeeEst = entryPrice * quantity * 0.001;
+          const priceDeltaTarget = quantity > 0 ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
+          const priceDeltaRisk = quantity > 0 ? ((0.40 + totalFeeEst) / quantity) : (entryPrice * 0.03);
+
+          const stopLoss = side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk;
+          const takeProfit = side === 'long' ? entryPrice + priceDeltaTarget : Math.max(0.000001, entryPrice - priceDeltaTarget);
+
+          portfolio.positions.push({
+            asset,
+            side,
+            entryPrice,
+            currentPrice: p.markPrice || entryPrice,
+            quantity,
+            leverage,
+            status: 'open',
+            openedAt: new Date(),
+            stopLoss,
+            takeProfit,
+            unrealizedPnl: p.unrealizedPnl || 0
+          });
+
+          try {
+            await Trade.create({
+              asset,
+              side,
+              type: 'MARKET',
+              entryPrice,
+              quantity,
+              leverage,
+              status: 'open',
+              openedAt: new Date(),
+              stopLoss,
+              takeProfit
+            });
+          } catch (tradeErr) {
+            this.logger.debug(`Could not create Trade record for reconciled ${asset}: ${tradeErr.message}`);
+          }
+
+          try {
+            coinswitchWs.subscribe(asset);
+          } catch (subErr) {}
+        }
+      }
     }
 
     // 3. Position Deduplication & Binance-to-Database Sync
@@ -1328,11 +1385,13 @@ export default class PortfolioAgent extends BaseAgent {
     let reason = '';
 
     const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+    const riskFloorUsd = portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40;
 
-    // 1. Dynamic Net PnL Scalp Exit & Minimum Floor Trailing Stop ($0.25+ Floor by default, configurable)
+    // 1. Dynamic Net PnL Scalp Exit & Minimum Floor Trailing Stop ($0.10+ / $0.25+ Floor, configurable)
     if (position.highestNetPnl >= minTarget) {
       // Minimum floor is ALWAYS minTarget (never locks in less than minTarget)
-      const lockedInFloor = Math.max(minTarget, position.highestNetPnl - 0.10);
+      const trailingStep = Math.min(0.10, minTarget * 0.5);
+      const lockedInFloor = Math.max(minTarget, position.highestNetPnl - trailingStep);
       if (netPnl <= lockedInFloor) {
         shouldClose = true;
         reason = `Net Scalp Target/Trailing Floor Reached (+$${lockedInFloor.toFixed(2)} Net PnL)`;
@@ -1340,7 +1399,7 @@ export default class PortfolioAgent extends BaseAgent {
     } else if (netPnl >= minTarget) {
       shouldClose = true;
       reason = `Net Scalp Target Reached (+$${netPnl.toFixed(2)} Net)`;
-    } else if (netPnl <= -0.40) { // Dynamic Risk Floor (-$0.40 Risk Floor)
+    } else if (netPnl <= -riskFloorUsd) { // Configurable Trailing Stop Loss / Risk Floor ($ USDT)
       shouldClose = true;
       reason = `Stop-Loss Risk Floor Triggered (-$${Math.abs(netPnl).toFixed(2)} Net PnL)`;
     }

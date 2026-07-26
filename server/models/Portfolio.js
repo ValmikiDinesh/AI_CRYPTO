@@ -67,6 +67,7 @@ const portfolioSchema = new mongoose.Schema({
   entryOrderType: { type: String, enum: ['market', 'limit'], default: 'market' },
   exitOrderType: { type: String, enum: ['market', 'limit'], default: 'market' },
   minNetProfitTarget: { type: Number, default: 0.25 },
+  trailingStopUsd: { type: Number, default: 0.40 },
   usdToInrRate: { type: Number, default: 96.54 },
   lastRebalancedAt: { type: Date },
   lastDailyDigestDate: { type: String },

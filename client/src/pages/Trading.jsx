@@ -78,6 +78,17 @@ export default function Trading() {
   const tech = useSignalStore((s) => s.technicalSignals[selectedAsset]);
   const sent = useSignalStore((s) => s.sentimentSignals[selectedAsset]);
   const portfolio = usePortfolioStore((s) => s.portfolio);
+  const [scalpInput, setScalpInput] = useState(portfolio?.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25);
+  const [trailingSlInput, setTrailingSlInput] = useState(portfolio?.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40);
+
+  useEffect(() => {
+    if (portfolio?.minNetProfitTarget !== undefined) {
+      setScalpInput(portfolio.minNetProfitTarget);
+    }
+    if (portfolio?.trailingStopUsd !== undefined) {
+      setTrailingSlInput(portfolio.trailingStopUsd);
+    }
+  }, [portfolio?.minNetProfitTarget, portfolio?.trailingStopUsd]);
 
   const candles = (rawCandles || []).map((c) => ({
     time: new Date(c.openTime || c.timestamp || c.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -113,6 +124,8 @@ export default function Trading() {
       }
     };
     fetchPortfolio();
+    const interval = setInterval(fetchPortfolio, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -285,25 +298,104 @@ export default function Trading() {
           {/* Net Scalp Target ($ USDT) */}
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-[#bf5af2] uppercase tracking-widest font-bold font-mono">Scalp Target:</span>
-            <div className="flex bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
+            <div className="flex items-center bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
               <button
-                onClick={() => handleToggleOrderType('minNetProfitTarget', 0.25)}
-                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${(portfolio?.minNetProfitTarget || 0.25) === 0.25 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+                onClick={() => { setScalpInput(0.10); handleToggleOrderType('minNetProfitTarget', 0.10); }}
+                className={`px-2 py-1 rounded cursor-pointer transition-all ${portfolio?.minNetProfitTarget === 0.10 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                $0.10
+              </button>
+              <button
+                onClick={() => { setScalpInput(0.25); handleToggleOrderType('minNetProfitTarget', 0.25); }}
+                className={`px-2 py-1 rounded cursor-pointer transition-all ${portfolio?.minNetProfitTarget === 0.25 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
               >
                 $0.25
               </button>
               <button
-                onClick={() => handleToggleOrderType('minNetProfitTarget', 0.50)}
-                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${portfolio?.minNetProfitTarget === 0.50 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+                onClick={() => { setScalpInput(0.50); handleToggleOrderType('minNetProfitTarget', 0.50); }}
+                className={`px-2 py-1 rounded cursor-pointer transition-all ${portfolio?.minNetProfitTarget === 0.50 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
               >
                 $0.50
               </button>
+              <div className="flex items-center gap-1 pl-1.5 pr-1 border-l border-[#2c2c2e]/80 ml-0.5">
+                <span className="text-[#bf5af2] text-[10px] font-bold">$</span>
+                <input
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step="0.05"
+                  value={scalpInput}
+                  onChange={(e) => setScalpInput(e.target.value)}
+                  onBlur={() => {
+                    const val = parseFloat(scalpInput);
+                    if (!isNaN(val) && val > 0) handleToggleOrderType('minNetProfitTarget', val);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const val = parseFloat(scalpInput);
+                      if (!isNaN(val) && val > 0) handleToggleOrderType('minNetProfitTarget', val);
+                    }
+                  }}
+                  className="w-12 bg-[#1c1c1e] text-white text-[10px] font-mono px-1 py-0.5 rounded border border-[#3a3a3c] focus:outline-none focus:border-[#bf5af2]"
+                  placeholder="0.25"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="h-4 w-[1px] bg-[#2c2c2e]/80" />
+
+          {/* Trailing Stop Loss ($ USDT) */}
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-[#ff453a] uppercase tracking-widest font-bold font-mono">Trailing SL:</span>
+            <div className="flex items-center bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
               <button
-                onClick={() => handleToggleOrderType('minNetProfitTarget', 1.00)}
-                className={`px-2.5 py-1 rounded cursor-pointer transition-all ${portfolio?.minNetProfitTarget === 1.00 ? 'bg-[#bf5af2] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+                onClick={() => { setTrailingSlInput(0.10); handleToggleOrderType('trailingStopUsd', 0.10); }}
+                className={`px-2 py-1 rounded cursor-pointer transition-all ${portfolio?.trailingStopUsd === 0.10 ? 'bg-[#ff453a] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                $0.10
+              </button>
+              <button
+                onClick={() => { setTrailingSlInput(0.25); handleToggleOrderType('trailingStopUsd', 0.25); }}
+                className={`px-2 py-1 rounded cursor-pointer transition-all ${portfolio?.trailingStopUsd === 0.25 ? 'bg-[#ff453a] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                $0.25
+              </button>
+              <button
+                onClick={() => { setTrailingSlInput(0.40); handleToggleOrderType('trailingStopUsd', 0.40); }}
+                className={`px-2 py-1 rounded cursor-pointer transition-all ${portfolio?.trailingStopUsd === 0.40 ? 'bg-[#ff453a] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
+              >
+                $0.40
+              </button>
+              <button
+                onClick={() => { setTrailingSlInput(1.00); handleToggleOrderType('trailingStopUsd', 1.00); }}
+                className={`px-2 py-1 rounded cursor-pointer transition-all ${portfolio?.trailingStopUsd === 1.00 ? 'bg-[#ff453a] text-white shadow' : 'text-[#86868b] hover:text-white'}`}
               >
                 $1.00
               </button>
+              <div className="flex items-center gap-1 pl-1.5 pr-1 border-l border-[#2c2c2e]/80 ml-0.5">
+                <span className="text-[#ff453a] text-[10px] font-bold">$</span>
+                <input
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step="0.05"
+                  value={trailingSlInput}
+                  onChange={(e) => setTrailingSlInput(e.target.value)}
+                  onBlur={() => {
+                    const val = parseFloat(trailingSlInput);
+                    if (!isNaN(val) && val > 0) handleToggleOrderType('trailingStopUsd', val);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const val = parseFloat(trailingSlInput);
+                      if (!isNaN(val) && val > 0) handleToggleOrderType('trailingStopUsd', val);
+                    }
+                  }}
+                  className="w-12 bg-[#1c1c1e] text-white text-[10px] font-mono px-1 py-0.5 rounded border border-[#3a3a3c] focus:outline-none focus:border-[#ff453a]"
+                  placeholder="0.40"
+                />
+              </div>
             </div>
           </div>
         </div>

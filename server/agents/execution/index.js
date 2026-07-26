@@ -737,6 +737,34 @@ export default class ExecutionAgent extends BaseAgent {
 
       await portfolio.save();
 
+      // Instantly broadcast portfolio update so dashboard updates within 50ms
+      try {
+        const openPositions = portfolio.positions.filter((p) => p && p.status === 'open');
+        await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
+          totalBalance: portfolio.totalBalance,
+          availableBalance: portfolio.availableBalance,
+          totalPnl: portfolio.totalPnl,
+          totalPnlPercent: portfolio.totalPnlPercent,
+          dailyPnl: portfolio.dailyLossToday,
+          winRate: portfolio.winRate,
+          openPositions: openPositions.length,
+          allocation: portfolio.allocationBreakdown,
+          winningTrades: portfolio.winningTrades,
+          losingTrades: portfolio.losingTrades,
+          totalTrades: portfolio.totalTrades,
+          walletBalance: portfolio.walletBalance || 0,
+          tradingPaused: portfolio.tradingPaused || false,
+          targetProfitThreshold: portfolio.targetProfitThreshold || 110,
+          baseTradingCapital: portfolio.baseTradingCapital || 100,
+          basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
+          minNetProfitTarget: portfolio.minNetProfitTarget || 0.25,
+          positions: portfolio.positions,
+          updatedAt: new Date()
+        });
+      } catch (pubErr) {
+        this.logger.debug(`Failed to publish PORTFOLIO_UPDATES from ExecutionAgent: ${pubErr.message}`);
+      }
+
       // Publish execution event
       await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
         tradeId: trade._id,

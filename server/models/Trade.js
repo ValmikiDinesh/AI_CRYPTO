@@ -45,5 +45,7 @@ const tradeSchema = new mongoose.Schema({
 
 tradeSchema.index({ userId: 1, createdAt: -1 });
 tradeSchema.index({ asset: 1, status: 1 });
+tradeSchema.index({ status: 1, createdAt: -1 });
+tradeSchema.index({ status: 1, closedAt: -1 });
 
 export default mongoose.model('Trade', tradeSchema);
