@@ -18,6 +18,31 @@ import {
   calculateGlobalBP
 } from '../../services/recalculationEngine.js';
 
+/** Helper function to interleave square-off execution: High Profit, High Loss, Next High Profit, Next High Loss... */
+function sortInterleavedSquareOff(positions) {
+  if (!positions || !Array.isArray(positions)) return [];
+
+  const winners = positions
+    .filter(p => p && (p.unrealizedPnl || 0) >= 0)
+    .sort((a, b) => (b.unrealizedPnl || 0) - (a.unrealizedPnl || 0)); // Highest profit first
+
+  const losers = positions
+    .filter(p => p && (p.unrealizedPnl || 0) < 0)
+    .sort((a, b) => (a.unrealizedPnl || 0) - (b.unrealizedPnl || 0)); // Worst loss first
+
+  const ordered = [];
+  let w = 0, l = 0;
+  while (w < winners.length || l < losers.length) {
+    if (w < winners.length) {
+      ordered.push(winners[w++]);
+    }
+    if (l < losers.length) {
+      ordered.push(losers[l++]);
+    }
+  }
+  return ordered;
+}
+
 /**
  * Portfolio Management Agent
  * - Tracks portfolio performance, PnL, allocations, and exposure.
@@ -609,7 +634,8 @@ export default class PortfolioAgent extends BaseAgent {
         await sendTelegramMessage(`🔄 <b>Basket Profit Reset</b>\nAll liquid positions successfully closed. Cooldown ended, fresh trades can now begin!`);
       } else {
         this.logger.info(`[BASKET EXIT] Square-off active. Closing remaining ${liquidPositions.length} liquid positions.`);
-        for (const position of liquidPositions) {
+        const interleavedActive = sortInterleavedSquareOff(liquidPositions);
+        for (const position of interleavedActive) {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
           await this.closePosition(portfolio, position, currentPrice, `Basket Square-Off Active (+$${basketTarget.toFixed(2)} target reached)`, false);
         }
@@ -631,7 +657,8 @@ export default class PortfolioAgent extends BaseAgent {
       await portfolio.save();
 
       const closedResults = [];
-      for (const position of liquidPositions) {
+      const interleavedTrigger = sortInterleavedSquareOff(liquidPositions);
+      for (const position of interleavedTrigger) {
         let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || 0;
         const res = await this.closePosition(portfolio, position, currentPrice, `Basket Take Profit reached (+$${basketTarget.toFixed(2)} net target)`, false);
         if (res && res.success) {
@@ -1249,10 +1276,10 @@ export default class PortfolioAgent extends BaseAgent {
         }
       }
  
-      // Sort liquid positions by absolute unrealized PnL descending
-      liquidPositionsToClose.sort((a, b) => Math.abs(b.unrealizedPnl || 0) - Math.abs(a.unrealizedPnl || 0));
+      // Sort liquid positions using interleaved priority: Highest Profit, Highest Loss, Next Highest Profit, Next Highest Loss...
+      const interleavedPositionsToClose = sortInterleavedSquareOff(liquidPositionsToClose);
  
-      for (const position of liquidPositionsToClose) {
+      for (const position of interleavedPositionsToClose) {
         try {
           let currentPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice || position.entryPrice || 0;
           await this.closePosition(portfolio, position, currentPrice, `Sweep Target Met (Auto-Squareoff)`, false);
