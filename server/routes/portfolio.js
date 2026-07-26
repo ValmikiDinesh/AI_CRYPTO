@@ -25,9 +25,17 @@ router.get('/sync-closed-trades', (req, res, next) => {
   }
 });
 
+let cachedPortfolioPayload = null;
+let lastPortfolioCacheTime = 0;
+const PORTFOLIO_CACHE_TTL_MS = 3000;
+
 // GET /api/portfolio — current portfolio overview
 router.get('/', async (req, res, next) => {
   try {
+    if (cachedPortfolioPayload && (Date.now() - lastPortfolioCacheTime < PORTFOLIO_CACHE_TTL_MS)) {
+      return res.json(cachedPortfolioPayload);
+    }
+
     let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID }).lean();
     if (!portfolio) {
       portfolio = await Portfolio.findOne({});
@@ -64,7 +72,11 @@ router.get('/', async (req, res, next) => {
       });
     }
 
-    res.json({ success: true, data: portfolio });
+    const payload = { success: true, data: portfolio };
+    cachedPortfolioPayload = payload;
+    lastPortfolioCacheTime = Date.now();
+
+    res.json(payload);
   } catch (err) {
     next(err);
   }
