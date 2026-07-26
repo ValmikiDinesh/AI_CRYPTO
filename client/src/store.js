@@ -3,9 +3,7 @@ import { io } from 'socket.io-client';
 
 const SOCKET_URL = (import.meta.env && import.meta.env.VITE_SOCKET_URL)
   ? import.meta.env.VITE_SOCKET_URL
-  : (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app'))
-    ? 'http://18.61.215.89:5050'
-    : '';
+  : '';
 
 // ─── Socket Connection ──────────────────────────────────────────
 const socket = io(SOCKET_URL, {
