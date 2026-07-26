@@ -74,25 +74,43 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+let cachedPositionsResponse = null;
+let lastPositionsCacheTime = 0;
+const POSITIONS_CACHE_TTL_MS = 2000;
+
 // GET /api/portfolio/positions — open positions only
 router.get('/positions', async (req, res, next) => {
   try {
-    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (cachedPositionsResponse && (Date.now() - lastPositionsCacheTime < POSITIONS_CACHE_TTL_MS)) {
+      return res.json(cachedPositionsResponse);
+    }
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID }).lean();
     if (!portfolio) {
-      portfolio = await Portfolio.findOne({});
+      portfolio = await Portfolio.findOne({}).lean();
     }
 
     const openPositions = portfolio?.positions?.filter((p) => p.status === 'open') || [];
 
-    res.json({ success: true, data: openPositions });
+    const responsePayload = { success: true, data: openPositions };
+    cachedPositionsResponse = responsePayload;
+    lastPositionsCacheTime = Date.now();
+
+    res.json(responsePayload);
   } catch (err) {
     next(err);
   }
 });
 
+let cachedPerformanceResponse = null;
+let lastPerformanceCacheTime = 0;
+const PERFORMANCE_CACHE_TTL_MS = 5000;
+
 // GET /api/portfolio/performance — performance metrics
 router.get('/performance', async (req, res, next) => {
   try {
+    if (cachedPerformanceResponse && (Date.now() - lastPerformanceCacheTime < PERFORMANCE_CACHE_TTL_MS)) {
+      return res.json(cachedPerformanceResponse);
+    }
     let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
       portfolio = await Portfolio.findOne({});
@@ -153,7 +171,7 @@ router.get('/performance', async (req, res, next) => {
 
     const openPositionsCount = portfolio.positions ? portfolio.positions.filter(p => p && p.status === 'open').length : 0;
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: {
         totalBalance: portfolio.totalBalance,
@@ -180,7 +198,12 @@ router.get('/performance', async (req, res, next) => {
         coinSwitchApiKey: portfolio.coinSwitchApiKey || "",
         coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
       },
-    });
+    };
+
+    cachedPerformanceResponse = responsePayload;
+    lastPerformanceCacheTime = Date.now();
+
+    res.json(responsePayload);
   } catch (err) {
     next(err);
   }
