@@ -123,9 +123,11 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
           <tbody className="divide-y divide-[#2c2c2e]/40">
             {filteredOpenTrades.map((trade, i) => {
               const price = trade.entryPrice;
-              const currentPrice = (prices && prices[trade.asset] !== undefined)
-                ? prices[trade.asset]
-                : (trade.currentPrice || trade.entryPrice || 0);
+              const currentPrice = (trade.currentPrice && trade.currentPrice > 0)
+                ? trade.currentPrice
+                : (prices && prices[trade.asset] !== undefined && prices[trade.asset] > 0)
+                  ? prices[trade.asset]
+                  : (trade.entryPrice || 0);
               const fees = (trade.fees && trade.fees > 0)
                 ? trade.fees 
                 : (trade.entryPrice * trade.quantity * 0.0005);
@@ -304,15 +306,39 @@ export default function Portfolio() {
     ? allTrades.filter((t) => t && t.status === 'open')
     : [];
 
-  const combinedOpenPositions = [...livePositions, ...openTradesFromAll];
+  const livePositionsMap = new Map();
+  livePositions.forEach((p) => {
+    if (p && p.asset) {
+      livePositionsMap.set(p.asset, p);
+    }
+  });
 
-  const rawOpenTrades = combinedOpenPositions.map((p) => ({
-    ...p,
-    createdAt: p.openedAt || p.createdAt || new Date(),
-    action: p.action || (p.side === 'long' ? 'BUY' : 'SELL'),
-    entryPrice: p.entryPrice || 0,
-    quantity: p.quantity || 0,
-  }));
+  const combinedOpenPositions = [...livePositions];
+  openTradesFromAll.forEach((t) => {
+    if (t && t.asset && !livePositionsMap.has(t.asset)) {
+      combinedOpenPositions.push(t);
+    }
+  });
+
+  const rawOpenTrades = combinedOpenPositions.map((p) => {
+    const liveMatch = livePositionsMap.get(p.asset);
+    const curPrice = (liveMatch && liveMatch.currentPrice > 0)
+      ? liveMatch.currentPrice
+      : (p.currentPrice || p.entryPrice || 0);
+    const unPnl = (liveMatch && liveMatch.unrealizedPnl !== undefined)
+      ? liveMatch.unrealizedPnl
+      : (p.unrealizedPnl || 0);
+
+    return {
+      ...p,
+      currentPrice: curPrice,
+      unrealizedPnl: unPnl,
+      createdAt: p.openedAt || p.createdAt || new Date(),
+      action: p.action || (p.side === 'long' ? 'BUY' : 'SELL'),
+      entryPrice: p.entryPrice || 0,
+      quantity: p.quantity || 0,
+    };
+  });
 
   const onlyOpenTrades = rawOpenTrades
     .filter((trade, index, self) => index === self.findIndex((t) => t.asset === trade.asset));
@@ -367,7 +393,7 @@ export default function Portfolio() {
     const liveTimer = setInterval(() => {
       fetchPerformance();
       fetchAllTrades();
-    }, 2000);
+    }, 1000);
 
     return () => clearInterval(liveTimer);
   }, []);
@@ -1219,9 +1245,11 @@ export default function Portfolio() {
                   {filteredTrades.map((trade, i) => {
                     const price = trade.entryPrice;
                     const exit = trade.exitPrice;
-                    const curPrice = (prices && prices[trade.asset] !== undefined)
-                      ? prices[trade.asset]
-                      : (trade.currentPrice || trade.entryPrice || 0);
+                    const curPrice = (trade.currentPrice && trade.currentPrice > 0)
+                      ? trade.currentPrice
+                      : (prices && prices[trade.asset] !== undefined && prices[trade.asset] > 0)
+                        ? prices[trade.asset]
+                        : (trade.entryPrice || 0);
                     const isLong = trade.side === 'long' || trade.action === 'BUY';
                     const fees = (trade.fees !== undefined && trade.fees !== null && trade.fees > 0)
                       ? trade.fees
