@@ -197,9 +197,15 @@ export default function Dashboard() {
     };
     const fetchPortfolio = async () => {
       try {
-        const res = await axios.get('/api/portfolio/performance');
-        if (res.data.success) {
+        const res = await axios.get('/api/portfolio');
+        if (res.data.success && res.data.data) {
           usePortfolioStore.getState().setPortfolio(res.data.data);
+        }
+      } catch {}
+      try {
+        const resPerf = await axios.get('/api/portfolio/performance');
+        if (resPerf.data.success && resPerf.data.data) {
+          usePortfolioStore.getState().setPortfolio(resPerf.data.data);
         }
       } catch {}
     };

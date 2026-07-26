@@ -340,6 +340,11 @@ export default function Portfolio() {
     fetchStats();
     fetchPerformance();
     fetchAllTrades();
+    axios.get('/api/portfolio').then((res) => {
+      if (res.data?.success && res.data?.data) {
+        usePortfolioStore.getState().setPortfolio(res.data.data);
+      }
+    }).catch(() => {});
     axios.get('/api/portfolio/sync-closed-trades').catch(() => {});
 
     const liveTimer = setInterval(() => {
