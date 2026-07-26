@@ -12,6 +12,7 @@ import { logger } from './utils/logger.js';
 import errorHandler from './middleware/errorHandler.js';
 import { initializeSocketServer } from './websocket/socketManager.js';
 import { sendTelegramMessage } from './services/telegramService.js';
+import { setSystemWarmingUp, getSystemWarmingUp } from './config/bootState.js';
 
 // Routes
 import authRoutes from './routes/auth.js';
@@ -53,8 +54,6 @@ app.use('/api/agents', agentRoutes);
 app.use('/api/market', marketRoutes);
 
 app.use(errorHandler);
-
-import { setSystemWarmingUp, getSystemWarmingUp } from './config/bootState.js';
 
 // ─── Boot Sequence ───────────────────────────────────────────────
 const PORT = process.env.PORT || 5050;
