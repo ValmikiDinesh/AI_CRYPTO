@@ -89,14 +89,9 @@ export default class MarketAgent extends BaseAgent {
 
     this.logger.info(`🚀 Phase 1 Boot Complete: Loaded priority candles for ${priorityList.length} assets in < 500ms.`);
 
-    // Start REST polling loop immediately so live prices stream to UI without waiting for secondary assets
-    if (!this.pollInterval) {
-      this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
-    }
-
-    // Phase 2: Secondary Assets — Gentle, throttled background queue (3 assets per batch, 1.5s delay)
+    // Phase 2: Secondary Assets — Gentle, throttled background queue (5 assets per batch, 1.2s delay)
     const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
-    const BATCH_SIZE = 3;
+    const BATCH_SIZE = 5;
     for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
       const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (asset) => {
@@ -131,9 +126,14 @@ export default class MarketAgent extends BaseAgent {
           this.candles[asset] = [];
         }
       }));
-      await new Promise(r => setTimeout(r, 1500)); // 1.5s throttle to completely avoid 429 rate limits
+      await new Promise(r => setTimeout(r, 1200));
     }
     this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets.');
+
+    // Start REST polling loop AFTER Phase 2 finishes so ticker sync doesn't collide with initial candle loads
+    if (!this.pollInterval) {
+      this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
+    }
 
     // Signal to boot() that ALL asset data is ready — this is the ONLY trigger
     // for the "Restart Completed" Telegram message and trade resumption.
