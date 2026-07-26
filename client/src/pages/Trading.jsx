@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMarketStore, useSignalStore, usePortfolioStore, socket } from '../store.js';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { CandlestickChart, TrendingUp, Shield, Info, ShoppingBag, XCircle, ChevronRight, Gauge } from 'lucide-react';
+import { CandlestickChart, TrendingUp, Shield, Info, ShoppingBag, XCircle, ChevronRight, Gauge, Check } from 'lucide-react';
 import axios from 'axios';
 const axiosActual = axios;
 
@@ -398,6 +398,29 @@ export default function Trading() {
               </div>
             </div>
           </div>
+
+          <div className="h-4 w-[1px] bg-[#2c2c2e]/80" />
+
+          {/* Explicit Save & Apply Button */}
+          <button
+            type="button"
+            onClick={async () => {
+              const scalpVal = parseFloat(scalpInput);
+              const slVal = parseFloat(trailingSlInput);
+              if (!isNaN(scalpVal) && scalpVal > 0) {
+                await handleToggleOrderType('minNetProfitTarget', scalpVal);
+              }
+              if (!isNaN(slVal) && slVal > 0) {
+                await handleToggleOrderType('trailingStopUsd', slVal);
+              }
+              setOrderFeedback({ type: 'success', message: 'Scalp Target & Trailing SL settings saved successfully!' });
+              setTimeout(() => setOrderFeedback(null), 3000);
+            }}
+            className="flex items-center gap-1 px-3 py-1 bg-[#30d158] hover:bg-[#28b84c] text-black font-bold font-mono text-[9px] rounded-lg transition-all shadow-md active:scale-95 cursor-pointer ml-1"
+          >
+            <Check className="w-3 h-3" />
+            SAVE & APPLY
+          </button>
         </div>
       </div>
 
