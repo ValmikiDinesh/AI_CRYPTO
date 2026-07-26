@@ -229,14 +229,47 @@ export default function Trading() {
 
   const handleToggleOrderType = async (typeField, value) => {
     try {
-      const res = await axiosActual.put('/api/portfolio/config', {
+      const res = await axiosActual.post('/api/portfolio/config', {
         [typeField]: value
       });
-      if (res.data.success) {
+      if (res.data.success && res.data.data) {
         usePortfolioStore.getState().setPortfolio(res.data.data);
+        if (typeField === 'minNetProfitTarget') setScalpInput(res.data.data.minNetProfitTarget);
+        if (typeField === 'trailingStopUsd') setTrailingSlInput(res.data.data.trailingStopUsd);
+        setOrderFeedback({ type: 'success', message: `Applied: ${typeField === 'minNetProfitTarget' ? 'Scalp Target' : 'Trailing SL'} = $${parseFloat(value).toFixed(2)}` });
+      } else {
+        setOrderFeedback({ type: 'error', message: res.data.message || 'Failed to update settings' });
       }
     } catch (err) {
       console.error(`Failed to update ${typeField}:`, err);
+      setOrderFeedback({ type: 'error', message: err.response?.data?.message || 'Error updating configuration' });
+    } finally {
+      setTimeout(() => setOrderFeedback(null), 3000);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    try {
+      const scalpVal = parseFloat(scalpInput);
+      const slVal = parseFloat(trailingSlInput);
+
+      const payload = {};
+      if (!isNaN(scalpVal) && scalpVal > 0) payload.minNetProfitTarget = scalpVal;
+      if (!isNaN(slVal) && slVal > 0) payload.trailingStopUsd = slVal;
+
+      const res = await axiosActual.post('/api/portfolio/config', payload);
+      if (res.data.success && res.data.data) {
+        usePortfolioStore.getState().setPortfolio(res.data.data);
+        if (res.data.data.minNetProfitTarget !== undefined) setScalpInput(res.data.data.minNetProfitTarget);
+        if (res.data.data.trailingStopUsd !== undefined) setTrailingSlInput(res.data.data.trailingStopUsd);
+        setOrderFeedback({ type: 'success', message: `✅ Settings Saved! Scalp Target: $${res.data.data.minNetProfitTarget?.toFixed(2)}, Trailing SL: $${res.data.data.trailingStopUsd?.toFixed(2)}` });
+      } else {
+        setOrderFeedback({ type: 'error', message: res.data.message || 'Failed to save settings' });
+      }
+    } catch (err) {
+      setOrderFeedback({ type: 'error', message: err.response?.data?.message || 'Error saving settings' });
+    } finally {
+      setTimeout(() => setOrderFeedback(null), 4000);
     }
   };
 
@@ -404,18 +437,7 @@ export default function Trading() {
           {/* Explicit Save & Apply Button */}
           <button
             type="button"
-            onClick={async () => {
-              const scalpVal = parseFloat(scalpInput);
-              const slVal = parseFloat(trailingSlInput);
-              if (!isNaN(scalpVal) && scalpVal > 0) {
-                await handleToggleOrderType('minNetProfitTarget', scalpVal);
-              }
-              if (!isNaN(slVal) && slVal > 0) {
-                await handleToggleOrderType('trailingStopUsd', slVal);
-              }
-              setOrderFeedback({ type: 'success', message: 'Scalp Target & Trailing SL settings saved successfully!' });
-              setTimeout(() => setOrderFeedback(null), 3000);
-            }}
+            onClick={handleSaveConfig}
             className="flex items-center gap-1 px-3 py-1 bg-[#30d158] hover:bg-[#28b84c] text-black font-bold font-mono text-[9px] rounded-lg transition-all shadow-md active:scale-95 cursor-pointer ml-1"
           >
             <Check className="w-3 h-3" />

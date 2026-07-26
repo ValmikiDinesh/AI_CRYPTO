@@ -350,7 +350,10 @@ const handleUpdateConfig = async (req, res, next) => {
   try {
     const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct, usdToInrRate, coinSwitchApiKey, coinSwitchApiSecret } = req.body;
 
-    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (!portfolio) {
+      portfolio = await Portfolio.findOne({});
+    }
     if (!portfolio) {
       return res.status(404).json({ success: false, message: 'Portfolio not found' });
     }
