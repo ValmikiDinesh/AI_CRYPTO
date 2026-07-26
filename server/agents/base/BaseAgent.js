@@ -38,8 +38,9 @@ export default class BaseAgent {
       await this.initialize();
       this.logger.info(`${this.name} agent started — cycle every ${intervalMs}ms`);
 
-      // Run first cycle (blocks until complete), then schedule recurring interval
-      await this.runCycle();
+      // Run initial cycle in background — boot readiness is signaled by MarketAgent.dataReadyPromise,
+      // not by individual agent cycle completion.
+      this.runCycle().catch(err => this.logger.error(`${this.name} initial cycle error: ${err.message}`));
       this._interval = setInterval(() => this.runCycle(), intervalMs);
     } catch (err) {
       this.status = 'error';

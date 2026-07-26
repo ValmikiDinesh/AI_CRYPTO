@@ -18,6 +18,13 @@ export default class MarketAgent extends BaseAgent {
     this.candles = {};           // asset → latest candle array
     this.pollInterval = null;
     this.lastCandleSync = 0;
+
+    // Resolves when ALL asset data (live prices + 5min candles) is fully loaded.
+    // boot() awaits this promise before sending the "Restart Completed" Telegram message.
+    this._dataReadyResolve = null;
+    this.dataReadyPromise = new Promise(resolve => {
+      this._dataReadyResolve = resolve;
+    });
   }
 
   async initialize() {
@@ -127,6 +134,13 @@ export default class MarketAgent extends BaseAgent {
       await new Promise(r => setTimeout(r, 1500)); // 1.5s throttle to completely avoid 429 rate limits
     }
     this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets.');
+
+    // Signal to boot() that ALL asset data is ready — this is the ONLY trigger
+    // for the "Restart Completed" Telegram message and trade resumption.
+    if (this._dataReadyResolve) {
+      this._dataReadyResolve();
+      this._dataReadyResolve = null;
+    }
   }
 
   async pollMarketData() {

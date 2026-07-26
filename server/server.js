@@ -81,16 +81,23 @@ async function boot() {
       logger.info(`✅ Server running on port ${PORT}`);
     });
 
-    // 5. Initialize AI agents and asset data pipelines (waits for ALL agents to complete first cycle)
-    await bootAgents();
-    logger.info('✅ All agents started — every agent completed first execution cycle');
+    // 5. Initialize all AI agents (non-blocking — agents start their cycles in background)
+    const marketAgent = await bootAgents();
+    logger.info('✅ All agents initialized and running');
 
-    // 6. Complete warmup and resume trading
+    // 6. Wait for ALL asset data to be fully loaded (live prices + 5min candles for 566+ assets).
+    //    This is the ONLY readiness gate — no fake delays, no guessing.
+    //    MarketAgent.dataReadyPromise resolves ONLY when preloadCandlesInBackground() Phase 2 completes.
+    logger.info('⏳ Waiting for MarketAgent to finish loading all asset data (live prices + 5min candles)...');
+    await marketAgent.dataReadyPromise;
+    logger.info('✅ All asset data loaded — live prices and 5min candles ready for all assets');
+
+    // 7. Complete warmup and resume trading
     setSystemWarmingUp(false);
     const { SUPPORTED_ASSETS } = await import('./config/constants.js');
     await sendTelegramMessage(
       `✅ <b>Server Restart Completed Successfully!</b>\n\n` +
-      `All ${SUPPORTED_ASSETS.length}+ crypto asset feeds, AI consensus models, and market indicators are fully loaded and operational.\n\n` +
+      `All ${SUPPORTED_ASSETS.length}+ crypto asset feeds (live prices + 5min candles), AI consensus models, and market indicators are fully loaded and operational.\n\n` +
       `🚀 <b>New trade execution has RESUMED! System working normally.</b>`
     );
 
@@ -129,24 +136,23 @@ async function bootAgents() {
   setMarketAgentRef(marketAgent);
   setPortfolioAgentRef(portfolioAgent);
 
-  // Start ALL agents in parallel — bootAgents() only resolves when EVERY agent
-  // has completed its first full execution cycle (initialize + runCycle).
-  // This guarantees the "Restart Completed" Telegram message fires ONLY after
-  // all 566+ asset feeds, AI models, and market data are genuinely ready.
-  await Promise.all([
-    marketAgent.start(5_000),                                // 5s — price refresh
-    technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),       // 2s — technical indicator calculations
-    sentimentAgent.start(600_000),                           // 10m — news sentiment refresh
-    predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),      // 2s — AI predictions cycle
-    fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),          // 2s — decision fusion
-    riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),            // 2s — risk verification
-    executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),       // 2s — trade execution
-    portfolioAgent.start(2_000),                             // 2s — WebSocket target checks
-    learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS),    // 60s
-    supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS),        // 15s
-  ]);
+  // Start all agents (non-blocking — each agent's first cycle runs in background).
+  // boot() will separately await marketAgent.dataReadyPromise for the real readiness signal.
+  await marketAgent.start(5_000);                                // 5s — price refresh
+  await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // technical indicator calculations
+  await sentimentAgent.start(600_000);                           // 10m — news sentiment refresh
+  await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);      // AI predictions cycle
+  await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // decision fusion
+  await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // risk verification
+  await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // trade execution
+  await portfolioAgent.start(2_000);                             // WebSocket target checks
+  await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);   // 60s
+  await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);       // 15s
 
   logger.info('Agent pipeline: Market → Technical → Sentiment → Prediction → Fusion → Risk → Execution → Portfolio → Learning');
+
+  // Return marketAgent so boot() can await its dataReadyPromise
+  return marketAgent;
 }
 
 // ─── Graceful shutdown ───────────────────────────────────────────

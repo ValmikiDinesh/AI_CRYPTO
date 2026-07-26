@@ -23,8 +23,9 @@ export default class LearningAgent extends BaseAgent {
   async execute() {
     try {
       // 1. Run Daily Weekday Volatility Tracker (once a day in IST)
+      // SKIP on first cycle to avoid blocking boot (566+ assets × 1.5s delay = ~14 min)
       const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
-      if (this.lastDailyUpdateDate !== todayStr) {
+      if (this.lastDailyUpdateDate !== todayStr && this.cycleCount > 1) {
         await this.updateDailyVolatilityHistory();
         this.lastDailyUpdateDate = todayStr;
       }
