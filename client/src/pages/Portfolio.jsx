@@ -289,13 +289,11 @@ export default function Portfolio() {
     ? portfolio.positions.filter((p) => p && p.status === 'open')
     : [];
 
-  const rawOpenTrades = livePositions.length > 0
-    ? livePositions.map((p) => ({
-        ...p,
-        createdAt: p.openedAt || p.createdAt || new Date(),
-        action: p.action || (p.side === 'long' ? 'BUY' : 'SELL'),
-      }))
-    : allTrades.filter((trade) => trade.status === 'open');
+  const rawOpenTrades = livePositions.map((p) => ({
+    ...p,
+    createdAt: p.openedAt || p.createdAt || new Date(),
+    action: p.action || (p.side === 'long' ? 'BUY' : 'SELL'),
+  }));
 
   const onlyOpenTrades = rawOpenTrades
     .filter((trade, index, self) => index === self.findIndex((t) => t.asset === trade.asset));

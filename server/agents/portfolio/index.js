@@ -72,9 +72,9 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.warn(`Failed to link WebSocket price stream to PortfolioAgent: ${wsErr.message}`);
     }
 
-    // Kick off the fast background exchange sync loop (runs every 5s, fully non-blocking)
+    // Kick off the fast background exchange sync loop (runs every 2.5s, fully non-blocking)
     this._runBackgroundSync();
-    this._bgSyncInterval = setInterval(() => this._runBackgroundSync(), 5000);
+    this._bgSyncInterval = setInterval(() => this._runBackgroundSync(), 2500);
   }
 
   /** Fire-and-forget background sync: runs exchange API calls outside the main 2s cycle */
