@@ -1340,14 +1340,17 @@ export default class PortfolioAgent extends BaseAgent {
   async evaluateRealtimeExit(asset, currentPrice) {
     if (!currentPrice || currentPrice <= 0) return;
     if (!this._cachedPortfolio || Date.now() - (this._lastPortfolioCacheTime || 0) > 3000) {
-      this._cachedPortfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+      let pDoc = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+      if (!pDoc) pDoc = await Portfolio.findOne({});
+      this._cachedPortfolio = pDoc;
       this._lastPortfolioCacheTime = Date.now();
     }
     const portfolio = this._cachedPortfolio;
     if (!portfolio || !portfolio.positions) return;
 
-    const position = portfolio.positions.find(p => p && p.asset === asset && p.status === 'open');
-    if (!position || this._activeExitLocks?.has(asset)) return;
+    const cleanAsset = asset ? asset.replace('/', '').replace('_', '').toUpperCase() : '';
+    const position = portfolio.positions.find(p => p && p.asset && (p.asset.replace('/', '').replace('_', '').toUpperCase() === cleanAsset) && p.status === 'open');
+    if (!position || this._activeExitLocks?.has(position.asset)) return;
 
     const entryPrice = position.entryPrice;
     const quantity = position.quantity;
