@@ -153,6 +153,14 @@ export default class PortfolioAgent extends BaseAgent {
               const positionAgeMs = Date.now() - new Date(position.openedAt || Date.now()).getTime();
               if (positionAgeMs < 5000) continue; // Too young — might still be placing
 
+              // Skip if trailing SL or another exit is already closing this position
+              if (this._activeExitLocks && this._activeExitLocks.has(position.asset)) continue;
+              if (position.status !== 'open') continue;
+
+              // Skip if this asset was recently closed by trailing SL (within last 30s)
+              if (!this._recentlyClosed) this._recentlyClosed = {};
+              if (this._recentlyClosed[position.asset] && (Date.now() - this._recentlyClosed[position.asset]) < 30000) continue;
+
               this.logger.warn(`🔄 [BG RECONCILIATION] ${position.asset} is open in DB but NOT on CoinSwitch Pro. Closing immediately.`);
 
               // Try to get actual close price from exchange trade history
@@ -1610,6 +1618,11 @@ export default class PortfolioAgent extends BaseAgent {
         this.logger.info(`⚡ [WEBSOCKET SUB-50MS EXIT] ${asset} ${side.toUpperCase()} triggered: ${reason}`);
         await this.closePosition(portfolio, position, currentPrice, reason, false);
         this._cachedPortfolio = null; // Invalidate cache after closing
+        // Mark as recently closed so reconciliation won't duplicate
+        if (!this._recentlyClosed) this._recentlyClosed = {};
+        this._recentlyClosed[position.asset] = Date.now();
+        // Clear peak tracking for this asset
+        if (this._peakNetPnlMap) delete this._peakNetPnlMap[cleanAsset];
       } finally {
         this._activeExitLocks.delete(asset);
       }
