@@ -50,6 +50,12 @@ router.get('/', async (req, res, next) => {
       });
     }
 
+    if (portfolioAgentRef) {
+      try {
+        await portfolioAgentRef.updatePositions(portfolio);
+      } catch (pErr) {}
+    }
+
     // Deduplicate open positions before sending response to UI
     if (portfolio && portfolio.positions) {
       const seenAssets = new Set();
@@ -75,6 +81,11 @@ router.get('/positions', async (req, res, next) => {
     if (!portfolio) {
       portfolio = await Portfolio.findOne({});
     }
+    if (portfolio && portfolioAgentRef) {
+      try {
+        await portfolioAgentRef.updatePositions(portfolio);
+      } catch (pErr) {}
+    }
     const openPositions = portfolio?.positions?.filter((p) => p.status === 'open') || [];
 
     res.json({ success: true, data: openPositions });
@@ -96,6 +107,12 @@ router.get('/performance', async (req, res, next) => {
         success: true,
         data: { totalPnl: 0, totalPnlPercent: 0, winRate: 0, drawdown: 0 },
       });
+    }
+
+    if (portfolioAgentRef) {
+      try {
+        await portfolioAgentRef.updatePositions(portfolio);
+      } catch (pErr) {}
     }
 
     // Dynamic stats override since reset timestamp
