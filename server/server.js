@@ -37,7 +37,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(morgan('dev'));
 
