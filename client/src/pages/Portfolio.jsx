@@ -345,7 +345,7 @@ export default function Portfolio() {
     const liveTimer = setInterval(() => {
       fetchPerformance();
       fetchAllTrades();
-    }, 1000);
+    }, 10000);
 
     return () => clearInterval(liveTimer);
   }, []);

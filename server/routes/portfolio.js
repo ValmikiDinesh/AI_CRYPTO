@@ -120,7 +120,7 @@ router.get('/performance', async (req, res, next) => {
       const trades = await Trade.find({
         createdAt: { $gte: resetDate },
         status: 'closed'
-      }).lean();
+      }).select('pnl fees closedAt').lean();
 
       totalTrades = trades.length;
       winningTrades = 0;

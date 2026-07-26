@@ -245,7 +245,7 @@ export default function Dashboard() {
     const interval = setInterval(() => {
       fetchPortfolio();
       fetchPrices();
-    }, 3000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, []);
