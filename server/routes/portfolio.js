@@ -27,7 +27,7 @@ router.get('/sync-closed-trades', (req, res, next) => {
 
 let cachedPortfolioPayload = null;
 let lastPortfolioCacheTime = 0;
-const PORTFOLIO_CACHE_TTL_MS = 3000;
+const PORTFOLIO_CACHE_TTL_MS = 500;
 
 // GET /api/portfolio — current portfolio overview
 router.get('/', async (req, res, next) => {
@@ -98,7 +98,7 @@ router.get('/', async (req, res, next) => {
 
 let cachedPositionsResponse = null;
 let lastPositionsCacheTime = 0;
-const POSITIONS_CACHE_TTL_MS = 2000;
+const POSITIONS_CACHE_TTL_MS = 500;
 
 // GET /api/portfolio/positions — open positions only
 router.get('/positions', async (req, res, next) => {
@@ -125,7 +125,7 @@ router.get('/positions', async (req, res, next) => {
 
 let cachedPerformanceResponse = null;
 let lastPerformanceCacheTime = 0;
-const PERFORMANCE_CACHE_TTL_MS = 5000;
+const PERFORMANCE_CACHE_TTL_MS = 500;
 
 // GET /api/portfolio/performance — performance metrics
 router.get('/performance', async (req, res, next) => {
