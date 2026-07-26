@@ -89,36 +89,38 @@ export default class MarketAgent extends BaseAgent {
 
     this.logger.info(`🚀 Phase 1 Boot Complete: Loaded priority candles for ${priorityList.length} assets in < 500ms.`);
 
-    // Phase 2: Secondary Assets — Balanced parallel background queue (10 assets per batch, 600ms delay)
+    // Phase 2: Secondary Assets — Instant MongoDB lookup with compound index fallback
     const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 25;
     for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
       const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (asset) => {
         if (this.candles[asset] && this.candles[asset].length > 0) return;
         try {
-          let candles = await fetchCandles(asset, '5m', 100);
-          if (!candles || candles.length === 0) {
-            const dbCandles = await MarketData.find({ asset, interval: '5m' })
-              .sort({ openTime: -1 })
-              .limit(100)
-              .lean();
-            if (dbCandles && dbCandles.length > 0) {
-              candles = dbCandles.reverse().map(c => ({
-                open: c.open,
-                high: c.high,
-                low: c.low,
-                close: c.close,
-                volume: c.volume,
-                openTime: c.openTime,
-                closeTime: c.closeTime,
-                isClosed: c.isClosed
-              }));
-            } else {
-              candles = [];
-            }
+          // Check indexed MongoDB cache first (instant < 1ms)
+          const dbCandles = await MarketData.find({ asset, interval: '5m' })
+            .sort({ openTime: -1 })
+            .limit(100)
+            .lean();
+
+          let candles = [];
+          if (dbCandles && dbCandles.length > 0) {
+            candles = dbCandles.reverse().map(c => ({
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: c.volume,
+              openTime: c.openTime,
+              closeTime: c.closeTime,
+              isClosed: c.isClosed
+            }));
+          } else {
+            // Only fetch from exchange if missing in database
+            candles = await fetchCandles(asset, '5m', 100);
           }
-          this.candles[asset] = candles;
+
+          this.candles[asset] = candles || [];
           if (candles && candles.length > 0) {
             const lastCandle = candles[candles.length - 1];
             this.prices[asset] = lastCandle.close || lastCandle.price || 0;
@@ -127,7 +129,7 @@ export default class MarketAgent extends BaseAgent {
           this.candles[asset] = [];
         }
       }));
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 50));
     }
     this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets.');
 
