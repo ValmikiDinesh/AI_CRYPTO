@@ -60,7 +60,7 @@ router.get('/', async (req, res, next) => {
 
     // Return cached portfolio object instantly (portfolioAgent background loop handles positions updates)
 
-    // Deduplicate open positions before sending response to UI
+    // Enrich open positions with live prices and unrealized PnL from MarketAgent
     if (portfolio && portfolio.positions) {
       const seenAssets = new Set();
       portfolio.positions = portfolio.positions.filter((pos) => {
@@ -69,6 +69,20 @@ router.get('/', async (req, res, next) => {
           seenAssets.add(pos.asset);
         }
         return true;
+      }).map(pos => {
+        if (pos && pos.status === 'open') {
+          let curPrice = pos.currentPrice || pos.entryPrice || 0;
+          if (portfolioAgentRef && portfolioAgentRef.marketAgent) {
+            const livePrice = portfolioAgentRef.marketAgent.getPrice(pos.asset);
+            if (livePrice && livePrice > 0) curPrice = livePrice;
+          }
+          const isLong = pos.side === 'long' || pos.action === 'BUY';
+          const unrealizedPnl = isLong
+            ? (curPrice - pos.entryPrice) * pos.quantity
+            : (pos.entryPrice - curPrice) * pos.quantity;
+          return { ...pos, currentPrice: curPrice, unrealizedPnl };
+        }
+        return pos;
       });
     }
 
@@ -193,6 +207,22 @@ router.get('/performance', async (req, res, next) => {
 
     const openPositionsCount = portfolio.positions ? portfolio.positions.filter(p => p && p.status === 'open').length : 0;
 
+    const liveEnrichedPositions = (portfolio.positions || []).map(pos => {
+      if (pos && pos.status === 'open') {
+        let curPrice = pos.currentPrice || pos.entryPrice || 0;
+        if (portfolioAgentRef && portfolioAgentRef.marketAgent) {
+          const livePrice = portfolioAgentRef.marketAgent.getPrice(pos.asset);
+          if (livePrice && livePrice > 0) curPrice = livePrice;
+        }
+        const isLong = pos.side === 'long' || pos.action === 'BUY';
+        const unrealizedPnl = isLong
+          ? (curPrice - pos.entryPrice) * pos.quantity
+          : (pos.entryPrice - curPrice) * pos.quantity;
+        return { ...pos, currentPrice: curPrice, unrealizedPnl };
+      }
+      return pos;
+    });
+
     const responsePayload = {
       success: true,
       data: {
@@ -208,7 +238,7 @@ router.get('/performance', async (req, res, next) => {
         drawdown: portfolio.currentDrawdown,
         peakBalance: portfolio.peakBalance,
         allocation: portfolio.allocationBreakdown,
-        positions: portfolio.positions || [],
+        positions: liveEnrichedPositions,
         openPositions: openPositionsCount,
         walletBalance: portfolio.walletBalance,
         tradingPaused: portfolio.tradingPaused,
