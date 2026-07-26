@@ -1561,10 +1561,26 @@ export default class PortfolioAgent extends BaseAgent {
       } catch (pErr) {}
     }
 
-    // Track peak net PnL for trailing stop
-    if (!position.highestNetPnl || netPnl > position.highestNetPnl) {
+    // Track peak net PnL for trailing stop using persistent in-memory map
+    // (position.highestNetPnl on cached portfolio gets wiped every 3s cache refresh)
+    if (!this._peakNetPnlMap) this._peakNetPnlMap = {};
+    const prevPeak = this._peakNetPnlMap[cleanAsset] || position.highestNetPnl || 0;
+    if (netPnl > prevPeak) {
+      this._peakNetPnlMap[cleanAsset] = netPnl;
       position.highestNetPnl = netPnl;
+
+      // Persist to MongoDB throttled (once per 5s per asset to avoid DB spam)
+      if (!this._lastPeakSaveMap) this._lastPeakSaveMap = {};
+      if (!this._lastPeakSaveMap[cleanAsset] || (now - this._lastPeakSaveMap[cleanAsset]) >= 5000) {
+        this._lastPeakSaveMap[cleanAsset] = now;
+        Portfolio.updateOne(
+          { 'positions.asset': position.asset, 'positions.status': 'open' },
+          { $set: { 'positions.$.highestNetPnl': netPnl } }
+        ).catch(() => {});
+      }
     }
+    // Always use the persistent peak, not the potentially stale DB value
+    position.highestNetPnl = this._peakNetPnlMap[cleanAsset] || position.highestNetPnl || 0;
 
     let shouldClose = false;
     let reason = '';
