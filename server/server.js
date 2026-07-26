@@ -85,6 +85,9 @@ async function boot() {
     await bootAgents();
     logger.info('✅ All agents started');
     
+    // Give asset feeds 3 seconds to complete initial warmup
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
     // 6. Complete warmup and resume trading
     setSystemWarmingUp(false);
     const { SUPPORTED_ASSETS } = await import('./config/constants.js');

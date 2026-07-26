@@ -38,8 +38,8 @@ export default class BaseAgent {
       await this.initialize();
       this.logger.info(`${this.name} agent started — cycle every ${intervalMs}ms`);
 
-      // Run immediately, then on interval
-      await this.runCycle();
+      // Run initial cycle in background, then on interval
+      this.runCycle().catch(err => this.logger.error(`${this.name} initial cycle error: ${err.message}`));
       this._interval = setInterval(() => this.runCycle(), intervalMs);
     } catch (err) {
       this.status = 'error';
