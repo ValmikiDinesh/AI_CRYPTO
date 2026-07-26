@@ -52,15 +52,28 @@ export default class BaseAgent {
   /** Single execution cycle with error handling and logging. */
   async runCycle() {
     if (this.isExecuting) {
-      this.logger.debug(`${this.name} cycle skipped — previous cycle still executing`);
-      return;
+      // Force-release if stuck for more than 120 seconds
+      if (this._cycleStartedAt && (Date.now() - this._cycleStartedAt) > 120000) {
+        this.logger.warn(`${this.name} cycle force-released after 120s hang`);
+        this.isExecuting = false;
+      } else {
+        this.logger.debug(`${this.name} cycle skipped — previous cycle still executing`);
+        return;
+      }
     }
     this.isExecuting = true;
+    this._cycleStartedAt = Date.now();
     const start = Date.now();
     try {
       this.lastHeartbeat = Date.now();
       this.cycleCount++;
-      await this.execute();
+
+      // Timeout guard: force-abort if execute() hangs longer than 120s
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Cycle timed out after 120s')), 120000)
+      );
+      await Promise.race([this.execute(), timeoutPromise]);
+
       this.status = 'running'; // Reset to running on success
       const duration = Date.now() - start;
       this.logger.info(`Cycle ${this.cycleCount} completed in ${duration}ms`);
@@ -68,9 +81,10 @@ export default class BaseAgent {
       this.status = 'error'; // Set status to error on cycle failure
       this.errors.push(err.message);
       this.logger.error(`${this.name} cycle error: ${err.message}`);
-      await this.log('error', 'cycle_error', err.message);
+      await this.log('error', 'cycle_error', err.message).catch(() => {});
     } finally {
       this.isExecuting = false;
+      this._cycleStartedAt = null;
     }
   }
 
