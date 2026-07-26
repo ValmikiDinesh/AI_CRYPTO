@@ -81,11 +81,7 @@ router.get('/positions', async (req, res, next) => {
     if (!portfolio) {
       portfolio = await Portfolio.findOne({});
     }
-    if (portfolio && portfolioAgentRef) {
-      try {
-        await portfolioAgentRef.updatePositions(portfolio);
-      } catch (pErr) {}
-    }
+
     const openPositions = portfolio?.positions?.filter((p) => p.status === 'open') || [];
 
     res.json({ success: true, data: openPositions });
