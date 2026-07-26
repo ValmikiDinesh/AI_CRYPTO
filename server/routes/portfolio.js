@@ -29,6 +29,13 @@ router.get('/sync-closed-trades', (req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (!portfolio) {
+      portfolio = await Portfolio.findOne({});
+      if (portfolio) {
+        portfolio.userId = SYSTEM_USER_ID;
+        await portfolio.save();
+      }
+    }
 
     if (!portfolio) {
       const targetPct = parseFloat(process.env.BASKET_PROFIT_TARGET) || 10;
@@ -64,7 +71,10 @@ router.get('/', async (req, res, next) => {
 // GET /api/portfolio/positions — open positions only
 router.get('/positions', async (req, res, next) => {
   try {
-    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (!portfolio) {
+      portfolio = await Portfolio.findOne({});
+    }
     const openPositions = portfolio?.positions?.filter((p) => p.status === 'open') || [];
 
     res.json({ success: true, data: openPositions });
@@ -76,7 +86,10 @@ router.get('/positions', async (req, res, next) => {
 // GET /api/portfolio/performance — performance metrics
 router.get('/performance', async (req, res, next) => {
   try {
-    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    if (!portfolio) {
+      portfolio = await Portfolio.findOne({});
+    }
 
     if (!portfolio) {
       return res.json({
@@ -418,6 +431,7 @@ const handleUpdateConfig = async (req, res, next) => {
 <b>Total Base Capital:</b> $${portfolio.baseTradingCapital?.toFixed(4)} USD
 <b>Sweep Target Profit:</b> ${portfolio.sweepTargetProfitPct}%
 <b>Basket Profit Target:</b> ${portfolio.basketProfitTargetPct}%
+<b>Scalp Target:</b> $${portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25}
 <b>Trailing Stop Loss:</b> $${portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40}
 <b>USD to INR Rate:</b> ₹${portfolio.usdToInrRate || 96.54}
 
