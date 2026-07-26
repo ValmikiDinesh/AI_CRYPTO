@@ -58,8 +58,9 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
   }, 0);
 
   const totalOpenNetPnl = filteredOpenTrades.reduce((sum, t) => {
-    const currentPrice = prices ? prices[t.asset] : undefined;
-    if (!currentPrice) return sum;
+    const currentPrice = (prices && prices[t.asset] !== undefined)
+      ? prices[t.asset]
+      : (t.currentPrice || t.entryPrice || 0);
     const fees = (t.fees && t.fees > 0) ? t.fees : (t.entryPrice * t.quantity * 0.0005);
     const isLong = t.side === 'long' || t.action === 'BUY';
     const grossPnl = isLong ? (currentPrice - t.entryPrice) * t.quantity : (t.entryPrice - currentPrice) * t.quantity;
@@ -201,6 +202,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
 
 export default function Portfolio() {
   const portfolio = usePortfolioStore((s) => s.portfolio);
+  const prices = useMarketStore((s) => s.prices);
 
   const currency = useCurrencyStore((s) => s.currency);
   const rate = useCurrencyStore((s) => s.rate);
