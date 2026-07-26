@@ -1436,22 +1436,23 @@ export default class PortfolioAgent extends BaseAgent {
     let shouldClose = false;
     let reason = '';
 
+    // Configured Trailing SL activation threshold (e.g. $0.10 USDT net profit)
+    const trailingStep = portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.10;
     const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
-    const riskFloorUsd = portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40;
+    const riskFloorUsd = 0.40; // Max loss floor ($0.40 USDT)
 
-    // 1. Dynamic Net PnL Scalp Exit & Minimum Floor Trailing Stop ($0.10+ / $0.25+ Floor, configurable)
-    if (position.highestNetPnl >= minTarget) {
-      // Minimum floor is ALWAYS minTarget (never locks in less than minTarget)
-      const trailingStep = Math.min(0.10, minTarget * 0.5);
-      const lockedInFloor = Math.max(minTarget, position.highestNetPnl - trailingStep);
+    // Trailing SL activates as soon as highestNetPnl reaches trailingStep ($0.10+)
+    if (position.highestNetPnl >= trailingStep) {
+      // Locked floor starts at trailingStep ($0.10) and trails upward with highestNetPnl
+      // Offset formula: locks at highestNetPnl - (trailingStep * 0.5), but NEVER drops below initial trailingStep ($0.10)
+      const offset = trailingStep * 0.5;
+      const lockedInFloor = Math.max(trailingStep, position.highestNetPnl - offset);
+
       if (netPnl <= lockedInFloor) {
         shouldClose = true;
-        reason = `Net Scalp Target/Trailing Floor Reached (+$${lockedInFloor.toFixed(2)} Net PnL)`;
+        reason = `Trailing Stop-Loss Triggered (Peak $${position.highestNetPnl.toFixed(2)} → Closed @ +$${lockedInFloor.toFixed(2)} Net PnL)`;
       }
-    } else if (netPnl >= minTarget) {
-      shouldClose = true;
-      reason = `Net Scalp Target Reached (+$${netPnl.toFixed(2)} Net)`;
-    } else if (netPnl <= -riskFloorUsd) { // Configurable Trailing Stop Loss / Risk Floor ($ USDT)
+    } else if (netPnl <= -riskFloorUsd) { // Loss Risk Floor ($ USDT)
       shouldClose = true;
       reason = `Stop-Loss Risk Floor Triggered (-$${Math.abs(netPnl).toFixed(2)} Net PnL)`;
     }
