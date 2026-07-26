@@ -50,11 +50,7 @@ router.get('/', async (req, res, next) => {
       });
     }
 
-    if (portfolioAgentRef) {
-      try {
-        await portfolioAgentRef.updatePositions(portfolio);
-      } catch (pErr) {}
-    }
+    // Return cached portfolio object instantly (portfolioAgent background loop handles positions updates)
 
     // Deduplicate open positions before sending response to UI
     if (portfolio && portfolio.positions) {
