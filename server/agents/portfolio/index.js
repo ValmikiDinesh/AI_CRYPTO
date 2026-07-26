@@ -1525,6 +1525,15 @@ export default class PortfolioAgent extends BaseAgent {
     const position = portfolio.positions.find(p => p && p.asset && (p.asset.replace('/', '').replace('_', '').toUpperCase() === cleanAsset) && p.status === 'open');
     if (!position || this._activeExitLocks?.has(position.asset)) return;
 
+    // Throttled debug log: once per 30s per asset to confirm trailing SL is active
+    if (!this._lastTrailingDebugLog) this._lastTrailingDebugLog = {};
+    const now2 = Date.now();
+    if (!this._lastTrailingDebugLog[cleanAsset] || (now2 - this._lastTrailingDebugLog[cleanAsset]) >= 30000) {
+      this._lastTrailingDebugLog[cleanAsset] = now2;
+      const peakPnl = position.highestNetPnl || 0;
+      this.logger.info(`📊 [TRAILING SL] ${cleanAsset}: price=$${currentPrice} entry=$${position.entryPrice} peakNetPnl=$${peakPnl.toFixed(4)} side=${position.side}`);
+    }
+
     const entryPrice = position.entryPrice;
     const quantity = position.quantity;
     const side = position.side;
