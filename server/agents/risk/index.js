@@ -65,6 +65,7 @@ export default class RiskAgent extends BaseAgent {
     }
   }
 
+  /**
    * Validate a proposed trade signal against risk rules.
    * Returns { approved, reason } — the Execution Agent must call this before placing orders.
    */
