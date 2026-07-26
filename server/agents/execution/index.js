@@ -52,9 +52,20 @@ export default class ExecutionAgent extends BaseAgent {
   }
 
   async execute() {
+    // RAM Optimization: Clean up processedSignalIds if growing large
+    if (this.processedSignalIds && this.processedSignalIds.size > 1000) {
+      this.processedSignalIds.clear();
+    }
+
     // 1. Scan and process pending limit orders
     try {
-      const pendingTrades = await Trade.find({ status: 'pending' });
+      const now = Date.now();
+      let pendingTrades = [];
+      if (this.hasPendingLimitOrders !== false || !this._lastPendingScan || (now - this._lastPendingScan) >= 30000) {
+        this._lastPendingScan = now;
+        pendingTrades = await Trade.find({ status: 'pending' });
+        this.hasPendingLimitOrders = pendingTrades.length > 0;
+      }
       const EXPIRATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
       
       for (const trade of pendingTrades) {

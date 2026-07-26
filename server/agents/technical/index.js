@@ -19,6 +19,8 @@ export default class TechnicalAgent extends BaseAgent {
   }
 
   async execute() {
+    if (!this._calcCache) this._calcCache = {};
+
     for (const asset of SUPPORTED_ASSETS) {
       try {
         const candles = this.marketAgent.getCandles(asset);
@@ -26,6 +28,16 @@ export default class TechnicalAgent extends BaseAgent {
         if (!candles || candles.length < 30) {
           continue;
         }
+
+        const lastCandle = candles[candles.length - 1];
+        const cacheKey = `${lastCandle.close}_${lastCandle.closeTime ? new Date(lastCandle.closeTime).getTime() : 0}`;
+
+        // Smart Cache Guard: Skip heavy math if price & candle time have not changed
+        if (this._calcCache[asset] === cacheKey && this.lastSignals[asset]) {
+          continue;
+        }
+
+        this._calcCache[asset] = cacheKey;
 
         // Compute all indicators
         const indicators = computeIndicators(candles);
@@ -60,15 +72,14 @@ export default class TechnicalAgent extends BaseAgent {
 
         this.lastSignals[asset] = signalData;
 
-        // Persist to MongoDB
-        await Signal.create(signalData);
-
-        // Publish via Redis
-        await publishEvent(CHANNELS.TECHNICAL_SIGNALS, signalData);
-
-        this.logger.info(
-          `${asset}: ${signal.action} (confidence=${signal.confidence.toFixed(2)}, regime=${indicators.regime})`
-        );
+        // Persist to MongoDB and publish via Redis ONLY if actionable signal (BUY or SELL)
+        if (signal.action !== 'HOLD' && signal.confidence >= 0.50) {
+          await Signal.create(signalData);
+          await publishEvent(CHANNELS.TECHNICAL_SIGNALS, signalData);
+          this.logger.info(
+            `⚡ [TECHNICAL SIGNAL] ${asset}: ${signal.action} (confidence=${signal.confidence.toFixed(2)}, regime=${indicators.regime})`
+          );
+        }
       } catch (err) {
         this.logger.error(`${asset} analysis error: ${err.message}`);
       }

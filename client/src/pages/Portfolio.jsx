@@ -1189,17 +1189,33 @@ export default function Portfolio() {
                     <th className="px-6 py-4 text-right">Entry Price</th>
                     <th className="px-6 py-4 text-right">Stop Loss</th>
                     <th className="px-6 py-4 text-right">Target</th>
-                    <th className="px-6 py-4 text-right">Exit Price</th>
+                    <th className="px-6 py-4 text-right">{activeTab === 'open' ? 'Current Price' : 'Exit Price'}</th>
                     <th className="px-6 py-4 text-right">Quantity</th>
                     <th className="px-6 py-4 text-right">Commission</th>
-                    <th className="px-6 py-4 text-right">Realized Return</th>
-                    <th className="px-6 py-4 text-right">Net Return</th>
+                    <th className="px-6 py-4 text-right">{activeTab === 'open' ? 'Gross PnL' : 'Realized Return'}</th>
+                    <th className="px-6 py-4 text-right">{activeTab === 'open' ? 'Net PnL' : 'Net Return'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2c2c2e]/40">
                   {filteredTrades.map((trade, i) => {
                     const price = trade.entryPrice;
                     const exit = trade.exitPrice;
+                    const curPrice = (prices && prices[trade.asset] !== undefined)
+                      ? prices[trade.asset]
+                      : (trade.currentPrice || trade.entryPrice || 0);
+                    const isLong = trade.side === 'long' || trade.action === 'BUY';
+                    const fees = (trade.fees !== undefined && trade.fees !== null && trade.fees > 0)
+                      ? trade.fees
+                      : (trade.entryPrice * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005));
+                    
+                    const grossPnl = trade.status === 'open'
+                      ? (isLong ? (curPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - curPrice) * trade.quantity)
+                      : (trade.pnl || 0);
+                    
+                    const netPnl = trade.status === 'open'
+                      ? (grossPnl - fees)
+                      : ((trade.pnl || 0) - fees);
+
                     return (
                       <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
                         <td className="px-6 py-4 text-zinc-500 font-mono text-[10px] leading-relaxed">
@@ -1219,11 +1235,11 @@ export default function Portfolio() {
                         </td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
-                            trade.action === 'BUY'
+                            trade.action === 'BUY' || trade.side === 'long'
                               ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
                               : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
                           }`}>
-                            {trade.action}
+                            {trade.action || (trade.side === 'long' ? 'BUY' : 'SELL')}
                           </span>
                         </td>
                         <td className="px-6 py-4">
@@ -1245,53 +1261,39 @@ export default function Portfolio() {
                           {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
                         </td>
                         <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
-                          {exit ? `$${exit.toFixed(6)}` : '—'}
+                          {trade.status === 'open'
+                            ? `$${curPrice.toFixed(6)}`
+                            : exit ? `$${exit.toFixed(6)}` : '—'}
                         </td>
                         <td className="px-6 py-4 text-right text-[#86868b] font-mono">
                           {trade.quantity?.toFixed(5) || '—'}
                         </td>
                         <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
-                          {trade.fees !== undefined && trade.fees !== null 
-                            ? `$${trade.fees.toFixed(4)}` 
-                            : `$${(trade.entryPrice * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)).toFixed(4)}`}
+                          ${fees.toFixed(4)}
                         </td>
                         <td 
                           className="px-6 py-4 text-right font-bold font-mono"
                           style={{ 
-                            color: trade.status === 'open' 
-                              ? '#86868b' 
-                              : trade.status === 'failed'
-                                ? '#ff453a'
-                                : ((trade.pnl || 0) >= 0 ? '#30d158' : '#ff453a') 
+                            color: trade.status === 'failed'
+                              ? '#ff453a'
+                              : (grossPnl >= 0 ? '#30d158' : '#ff453a') 
                           }}
                         >
-                          {trade.status === 'open' 
-                            ? 'ACTIVE' 
-                            : trade.status === 'failed' 
-                              ? 'FAILED' 
-                              : `${(trade.pnl || 0) >= 0 ? '+' : ''}$${(trade.pnl || 0).toFixed(2)}`}
+                          {trade.status === 'failed' 
+                            ? 'FAILED' 
+                            : `${grossPnl >= 0 ? '+' : ''}$${grossPnl.toFixed(2)}`}
                         </td>
                         <td 
                           className="px-6 py-4 text-right font-bold font-mono"
                           style={{ 
-                            color: trade.status === 'open' 
-                              ? '#86868b' 
-                              : trade.status === 'failed'
-                                ? '#ff453a'
-                                : (((trade.pnl || 0) - (trade.fees !== undefined && trade.fees !== null ? trade.fees : (trade.entryPrice * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005)))) >= 0 ? '#30d158' : '#ff453a') 
+                            color: trade.status === 'failed'
+                              ? '#ff453a'
+                              : (netPnl >= 0 ? '#30d158' : '#ff453a') 
                           }}
                         >
-                          {trade.status === 'open' 
-                            ? 'ACTIVE' 
-                            : trade.status === 'failed' 
-                              ? 'FAILED' 
-                              : (() => {
-                                  const fees = trade.fees !== undefined && trade.fees !== null 
-                                    ? trade.fees 
-                                    : (trade.entryPrice * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005));
-                                  const net = (trade.pnl || 0) - fees;
-                                  return `${net >= 0 ? '+' : ''}$${net.toFixed(2)}`;
-                                })()}
+                          {trade.status === 'failed' 
+                            ? 'FAILED' 
+                            : `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}`}
                         </td>
                       </tr>
                     );

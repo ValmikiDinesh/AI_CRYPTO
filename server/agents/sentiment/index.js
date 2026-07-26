@@ -21,6 +21,8 @@ export default class SentimentAgent extends BaseAgent {
       const allArticles = await this.fetchGeneralNews();
       this.logger.debug(`Fetched ${allArticles.length} general articles for local filtering`);
 
+      const updatedSentimentData = [];
+
       for (const asset of SUPPORTED_ASSETS) {
         try {
           const baseAsset = asset.replace('USDT', '').replace(/^\d+/, '').toLowerCase();
@@ -42,17 +44,22 @@ export default class SentimentAgent extends BaseAgent {
           };
 
           this.sentimentCache[asset] = sentimentData;
-
-          // Publish via Redis
-          await publishEvent(CHANNELS.SENTIMENT_SIGNALS, sentimentData);
-
-          this.logger.info(
-            `${asset}: sentiment=${sentiment.label} (score=${sentiment.score.toFixed(2)}, confidence=${sentiment.confidence.toFixed(2)}, articles=${sentiment.articleCount})`
-          );
+          updatedSentimentData.push(sentimentData);
         } catch (err) {
           this.logger.error(`Sentiment analysis for ${asset}: ${err.message}`);
         }
       }
+
+      // 4. Single Bulk Redis Event Publication (1 IPC call vs 568)
+      if (updatedSentimentData.length > 0) {
+        await publishEvent(CHANNELS.SENTIMENT_SIGNALS, {
+          type: 'bulk_sentiment',
+          signals: updatedSentimentData,
+          timestamp: Date.now()
+        });
+      }
+
+      this.logger.info(`✅ Sentiment analysis cycle completed for ${SUPPORTED_ASSETS.length} assets (${allArticles.length} articles analyzed).`);
     } catch (err) {
       this.logger.error(`Sentiment agent execution error: ${err.message}`);
     }
@@ -99,7 +106,8 @@ export default class SentimentAgent extends BaseAgent {
   }
 
   filterArticlesForAsset(articles, baseAsset) {
-    if (!Array.isArray(articles)) return [];
+    if (!Array.isArray(articles) || articles.length === 0) return [];
+    if (!this._regexMap) this._regexMap = {};
 
     const searchTerms = [
       baseAsset,                            // e.g. "sol"
@@ -115,8 +123,10 @@ export default class SentimentAgent extends BaseAgent {
       const tags = (article.tags || '').toLowerCase().split('|');
 
       return searchTerms.some((term) => {
-        // Match search term as a whole word to prevent substring leakage bugs (e.g., 'id' matching 'liquidity')
-        const regex = new RegExp(`\\b${term}\\b`, 'i');
+        if (!this._regexMap[term]) {
+          this._regexMap[term] = new RegExp(`\\b${term}\\b`, 'i');
+        }
+        const regex = this._regexMap[term];
         return (
           regex.test(title) ||
           regex.test(body) ||

@@ -56,8 +56,9 @@ export default class RiskAgent extends BaseAgent {
   }
 
   async execute() {
+    const now = Date.now();
     // Reset daily counters at midnight in IST timezone
-    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const today = new Date(now + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
     if (today !== this.lastResetDate) {
       this.dailyTradeCount = 0;
       this.lastResetDate = today;
@@ -67,10 +68,13 @@ export default class RiskAgent extends BaseAgent {
       await Portfolio.updateMany({}, { $set: { dailyLossToday: 0 } });
     }
 
-    // Check all portfolios for risk breaches
-    const portfolios = await Portfolio.find({});
-    for (const portfolio of portfolios) {
-      await this.checkPortfolioRisk(portfolio);
+    // Check all portfolios for risk breaches every 10 seconds (prevents DB query spamming)
+    if (!this._lastRiskCheck || (now - this._lastRiskCheck) >= 10000) {
+      this._lastRiskCheck = now;
+      const portfolios = await Portfolio.find({}).lean();
+      for (const portfolio of portfolios) {
+        await this.checkPortfolioRisk(portfolio);
+      }
     }
   }
 

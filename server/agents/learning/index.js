@@ -30,13 +30,13 @@ export default class LearningAgent extends BaseAgent {
         this.lastDailyUpdateDate = todayStr;
       }
 
-      // Analyze last 50 closed trades
+      // Analyze last 50 closed trades using lightweight lean query
       const closedTrades = await Trade.find({ status: 'closed' })
         .sort({ closedAt: -1 })
-        .limit(50);
+        .limit(50)
+        .lean();
 
       if (closedTrades.length < 10) {
-        this.logger.debug('Insufficient closed trades for learning (need >= 10)');
         return;
       }
 
@@ -49,8 +49,12 @@ export default class LearningAgent extends BaseAgent {
         this.logger.info(`Weights adjusted: ${JSON.stringify(weightAdjustments)}`);
       }
 
-      // Persist strategy performance
-      await this.updateStrategy(analysis);
+      // Persist strategy performance every 10 minutes (throttled)
+      const now = Date.now();
+      if (!this._lastStrategyUpdate || (now - this._lastStrategyUpdate) >= 600000) {
+        this._lastStrategyUpdate = now;
+        await this.updateStrategy(analysis);
+      }
 
     } catch (err) {
       this.logger.error(`Learning cycle error: ${err.message}`);

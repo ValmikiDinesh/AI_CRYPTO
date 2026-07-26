@@ -80,8 +80,8 @@ export default class PortfolioAgent extends BaseAgent {
   /** Fire-and-forget background sync: runs exchange API calls outside the main 2s cycle */
   async _runBackgroundSync() {
     try {
-      const portfolios = await Portfolio.find({});
-      for (const portfolio of portfolios) {
+      const portfolio = await Portfolio.findOne({}).lean();
+      if (portfolio) {
         // 1. Fetch all live positions from exchange (one call, all symbols)
         try {
           const { fetchPositions } = await import('../../services/exchangeService.js');
@@ -875,8 +875,18 @@ export default class PortfolioAgent extends BaseAgent {
 
   /** Close a position and update portfolio. */
   async closePosition(portfolio, position, closePrice, reason, isReconciliation = false) {
-    let actualClosePrice = closePrice;
-    let actualFees = 0;
+    if (!position || !position.asset) return { success: false };
+
+    // Atomic Exit Lock Guard: Prevent parallel loops from closing the same position concurrently
+    if (this._activeExitLocks.has(position.asset)) {
+      this.logger.debug(`[EXIT LOCK] Exit already in progress for ${position.asset}. Skipping duplicate request.`);
+      return { success: false, duplicate: true };
+    }
+    this._activeExitLocks.add(position.asset);
+
+    try {
+      let actualClosePrice = closePrice;
+      let actualFees = 0;
 
     // Only place an offsetting close order on the exchange if this is NOT a reconciliation sync
     if (!isReconciliation) {
@@ -1071,21 +1081,27 @@ export default class PortfolioAgent extends BaseAgent {
       `Position closed: ${position.asset} ${position.side} — PnL: ${position.realizedPnl.toFixed(2)} — ${reason}`
     );
 
-    // Notify Telegram
-    await sendTelegramMessage(
-      `✅ <b>Position Closed! [Auto]</b>\n` +
-      `<b>Asset</b>: ${position.asset.replace('USDT', '')}/USDT\n` +
-      `<b>Side</b>: ${position.side.toUpperCase()}\n` +
-      `<b>Strategy</b>: ${strategy}\n` +
-      `<b>Entry Price</b>: $${formatPrice(position.entryPrice)}\n` +
-      `<b>Exit Price</b>: $${formatPrice(actualClosePrice)}\n` +
-      `<b>Quantity</b>: ${position.quantity.toFixed(5)}\n` +
-      `<b>Gross Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
-      `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
-      `<b>Net PnL (After Fees)</b>: ${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}\n` +
-      `<b>Reason</b>: ${escapeHtml(reason)}` +
-      (isLoss ? `\n\n🧊 <b>15-Min Cooling Period Active</b>: Re-entry for ${position.asset.replace('USDT', '')} paused for 15 minutes due to trade loss.` : '')
-    );
+    // Notify Telegram with 30s deduplication guard to prevent duplicate alerts
+    if (!this._notifiedClosures) this._notifiedClosures = new Map();
+    const closureKey = `${position.asset}_${reason}`;
+    const lastSent = this._notifiedClosures.get(closureKey);
+    if (!lastSent || (Date.now() - lastSent) >= 30000) {
+      this._notifiedClosures.set(closureKey, Date.now());
+      await sendTelegramMessage(
+        `✅ <b>Position Closed! [Auto]</b>\n` +
+        `<b>Asset</b>: ${position.asset.replace('USDT', '')}/USDT\n` +
+        `<b>Side</b>: ${position.side.toUpperCase()}\n` +
+        `<b>Strategy</b>: ${strategy}\n` +
+        `<b>Entry Price</b>: $${formatPrice(position.entryPrice)}\n` +
+        `<b>Exit Price</b>: $${formatPrice(actualClosePrice)}\n` +
+        `<b>Quantity</b>: ${position.quantity.toFixed(5)}\n` +
+        `<b>Gross Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
+        `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
+        `<b>Net PnL (After Fees)</b>: ${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}\n` +
+        `<b>Reason</b>: ${escapeHtml(reason)}` +
+        (isLoss ? `\n\n🧊 <b>15-Min Cooling Period Active</b>: Re-entry for ${position.asset.replace('USDT', '')} paused for 15 minutes due to trade loss.` : '')
+      );
+    }
 
     await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
       asset: position.asset,
@@ -1105,12 +1121,15 @@ export default class PortfolioAgent extends BaseAgent {
       );
     }
 
-    return {
-      success: true,
-      realizedPnl: position.realizedPnl,
-      fees: totalPositionFees,
-      netPnl: position.realizedPnl - totalPositionFees
-    };
+      return {
+        success: true,
+        realizedPnl: position.realizedPnl,
+        fees: totalPositionFees,
+        netPnl: position.realizedPnl - totalPositionFees
+      };
+    } finally {
+      this._activeExitLocks.delete(position.asset);
+    }
   }
 
   /** Update aggregate portfolio metrics. */
@@ -1364,9 +1383,17 @@ export default class PortfolioAgent extends BaseAgent {
 
 
   async checkProfitTarget(portfolio) {
-    const baseCap = portfolio.baseTradingCapital || 100;
+    let baseCap = portfolio.baseTradingCapital || 100;
+    if (process.env.TRADING_MODE === 'live' && portfolio.totalBalance && portfolio.totalBalance > 0) {
+      // Sync base capital to actual live exchange total balance if uninitialized or lower
+      if (!portfolio.baseTradingCapital || portfolio.baseTradingCapital < portfolio.totalBalance * 0.9) {
+        portfolio.baseTradingCapital = portfolio.totalBalance;
+        baseCap = portfolio.totalBalance;
+        await portfolio.save();
+      }
+    }
+
     const sweepPct = portfolio.sweepTargetProfitPct !== undefined ? portfolio.sweepTargetProfitPct : 10;
-    
     const sweepTarget = baseCap * (1 + sweepPct / 100);
     
     // Calculate liquid total balance (excluding illiquid positions P&L)

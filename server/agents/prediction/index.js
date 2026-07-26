@@ -21,6 +21,7 @@ export default class PredictionAgent extends BaseAgent {
   }
 
   async execute() {
+    if (!this._calcCache) this._calcCache = {};
     const assetsData = [];
     const candleMap = {};
 
@@ -31,6 +32,16 @@ export default class PredictionAgent extends BaseAgent {
         if (!candles || candles.length < 20) {
           continue;
         }
+
+        const lastCandle = candles[candles.length - 1];
+        const cacheKey = `${lastCandle.close}_${lastCandle.closeTime ? new Date(lastCandle.closeTime).getTime() : 0}`;
+
+        // Smart Cache Guard: Skip if price and candle timeframe have not changed
+        if (this._calcCache[asset] === cacheKey && this.predictions[asset]) {
+          continue;
+        }
+
+        this._calcCache[asset] = cacheKey;
         candleMap[asset] = candles;
 
         // Retrieve pre-computed indicators from TechnicalAgent or compute them
@@ -41,7 +52,7 @@ export default class PredictionAgent extends BaseAgent {
         }
 
         const sentiment = this.sentimentAgent ? this.sentimentAgent.getSentiment(asset) : null;
-        const currentPrice = this.marketAgent.getPrice(asset) || candles[candles.length - 1].close;
+        const currentPrice = this.marketAgent.getPrice(asset) || lastCandle.close;
 
         assetsData.push({
           asset,
@@ -55,7 +66,6 @@ export default class PredictionAgent extends BaseAgent {
     }
 
     if (assetsData.length === 0) {
-      this.logger.warn('No assets had sufficient data for prediction');
       return;
     }
 
@@ -126,19 +136,19 @@ export default class PredictionAgent extends BaseAgent {
 
       this.predictions[asset] = prediction;
 
-      try {
-        // Persist
-        await Prediction.create(prediction);
+      // Persist to MongoDB & publish via Redis ONLY if directional prediction (up or down)
+      if (prediction.direction !== 'neutral' && prediction.probability >= 0.55) {
+        try {
+          await Prediction.create(prediction);
+          await publishEvent(CHANNELS.PREDICTIONS, prediction);
 
-        // Publish
-        await publishEvent(CHANNELS.PREDICTIONS, prediction);
-
-        const reasoningSnippet = prediction.metadata?.reasoning || 'No details';
-        this.logger.info(
-          `${asset} (${prediction.model}): predicted ${prediction.direction} (prob=${prediction.probability.toFixed(2)}) — ${reasoningSnippet.substring(0, 80)}`
-        );
-      } catch (err) {
-        this.logger.error(`Error saving prediction for ${asset}: ${err.message}`);
+          const reasoningSnippet = prediction.metadata?.reasoning || 'No details';
+          this.logger.info(
+            `⚡ [PREDICTION] ${asset} (${prediction.model}): predicted ${prediction.direction} (prob=${prediction.probability.toFixed(2)}) — ${reasoningSnippet.substring(0, 80)}`
+          );
+        } catch (err) {
+          this.logger.error(`Error saving prediction for ${asset}: ${err.message}`);
+        }
       }
     }
   }

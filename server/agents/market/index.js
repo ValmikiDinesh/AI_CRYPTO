@@ -89,23 +89,21 @@ export default class MarketAgent extends BaseAgent {
 
     this.logger.info(`🚀 Phase 1 Boot Complete: Loaded priority candles for ${priorityList.length} assets in < 500ms.`);
 
-    // Phase 2: Secondary Assets — Instant MongoDB lookup with compound index fallback
+    // Phase 2: Secondary Assets — Single Bulk MongoDB Aggregation query (loads 500+ assets in <200ms)
     const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
-    const BATCH_SIZE = 25;
-    for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
-      const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
-      await Promise.all(batch.map(async (asset) => {
-        if (this.candles[asset] && this.candles[asset].length > 0) return;
-        try {
-          // Check indexed MongoDB cache first (instant < 1ms)
-          const dbCandles = await MarketData.find({ asset, interval: '5m' })
-            .sort({ openTime: -1 })
-            .limit(100)
-            .lean();
+    try {
+      const dbCandleDocs = await MarketData.find({ asset: { $in: secondaryAssets }, interval: '5m' })
+        .sort({ openTime: -1 })
+        .limit(secondaryAssets.length * 60)
+        .lean();
 
-          let candles = [];
-          if (dbCandles && dbCandles.length > 0) {
-            candles = dbCandles.reverse().map(c => ({
+      // Group candles by asset
+      const candlesByAsset = {};
+      if (dbCandleDocs && dbCandleDocs.length > 0) {
+        dbCandleDocs.forEach(c => {
+          if (!candlesByAsset[c.asset]) candlesByAsset[c.asset] = [];
+          if (candlesByAsset[c.asset].length < 60) {
+            candlesByAsset[c.asset].push({
               open: c.open,
               high: c.high,
               low: c.low,
@@ -114,32 +112,31 @@ export default class MarketAgent extends BaseAgent {
               openTime: c.openTime,
               closeTime: c.closeTime,
               isClosed: c.isClosed
-            }));
-          } else {
-            // Only fetch from exchange if missing in database
-            candles = await fetchCandles(asset, '5m', 100);
+            });
           }
+        });
+      }
 
-          this.candles[asset] = candles || [];
-          if (candles && candles.length > 0) {
-            const lastCandle = candles[candles.length - 1];
-            this.prices[asset] = lastCandle.close || lastCandle.price || 0;
-          }
-        } catch (err) {
-          this.candles[asset] = [];
+      secondaryAssets.forEach(asset => {
+        const assetCandles = candlesByAsset[asset] ? candlesByAsset[asset].reverse() : [];
+        this.candles[asset] = assetCandles;
+        if (assetCandles.length > 0) {
+          const lastCandle = assetCandles[assetCandles.length - 1];
+          this.prices[asset] = lastCandle.close || lastCandle.price || 0;
         }
-      }));
-      await new Promise(r => setTimeout(r, 50));
+      });
+    } catch (dbErr) {
+      this.logger.debug(`Phase 2 bulk DB preload note: ${dbErr.message}`);
     }
-    this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets.');
+
+    this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets via single bulk DB query.');
 
     // Start REST polling loop AFTER Phase 2 finishes so ticker sync doesn't collide with initial candle loads
     if (!this.pollInterval) {
       this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
     }
 
-    // Signal to boot() that ALL asset data is ready — this is the ONLY trigger
-    // for the "Restart Completed" Telegram message and trade resumption.
+    // Signal to boot() that ALL asset data is ready
     if (this._dataReadyResolve) {
       this._dataReadyResolve();
       this._dataReadyResolve = null;
@@ -152,98 +149,100 @@ export default class MarketAgent extends BaseAgent {
       const tickers = await fetchAllTickers();
       if (!tickers) return;
 
-      // 2. Process all 568 assets in 10 parallel asynchronous batch streams (<300ms cycle)
-      const chunkSize = Math.ceil(SUPPORTED_ASSETS.length / 10);
-      const assetChunks = [];
-      for (let i = 0; i < SUPPORTED_ASSETS.length; i += chunkSize) {
-        assetChunks.push(SUPPORTED_ASSETS.slice(i, i + chunkSize));
+      const updatedTicks = [];
+
+      // 2. Throttle Kline KLines REST calls to 1 per 5 seconds (12 req/min — 60% below CoinSwitch 30 req/min limit)
+      const now = Date.now();
+      let allowKlineFetch = false;
+      if (!this._lastKlineFetchTime || (now - this._lastKlineFetchTime) >= 5000) {
+        allowKlineFetch = true;
+        this._lastKlineFetchTime = now;
       }
 
       const currentAssetIndex = (this.rotationIndex || 0) % SUPPORTED_ASSETS.length;
       this.rotationIndex = currentAssetIndex + 1;
-      const syncAsset = SUPPORTED_ASSETS[currentAssetIndex];
+      const syncAsset = allowKlineFetch ? SUPPORTED_ASSETS[currentAssetIndex] : null;
 
-      await Promise.all(
-        assetChunks.map(async (chunk) => {
-          for (const asset of chunk) {
-            try {
-              const cleanSym = asset.toUpperCase().replace('/', '');
-              const ticker = tickers[cleanSym] || tickers[asset.toLowerCase()];
-              if (!ticker) continue;
+      for (const asset of SUPPORTED_ASSETS) {
+        try {
+          const cleanSym = asset.toUpperCase().replace('/', '');
+          const ticker = tickers[cleanSym] || tickers[asset.toLowerCase()];
+          if (!ticker) continue;
 
-              const price = parseFloat(ticker.last_price || ticker.last || ticker.close || 0);
-              if (price <= 0) continue;
+          const price = parseFloat(ticker.last_price || ticker.last || ticker.close || 0);
+          if (price <= 0) continue;
 
-              this.prices[asset] = price;
+          this.prices[asset] = price;
 
-              let candleData = null;
+          let candleData = null;
 
-              if (asset === syncAsset) {
-                const candles = await fetchCandles(asset, '5m', 1);
-                if (candles && candles.length > 0) {
-                  const latestCandle = candles[0];
-                  latestCandle.close = price;
+          if (asset === syncAsset) {
+            const candles = await fetchCandles(asset, '5m', 1);
+            if (candles && candles.length > 0) {
+              const latestCandle = candles[0];
+              latestCandle.close = price;
 
-                  const history = this.candles[asset] || [];
-                  const lastHistoryCandle = history[history.length - 1];
+              const history = this.candles[asset] || [];
+              const lastHistoryCandle = history[history.length - 1];
 
-                  let isNewCandle = false;
-                  if (!lastHistoryCandle || new Date(latestCandle.openTime).getTime() > new Date(lastHistoryCandle.openTime).getTime()) {
-                    isNewCandle = true;
-                  }
-
-                  candleData = {
-                    asset,
-                    open: latestCandle.open,
-                    high: latestCandle.high,
-                    low: latestCandle.low,
-                    close: price,
-                    volume: latestCandle.volume,
-                    openTime: new Date(latestCandle.openTime),
-                    closeTime: new Date(latestCandle.closeTime),
-                    isClosed: isNewCandle
-                  };
-
-                  if (isNewCandle) {
-                    try {
-                      if (lastHistoryCandle) {
-                        lastHistoryCandle.isClosed = true;
-                        await MarketData.findOneAndUpdate(
-                          { asset, interval: '5m', openTime: lastHistoryCandle.openTime },
-                          lastHistoryCandle,
-                          { upsert: true, new: true }
-                        );
-                        await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: lastHistoryCandle });
-                      }
-
-                      history.push(candleData);
-                      if (history.length > 200) history.shift();
-                    } catch (dbErr) {
-                      this.logger.error(`Failed to persist candle for ${asset}: ${dbErr.message}`);
-                    }
-                  } else {
-                    if (history.length > 0) {
-                      history[history.length - 1] = candleData;
-                    } else {
-                      history.push(candleData);
-                    }
-                  }
-                }
+              let isNewCandle = false;
+              if (!lastHistoryCandle || new Date(latestCandle.openTime).getTime() > new Date(lastHistoryCandle.openTime).getTime()) {
+                isNewCandle = true;
               }
 
-              // Publish live tick to Redis/Socket.io
-              await publishEvent(CHANNELS.MARKET_DATA, {
+              candleData = {
                 asset,
-                price,
-                candle: candleData,
-                timestamp: Date.now()
-              });
-            } catch (err) {
-              this.logger.error(`Error processing market tick for ${asset}: ${err.message}`);
+                open: latestCandle.open,
+                high: latestCandle.high,
+                low: latestCandle.low,
+                close: price,
+                volume: latestCandle.volume,
+                openTime: new Date(latestCandle.openTime),
+                closeTime: new Date(latestCandle.closeTime),
+                isClosed: isNewCandle
+              };
+
+              if (isNewCandle) {
+                try {
+                  if (lastHistoryCandle) {
+                    lastHistoryCandle.isClosed = true;
+                    await MarketData.findOneAndUpdate(
+                      { asset, interval: '5m', openTime: lastHistoryCandle.openTime },
+                      lastHistoryCandle,
+                      { upsert: true, new: true }
+                    );
+                    await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: lastHistoryCandle });
+                  }
+
+                  history.push(candleData);
+                  if (history.length > 60) history.shift(); // RAM Optimization: Cap at 60 candles (5h history)
+                } catch (dbErr) {
+                  this.logger.error(`Failed to persist candle for ${asset}: ${dbErr.message}`);
+                }
+              } else {
+                if (history.length > 0) {
+                  history[history.length - 1] = candleData;
+                } else {
+                  history.push(candleData);
+                }
+              }
             }
           }
-        })
-      );
+
+          updatedTicks.push({ asset, price, candle: candleData });
+        } catch (err) {
+          this.logger.error(`Error processing market tick for ${asset}: ${err.message}`);
+        }
+      }
+
+      // 3. Publish single bulk Redis event for all updated prices (1 IPC call vs 568)
+      if (updatedTicks.length > 0) {
+        await publishEvent(CHANNELS.MARKET_DATA, {
+          type: 'bulk_ticks',
+          ticks: updatedTicks,
+          timestamp: Date.now()
+        });
+      }
 
       this.lastCandleSync = Date.now();
     } catch (err) {

@@ -29,6 +29,8 @@ export default class FusionAgent extends BaseAgent {
   }
 
   async execute() {
+    if (!this._calcCache) this._calcCache = {};
+
     for (const asset of SUPPORTED_ASSETS) {
       try {
         const technical = this.technicalAgent.getLastSignal(asset);
@@ -37,22 +39,31 @@ export default class FusionAgent extends BaseAgent {
         const currentPrice = this.marketAgent.getPrice(asset);
 
         if (!technical || !currentPrice) {
-          this.logger.debug(`${asset}: insufficient data for fusion`);
           continue;
         }
+
+        const cacheKey = `${currentPrice}_${technical.timestamp || 0}`;
+        if (this._calcCache[asset] === cacheKey && this.lastSignals[asset]) {
+          continue;
+        }
+
+        this._calcCache[asset] = cacheKey;
 
         const fusedSignal = this.fuseSignals(asset, currentPrice, technical, sentiment, prediction);
         fusedSignal.timestamp = Date.now();
 
-        // Persist all fused signals (including HOLD) to maintain a complete history for all assets
-        const createdSignal = await Signal.create(fusedSignal);
-        this.lastSignals[asset] = createdSignal;
+        this.lastSignals[asset] = fusedSignal;
 
-        await publishEvent(CHANNELS.FUSED_SIGNALS, fusedSignal);
+        // Persist to MongoDB and publish via Redis ONLY if actionable signal (BUY or SELL)
+        if (fusedSignal.action !== ACTIONS.HOLD) {
+          const createdSignal = await Signal.create(fusedSignal);
+          this.lastSignals[asset] = createdSignal;
+          await publishEvent(CHANNELS.FUSED_SIGNALS, fusedSignal);
 
-        this.logger.info(
-          `${asset}: FUSED → ${fusedSignal.action} (confidence=${fusedSignal.confidence.toFixed(2)})`
-        );
+          this.logger.info(
+            `⚡ [FUSION SIGNAL] ${asset}: FUSED → ${fusedSignal.action} (confidence=${fusedSignal.confidence.toFixed(2)})`
+          );
+        }
       } catch (err) {
         this.logger.error(`Fusion error for ${asset}: ${err.message}`);
       }

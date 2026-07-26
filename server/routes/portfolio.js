@@ -140,6 +140,20 @@ router.get('/performance', async (req, res, next) => {
     let totalPnlPercent = portfolio.totalPnlPercent;
     let dailyPnl = portfolio.dailyLossToday;
 
+    let liveTotalBalance = portfolio.totalBalance;
+    let liveAvailableBalance = portfolio.availableBalance;
+
+    if (process.env.TRADING_MODE === 'live') {
+      try {
+        const { fetchBalance } = await import('../services/exchangeService.js');
+        const liveBal = await fetchBalance();
+        if (liveBal && liveBal.USDT) {
+          liveTotalBalance = liveBal.USDT.total;
+          liveAvailableBalance = liveBal.USDT.free;
+        }
+      } catch (bErr) {}
+    }
+
     if (process.env.DASHBOARD_RESET_TIMESTAMP) {
       const resetDate = new Date(process.env.DASHBOARD_RESET_TIMESTAMP);
       const Trade = (await import('../models/Trade.js')).default;
@@ -182,8 +196,8 @@ router.get('/performance', async (req, res, next) => {
     const responsePayload = {
       success: true,
       data: {
-        totalBalance: portfolio.totalBalance,
-        availableBalance: portfolio.availableBalance,
+        totalBalance: liveTotalBalance,
+        availableBalance: liveAvailableBalance,
         totalPnl,
         totalPnlPercent,
         dailyPnl,
