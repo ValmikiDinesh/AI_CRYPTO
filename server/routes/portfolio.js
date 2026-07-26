@@ -428,11 +428,11 @@ const handleUpdateConfig = async (req, res, next) => {
       const telegramMsg = `
 <b>⚙️ System Settings Updated</b>
 
+<b>Dynamic Scalp Target:</b> $${(portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25).toFixed(2)} USDT
+<b>Dynamic Trailing Stop Loss:</b> $${(portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40).toFixed(2)} USDT
 <b>Total Base Capital:</b> $${portfolio.baseTradingCapital?.toFixed(4)} USD
 <b>Sweep Target Profit:</b> ${portfolio.sweepTargetProfitPct}%
 <b>Basket Profit Target:</b> ${portfolio.basketProfitTargetPct}%
-<b>Scalp Target:</b> $${portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25}
-<b>Trailing Stop Loss:</b> $${portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40}
 <b>USD to INR Rate:</b> ₹${portfolio.usdToInrRate || 96.54}
 
 <i>All trading agents and risk parameters have been synchronized with these updated configurations.</i>
