@@ -51,10 +51,9 @@ export default class SupervisorAgent extends BaseAgent {
     // Calculate accuracies based on closed trades winRate
     let winRate = 0.5;
     try {
-      const closedTrades = await Trade.find({ status: 'closed' });
-      const totalClosed = closedTrades.length;
+      const totalClosed = await Trade.countDocuments({ status: 'closed' });
       if (totalClosed > 0) {
-        const winners = closedTrades.filter(t => (t.pnl || 0) > 0).length;
+        const winners = await Trade.countDocuments({ status: 'closed', pnl: { $gt: 0 } });
         winRate = winners / totalClosed;
       }
     } catch (err) {
