@@ -639,11 +639,20 @@ export default class PortfolioAgent extends BaseAgent {
         }
       }
 
-      const totalActualNetPnL = closedResults.reduce((sum, r) => sum + r.netPnl, 0);
+      const totalActualNetPnL = closedResults.reduce((sum, r) => sum + (r.netPnl || 0), 0);
+      const usdToInr = portfolio.usdToInrRate || 96.54;
+      const netPnlInr = totalActualNetPnL * usdToInr;
+
+      const totalBalanceUsdt = portfolio.totalBalance || ((portfolio.baseTradingCapital || 100) + totalActualNetPnL);
+      const totalBalanceInr = totalBalanceUsdt * usdToInr;
 
       await sendTelegramMessage(
-        `🎯 <b>Basket Take-Profit Reached! [+$${totalActualNetPnL.toFixed(2)} Net]</b>\n` +
-        `Total liquid net profit after fees reached $${totalActualNetPnL.toFixed(2)}. Pausing new trades and squared off all ${closedResults.length} liquid positions.`
+        `🎯 <b>BASKET PROFIT TARGET ACHIEVED!</b>\n\n` +
+        `• <b>Closed Positions</b>: ${closedResults.length} trades squared off\n` +
+        `• <b>Net Realized Profit</b>: +$${totalActualNetPnL.toFixed(2)} USDT (+₹${netPnlInr.toFixed(2)} INR)\n` +
+        `• <b>Total Account Balance</b>: $${totalBalanceUsdt.toFixed(2)} USDT (₹${totalBalanceInr.toFixed(2)} INR)\n` +
+        `• <b>Exact Net Amount Received</b>: +$${totalActualNetPnL.toFixed(2)} USDT (+₹${netPnlInr.toFixed(2)} INR)\n\n` +
+        `All active liquid positions have been closed and secured.`
       );
       return;
     }
@@ -1268,14 +1277,18 @@ export default class PortfolioAgent extends BaseAgent {
         
         this.logger.info(`💰 [PROFIT SWEEP] Swept $${excessProfit.toFixed(2)} of excess profit to the secure wallet. New wallet balance: ${portfolio.walletBalance.toFixed(2)}`);
         
+        const usdToInr = portfolio.usdToInrRate || 96.54;
+        const totalNetWorthUsdt = baseCap + excessProfit;
+        const totalNetWorthInr = totalNetWorthUsdt * usdToInr;
+        const excessProfitInr = excessProfit * usdToInr;
+
         await sendTelegramMessage(
-          `🎯 <b>Profit Target Achieved!</b>\n\n` +
-          `• Trigger: ${triggerReason}\n` +
-          `• Net Worth reached: $${(baseCap + excessProfit).toFixed(2)}\n` +
-          `• Swept Profit to Local Vault: $${excessProfit.toFixed(2)}\n` +
-          `• Total Vault Balance: $${portfolio.walletBalance.toFixed(2)}\n` +
-          `• Trading bot has been <b>PAUSED</b> and all liquid positions squared off.\n\n` +
-          `Please restart the bot manually from the dashboard when ready.`
+          `🎯 <b>PROFIT SWEEP TARGET ACHIEVED!</b>\n\n` +
+          `• <b>Liquid Net Worth</b>: $${totalNetWorthUsdt.toFixed(2)} USDT (₹${totalNetWorthInr.toFixed(2)} INR)\n` +
+          `• <b>Exact Profit Swept</b>: +$${excessProfit.toFixed(2)} USDT (+₹${excessProfitInr.toFixed(2)} INR)\n` +
+          `• <b>Total Vault Balance</b>: $${portfolio.walletBalance.toFixed(2)} USDT (₹${(portfolio.walletBalance * usdToInr).toFixed(2)} INR)\n` +
+          `• <b>Status</b>: All positions squared off & trading bot paused.\n\n` +
+          `<i>Resume trading anytime from your dashboard.</i>`
         );
       } else {
         this.logger.warn(`[PROFIT SWEEP] Net worth is not above base capital after closing liquid positions. No sweep performed.`);
