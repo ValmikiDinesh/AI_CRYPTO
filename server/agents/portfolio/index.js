@@ -1561,9 +1561,8 @@ export default class PortfolioAgent extends BaseAgent {
     let reason = '';
 
     // Configured Trailing SL activation threshold (e.g. $0.10 USDT net profit)
+    // Only activates in PROFIT zone — loss protection is handled by static exchange SL
     const trailingStep = portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.10;
-    const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
-    const riskFloorUsd = 0.40; // Max loss floor ($0.40 USDT)
 
     // Trailing SL activates as soon as highestNetPnl reaches trailingStep ($0.10+)
     if (position.highestNetPnl >= trailingStep) {
@@ -1576,10 +1575,8 @@ export default class PortfolioAgent extends BaseAgent {
         shouldClose = true;
         reason = `Trailing Stop-Loss Triggered (Peak $${position.highestNetPnl.toFixed(2)} → Closed @ +$${lockedInFloor.toFixed(2)} Net PnL)`;
       }
-    } else if (netPnl <= -riskFloorUsd) { // Loss Risk Floor ($ USDT)
-      shouldClose = true;
-      reason = `Stop-Loss Risk Floor Triggered (-$${Math.abs(netPnl).toFixed(2)} Net PnL)`;
     }
+    // In negative territory: do NOTHING — let the static exchange SL handle it
 
     if (shouldClose) {
       if (!this._activeExitLocks) this._activeExitLocks = new Set();
