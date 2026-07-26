@@ -460,6 +460,7 @@ const handleUpdateConfig = async (req, res, next) => {
     portfolio.targetProfitThreshold = baseCap * (1 + sweepPct / 100);
 
     await portfolio.save();
+    cachedPortfolioPayload = null; // Invalidate cache so new settings reflect immediately
 
     // Send Telegram notification
     try {
