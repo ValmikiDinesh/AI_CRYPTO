@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { usePortfolioStore, useMarketStore, useCurrencyStore } from '../store.js';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
 import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity, Search, Medal, Skull, AlertCircle, ArrowUpDown } from 'lucide-react';
@@ -10,10 +10,11 @@ const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADA
 const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 'BOMEUSDT', 'PEOPLEUSDT'];
 const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'PORTALUSDT', 'HEIUSDT', 'IDUSDT', 'LABUSDT', 'STGUSDT', 'EPICUSDT', 'RENDERUSDT', 'PENDLEUSDT', 'INJUSDT', 'OPUSDT'];
 
-function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
+function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
   const prices = useMarketStore((s) => s.prices);
   const [openLedgerTab, setOpenLedgerTab] = useState('all');
   const [, setTick] = useState(0);
+  const persistentOpenTradesRef = useRef([]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -22,7 +23,15 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
     return () => clearInterval(timer);
   }, []);
 
-  const filteredOpenTrades = onlyOpenTrades.filter((trade) => {
+  if (onlyOpenTrades && onlyOpenTrades.length > 0) {
+    persistentOpenTradesRef.current = onlyOpenTrades;
+  }
+
+  const activeTradesList = (onlyOpenTrades && onlyOpenTrades.length > 0)
+    ? onlyOpenTrades
+    : persistentOpenTradesRef.current;
+
+  const filteredOpenTrades = activeTradesList.filter((trade) => {
     if (openLedgerTab === 'all') return true;
     if (openLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
     if (openLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
@@ -30,7 +39,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal }) {
     return true;
   });
 
-  if (onlyOpenTrades.length === 0) {
+  if (activeTradesList.length === 0 && (!openPositionsCount || openPositionsCount === 0)) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center h-44">
         <Activity size={20} className="text-zinc-600 mb-2" />
@@ -1314,7 +1323,7 @@ export default function Portfolio() {
           )}
         </div>
       ) : activeTab === 'open' ? (
-        <OpenTradesLedger onlyOpenTrades={onlyOpenTrades} formatVal={formatVal} />
+        <OpenTradesLedger onlyOpenTrades={onlyOpenTrades} formatVal={formatVal} openPositionsCount={portfolio?.openPositions} />
       ) : activeTab === 'closed' ? (
         /* Closed Trades Ledger */
         <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
