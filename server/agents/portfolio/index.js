@@ -108,6 +108,7 @@ export default class PortfolioAgent extends BaseAgent {
         }
 
         // 3. SL/TP trigger order sync (sequential per position, throttled internally)
+        const openPositions = (portfolio.positions || []).filter(p => p && p.status === 'open');
         for (const position of openPositions) {
           if (!this._lastTriggerSync) this._lastTriggerSync = {};
           // Already synced within the last 60s — skip
