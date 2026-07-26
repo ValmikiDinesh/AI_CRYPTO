@@ -89,9 +89,9 @@ export default class MarketAgent extends BaseAgent {
 
     this.logger.info(`🚀 Phase 1 Boot Complete: Loaded priority candles for ${priorityList.length} assets in < 500ms.`);
 
-    // Phase 2: Secondary Assets — Fast, parallel background queue (25 assets per batch, 200ms delay)
+    // Phase 2: Secondary Assets — Balanced parallel background queue (10 assets per batch, 600ms delay)
     const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
-    const BATCH_SIZE = 25;
+    const BATCH_SIZE = 10;
     for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
       const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (asset) => {
@@ -127,7 +127,7 @@ export default class MarketAgent extends BaseAgent {
           this.candles[asset] = [];
         }
       }));
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 600));
     }
     this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets.');
 
