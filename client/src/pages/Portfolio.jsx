@@ -376,7 +376,7 @@ export default function Portfolio() {
   const fetchAllTrades = async () => {
     try {
       const [closedRes, openRes] = await Promise.all([
-        axios.get('/api/trades?status=closed&limit=1000'),
+        axios.get('/api/trades?status=closed&limit=100'),
         axios.get('/api/trades?status=open&limit=200')
       ]);
       let combined = [];

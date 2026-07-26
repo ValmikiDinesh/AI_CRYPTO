@@ -23,7 +23,8 @@ router.get('/', async (req, res, next) => {
     const trades = await Trade.find(filter)
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .lean();
 
     const total = await Trade.countDocuments(filter);
 
