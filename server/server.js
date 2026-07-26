@@ -88,9 +88,10 @@ async function boot() {
     
     // 6. Complete warmup and resume trading
     setSystemWarmingUp(false);
+    const { SUPPORTED_ASSETS } = await import('./config/constants.js');
     await sendTelegramMessage(
       `✅ <b>Server Restart Completed Successfully!</b>\n\n` +
-      `All asset feeds, AI consensus models, and market indicators are fully loaded and operational.\n\n` +
+      `All ${SUPPORTED_ASSETS.length}+ crypto asset feeds, AI consensus models, and market indicators are fully loaded and operational.\n\n` +
       `🚀 <b>New trade execution has RESUMED! System working normally.</b>`
     );
 
