@@ -6,6 +6,7 @@ import { sendTelegramMessage, formatPrice } from '../../services/telegramService
 import Trade from '../../models/Trade.js';
 import Portfolio from '../../models/Portfolio.js';
 import { computeIndicators } from '../../services/indicatorService.js';
+import { getSystemWarmingUp } from '../../config/bootState.js';
 import { 
   getCategoryForAsset, 
   calculateDynamicTrailingPct, 
@@ -262,6 +263,11 @@ export default class ExecutionAgent extends BaseAgent {
 
   async processSignal(signal) {
     const asset = signal.asset;
+
+    if (getSystemWarmingUp()) {
+      this.logger.info(`⏳ [SYSTEM WARMUP COOLDOWN] Server is initializing/warming up asset feeds — skipping new trade signal execution for ${asset}`);
+      return;
+    }
 
     if (this.inFlightAssets.has(asset)) {
       this.logger.debug(`${asset}: Order already in-flight — skipping execution`);

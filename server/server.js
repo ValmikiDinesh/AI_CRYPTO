@@ -54,30 +54,45 @@ app.use('/api/market', marketRoutes);
 
 app.use(errorHandler);
 
+import { setSystemWarmingUp, getSystemWarmingUp } from './config/bootState.js';
+
 // ─── Boot Sequence ───────────────────────────────────────────────
 const PORT = process.env.PORT || 5050;
 
 async function boot() {
   try {
-    // 1. Database
+    // 1. Mark system as warming up and notify Telegram immediately
+    setSystemWarmingUp(true);
+    await sendTelegramMessage(
+      `🔄 <b>Server Restarting / Initializing System...</b>\n\n` +
+      `New trade execution is temporarily <b>PAUSED</b> while all asset feeds, market data, and AI models load.\n\n` +
+      `<i>System is in cooling/preparation period...</i>`
+    );
+
+    // 2. Database
     await connectDB();
     logger.info('✅ MongoDB connected');
 
-    // 2. Socket.io
+    // 3. Socket.io
     initializeSocketServer(server);
     logger.info('✅ Socket.io initialized');
 
-    // 3. Start HTTP server
+    // 4. Start HTTP server
     server.listen(PORT, () => {
       logger.info(`✅ Server running on port ${PORT}`);
     });
 
-    // 4. Initialize AI agents
+    // 5. Initialize AI agents and asset data pipelines
     await bootAgents();
     logger.info('✅ All agents started');
     
-    // Notify Telegram
-    await sendTelegramMessage('🚀 <b>Trading Bot Started!</b>\nAll agent pipelines are active and monitoring open trades.');
+    // 6. Complete warmup and resume trading
+    setSystemWarmingUp(false);
+    await sendTelegramMessage(
+      `✅ <b>Server Restart Completed Successfully!</b>\n\n` +
+      `All asset feeds, AI consensus models, and market indicators are fully loaded and operational.\n\n` +
+      `🚀 <b>New trade execution has RESUMED! System working normally.</b>`
+    );
 
   } catch (err) {
     logger.error(`Boot failed: ${err.message}`);

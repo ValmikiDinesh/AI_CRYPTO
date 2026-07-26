@@ -5,6 +5,7 @@ import { sendTelegramMessage, escapeHtml } from '../../services/telegramService.
 import RiskEvent from '../../models/RiskEvent.js';
 import Portfolio from '../../models/Portfolio.js';
 import Trade from '../../models/Trade.js';
+import { getSystemWarmingUp } from '../../config/bootState.js';
 
 
 /**
@@ -64,12 +65,16 @@ export default class RiskAgent extends BaseAgent {
     }
   }
 
-  /**
    * Validate a proposed trade signal against risk rules.
    * Returns { approved, reason } — the Execution Agent must call this before placing orders.
    */
   async validateTrade(signal, portfolio) {
     const checks = [];
+
+    // 0. System Warmup Cooldown Check
+    if (getSystemWarmingUp()) {
+      return this.reject('Server is restarting / warming up asset feeds — system in cooling period', 'system_warmup_cooldown', signal);
+    }
 
     // 1. Emergency stop check
     if (this.emergencyActive) {
