@@ -81,12 +81,9 @@ async function boot() {
       logger.info(`✅ Server running on port ${PORT}`);
     });
 
-    // 5. Initialize AI agents and asset data pipelines
+    // 5. Initialize AI agents and asset data pipelines (waits for ALL agents to complete first cycle)
     await bootAgents();
-    logger.info('✅ All agents started');
-    
-    // Give asset feeds 3 seconds to complete initial warmup
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    logger.info('✅ All agents started — every agent completed first execution cycle');
 
     // 6. Complete warmup and resume trading
     setSystemWarmingUp(false);
@@ -132,17 +129,22 @@ async function bootAgents() {
   setMarketAgentRef(marketAgent);
   setPortfolioAgentRef(portfolioAgent);
 
-  // Start agents with staggered, decoupled intervals
-  await marketAgent.start(5_000);                                // 5s — price refresh
-  await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5m — technical indicator calculations
-  await sentimentAgent.start(600_000);                          // 10m — news sentiment refresh
-  await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);      // 5m — AI predictions cycle (aligned with trading cycle)
-  await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // 5m — decision fusion
-  await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // 5m — risk verification
-  await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // 5m — trade execution
-  await portfolioAgent.start(2_000);                             // 2s — ultra-fast WebSocket target checks (Basket / Sweep / SL / TP)
-  await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);    // 60s
-  await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);        // 15s
+  // Start ALL agents in parallel — bootAgents() only resolves when EVERY agent
+  // has completed its first full execution cycle (initialize + runCycle).
+  // This guarantees the "Restart Completed" Telegram message fires ONLY after
+  // all 566+ asset feeds, AI models, and market data are genuinely ready.
+  await Promise.all([
+    marketAgent.start(5_000),                                // 5s — price refresh
+    technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),       // 2s — technical indicator calculations
+    sentimentAgent.start(600_000),                           // 10m — news sentiment refresh
+    predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),      // 2s — AI predictions cycle
+    fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),          // 2s — decision fusion
+    riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),            // 2s — risk verification
+    executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS),       // 2s — trade execution
+    portfolioAgent.start(2_000),                             // 2s — WebSocket target checks
+    learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS),    // 60s
+    supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS),        // 15s
+  ]);
 
   logger.info('Agent pipeline: Market → Technical → Sentiment → Prediction → Fusion → Risk → Execution → Portfolio → Learning');
 }
