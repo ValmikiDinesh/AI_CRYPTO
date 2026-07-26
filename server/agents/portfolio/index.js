@@ -136,6 +136,59 @@ export default class PortfolioAgent extends BaseAgent {
             this.logger.debug(`[BG SYNC] syncClosedTrades failed: ${e.message}`);
           }
         }
+
+        // 5. FAST RECONCILIATION: Close DB positions that no longer exist on the exchange
+        if (this._fetchedExchangeSuccessfully && this._cachedExchangePositions) {
+          const exchangeAssets = new Set(
+            this._cachedExchangePositions.map(p => p.symbol ? p.symbol.split(':')[0].replace('/', '').toUpperCase() : '')
+          );
+
+          let portfolioChanged = false;
+          for (const position of openPositions) {
+            if (!position || !position.asset) continue;
+            const cleanAsset = position.asset.replace('/', '').replace('_', '').toUpperCase();
+
+            // Position is open in DB but does NOT exist on CoinSwitch Pro
+            if (!exchangeAssets.has(cleanAsset)) {
+              const positionAgeMs = Date.now() - new Date(position.openedAt || Date.now()).getTime();
+              if (positionAgeMs < 5000) continue; // Too young — might still be placing
+
+              this.logger.warn(`🔄 [BG RECONCILIATION] ${position.asset} is open in DB but NOT on CoinSwitch Pro. Closing immediately.`);
+
+              // Try to get actual close price from exchange trade history
+              let closePrice = position.currentPrice || position.entryPrice || 0;
+              try {
+                const { getExchange } = await import('../../services/exchangeService.js');
+                const exchange = getExchange();
+                const symbol = `${position.asset.replace('USDT', '')}/USDT:USDT`;
+                const trades = await exchange.fetchMyTrades(symbol, undefined, 5);
+                if (trades?.length > 0) {
+                  const lastTrade = trades[trades.length - 1];
+                  if (lastTrade.price && lastTrade.price > 0) {
+                    closePrice = lastTrade.price;
+                  }
+                }
+              } catch (histErr) {
+                this.logger.debug(`[BG RECONCILIATION] Could not fetch fill price for ${position.asset}: ${histErr.message}`);
+              }
+
+              const isLoss = position.side === 'long' ? (closePrice < position.entryPrice) : (closePrice > position.entryPrice);
+              const closeReason = isLoss
+                ? `Native SL / Manual Close on Exchange (${position.side.toUpperCase()} @ $${position.entryPrice} → $${closePrice})`
+                : `Native TP / Manual Close on Exchange (${position.side.toUpperCase()} @ $${position.entryPrice} → $${closePrice})`;
+
+              await this.closePosition(portfolio, position, closePrice, closeReason, true);
+              portfolioChanged = true;
+            }
+          }
+
+          if (portfolioChanged) {
+            this._cachedPortfolio = null;
+            try { await portfolio.save(); } catch (saveErr) {
+              this.logger.debug(`[BG RECONCILIATION] portfolio.save() failed: ${saveErr.message}`);
+            }
+          }
+        }
       }
     } catch (bgErr) {
       this.logger.debug(`[BG SYNC] background sync cycle error: ${bgErr.message}`);
