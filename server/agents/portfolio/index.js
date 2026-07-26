@@ -189,6 +189,77 @@ export default class PortfolioAgent extends BaseAgent {
             }
           }
         }
+
+        // 6. REVERSE RECONCILIATION: Import new exchange positions that don't exist in DB yet
+        if (this._fetchedExchangeSuccessfully && this._cachedExchangePositions && this._cachedExchangePositions.length > 0) {
+          const dbOpenAssets = new Set(
+            (portfolio.positions || []).filter(p => p && p.status === 'open').map(p => p.asset.replace('/', '').replace('_', '').toUpperCase())
+          );
+
+          let imported = false;
+          for (const exchPos of this._cachedExchangePositions) {
+            const asset = exchPos.symbol ? exchPos.symbol.split(':')[0].replace('/', '') : '';
+            if (!asset || (exchPos.contracts || 0) <= 0) continue;
+
+            const cleanAsset = asset.replace('/', '').replace('_', '').toUpperCase();
+            if (dbOpenAssets.has(cleanAsset)) continue; // Already in DB
+
+            this.logger.info(`📥 [BG RECONCILIATION] Found active position for ${asset} on CoinSwitch Pro missing in DB. Importing now!`);
+
+            const side = (exchPos.side || 'long').toLowerCase();
+            const entryPrice = exchPos.entryPrice || exchPos.markPrice || 0;
+            const quantity = exchPos.contracts || exchPos.amount || 0;
+            const leverage = exchPos.leverage || portfolio.defaultLeverage || 5;
+            const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+            const totalFeeEst = entryPrice * quantity * 0.001;
+            const priceDeltaTarget = quantity > 0 ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
+            const priceDeltaRisk = quantity > 0 ? ((0.40 + totalFeeEst) / quantity) : (entryPrice * 0.03);
+
+            const stopLoss = side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk;
+            const takeProfit = side === 'long' ? entryPrice + priceDeltaTarget : Math.max(0.000001, entryPrice - priceDeltaTarget);
+
+            portfolio.positions.push({
+              asset,
+              side,
+              entryPrice,
+              currentPrice: exchPos.markPrice || entryPrice,
+              quantity,
+              leverage,
+              status: 'open',
+              openedAt: new Date(),
+              stopLoss,
+              takeProfit,
+              unrealizedPnl: exchPos.unrealizedPnl || 0
+            });
+
+            try {
+              const existingTrade = await Trade.findOne({ asset, status: 'open' });
+              if (!existingTrade) {
+                await Trade.create({
+                  asset, side, type: 'MARKET', entryPrice, quantity, leverage,
+                  status: 'open', openedAt: new Date(), stopLoss, takeProfit
+                });
+              }
+            } catch (tradeErr) {
+              this.logger.debug(`[BG RECONCILIATION] Could not create Trade record for ${asset}: ${tradeErr.message}`);
+            }
+
+            try {
+              const { coinswitchWs } = await import('../../services/coinswitchWsService.js');
+              coinswitchWs.subscribe(asset);
+            } catch (subErr) {}
+
+            imported = true;
+            dbOpenAssets.add(cleanAsset); // Prevent duplicates within the same sync cycle
+          }
+
+          if (imported) {
+            this._cachedPortfolio = null;
+            try { await portfolio.save(); } catch (saveErr) {
+              this.logger.debug(`[BG RECONCILIATION] portfolio.save() after import failed: ${saveErr.message}`);
+            }
+          }
+        }
       }
     } catch (bgErr) {
       this.logger.debug(`[BG SYNC] background sync cycle error: ${bgErr.message}`);
