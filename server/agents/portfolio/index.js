@@ -928,6 +928,13 @@ export default class PortfolioAgent extends BaseAgent {
     const model = activeTrade?.metadata?.sourceModel || 'none';
     const strategy = model === 'ai_groq' ? 'Groq AI' : model === 'ai_openai' ? 'OpenAI (AI)' : model.includes('ai_') ? 'Google Gemini (AI)' : (model.includes('fallback') || model.includes('statistical')) ? 'Local Statistical (Fallback)' : 'Ensemble';
 
+    const netPnl = position.realizedPnl - totalPositionFees;
+    const isLoss = netPnl < 0;
+
+    if (isLoss && this.riskAgent && typeof this.riskAgent.setLossCooldown === 'function') {
+      this.riskAgent.setLossCooldown(position.asset, 15 * 60 * 1000);
+    }
+
     this.logger.info(
       `Position closed: ${position.asset} ${position.side} — PnL: ${position.realizedPnl.toFixed(2)} — ${reason}`
     );
@@ -943,8 +950,9 @@ export default class PortfolioAgent extends BaseAgent {
       `<b>Quantity</b>: ${position.quantity.toFixed(5)}\n` +
       `<b>Gross Realized PnL</b>: ${position.realizedPnl >= 0 ? '+' : ''}$${position.realizedPnl.toFixed(2)}\n` +
       `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
-      `<b>Net PnL (After Fees)</b>: ${(position.realizedPnl - totalPositionFees) >= 0 ? '+' : ''}$${(position.realizedPnl - totalPositionFees).toFixed(2)}\n` +
-      `<b>Reason</b>: ${escapeHtml(reason)}`
+      `<b>Net PnL (After Fees)</b>: ${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}\n` +
+      `<b>Reason</b>: ${escapeHtml(reason)}` +
+      (isLoss ? `\n\n🧊 <b>15-Min Cooling Period Active</b>: Re-entry for ${position.asset.replace('USDT', '')} paused for 15 minutes due to trade loss.` : '')
     );
 
     await publishEvent(CHANNELS.TRADE_EXECUTIONS, {

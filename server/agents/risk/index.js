@@ -25,6 +25,15 @@ export default class RiskAgent extends BaseAgent {
     this.lastResetDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
     this.emergencyActive = false;
     this.lastAlertTimes = {};
+    this.assetLossCooldowns = new Map();
+  }
+
+  setLossCooldown(asset, durationMs = 15 * 60 * 1000) {
+    if (!asset) return;
+    const cleanAsset = asset.replace('/', '').replace(':USDT', '').toUpperCase();
+    const expiry = Date.now() + durationMs;
+    this.assetLossCooldowns.set(cleanAsset, expiry);
+    this.logger.info(`🧊 [LOSS COOLING PERIOD] ${cleanAsset} set to 15-minute cooling period until ${new Date(expiry).toISOString()}`);
   }
 
   async initialize() {
@@ -77,9 +86,54 @@ export default class RiskAgent extends BaseAgent {
       return this.reject('Server is restarting / warming up asset feeds — system in cooling period', 'system_warmup_cooldown', signal);
     }
 
-    // 1. Emergency stop check
+    // 0. Emergency stop check
     if (this.emergencyActive) {
       return this.reject('Emergency stop is active — all trading halted', 'emergency_shutdown', signal);
+    }
+
+    // 0.6. 15-Minute Asset Loss Cooldown Check
+    const cleanAsset = signal.asset ? signal.asset.replace('/', '').replace(':USDT', '').toUpperCase() : '';
+    const now = Date.now();
+    const FIFTEEN_MIN_MS = 15 * 60 * 1000;
+
+    // Check fast in-memory map
+    const cooloffExpiry = this.assetLossCooldowns.get(cleanAsset);
+    if (cooloffExpiry && now < cooloffExpiry) {
+      const minutesLeft = Math.ceil((cooloffExpiry - now) / 60000);
+      return this.reject(
+        `Asset ${cleanAsset} is in a 15-minute cooling period after a recent trade closed in loss (${minutesLeft}m remaining)`,
+        'asset_loss_cooldown',
+        signal
+      );
+    }
+
+    // Fallback DB check for trades closed in loss within 15 mins (persists across restarts)
+    try {
+      const fifteenMinAgo = new Date(now - FIFTEEN_MIN_MS);
+      const recentLossTrade = await Trade.findOne({
+        asset: { $in: [cleanAsset, `${cleanAsset}USDT`, signal.asset] },
+        status: 'closed',
+        closedAt: { $gte: fifteenMinAgo },
+      }).sort({ closedAt: -1 }).lean();
+
+      if (recentLossTrade) {
+        const netPnl = (recentLossTrade.pnl || 0) - (recentLossTrade.fees || 0);
+        if (netPnl < 0) {
+          const closedTime = new Date(recentLossTrade.closedAt).getTime();
+          const remainingMs = (closedTime + FIFTEEN_MIN_MS) - now;
+          if (remainingMs > 0) {
+            this.assetLossCooldowns.set(cleanAsset, closedTime + FIFTEEN_MIN_MS);
+            const minutesLeft = Math.ceil(remainingMs / 60000);
+            return this.reject(
+              `Asset ${cleanAsset} is in a 15-minute cooling period after a trade closed in loss (-$${Math.abs(netPnl).toFixed(2)}, ${minutesLeft}m remaining)`,
+              'asset_loss_cooldown',
+              signal
+            );
+          }
+        }
+      }
+    } catch (dbErr) {
+      this.logger.warn(`Could not verify DB loss cooldown for ${cleanAsset}: ${dbErr.message}`);
     }
 
     // 1.5. Basket square-off check
