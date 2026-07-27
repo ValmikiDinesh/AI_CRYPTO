@@ -536,7 +536,14 @@ export default class PortfolioAgent extends BaseAgent {
       for (const pos of portfolio.positions) {
         if (pos && pos.status === 'open') {
           const cleanAsset = pos.asset ? pos.asset.replace('/', '').replace('_', '').toUpperCase() : '';
-          if (!activeExchangeAssetSet.has(cleanAsset)) {
+
+          if (activeExchangeAssetSet.has(cleanAsset)) {
+            // Guarantee that Trade document in DB remains status: 'open' as long as position is active on CoinSwitch
+            Trade.updateMany(
+              { asset: pos.asset, status: 'closed', exchangeOrderId: pos.exchangeOrderId },
+              { $set: { status: 'open' }, $unset: { closedAt: '', exitPrice: '', pnl: '', pnlPercent: '' } }
+            ).catch(() => {});
+          } else {
             // Verify if there is a confirmed reduceOnly exit order on exchange before closing
             (async () => {
               try {
