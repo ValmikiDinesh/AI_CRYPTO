@@ -328,6 +328,25 @@ class CoinSwitchExchange {
     }
 
     const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
+
+    // Fast path: Public Binance Futures API (10ms, zero auth, zero retry delay)
+    try {
+      const limitParam = limit || 100;
+      const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 3000 });
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const result = res.data.map(c => [
+          parseFloat(c[0]), // openTime
+          parseFloat(c[1]), // open
+          parseFloat(c[2]), // high
+          parseFloat(c[3]), // low
+          parseFloat(c[4]), // close
+          parseFloat(c[5])  // volume
+        ]);
+        this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
+        return result;
+      }
+    } catch (binanceErr) {}
+
     try {
       const path = `/futures/klines?symbol=${cleanSym}&interval=${cleanInterval}&limit=${limit}&exchange=EXCHANGE_2`;
       const res = await this._requestWithRetry('GET', path);
@@ -346,28 +365,9 @@ class CoinSwitchExchange {
       }
       throw new Error('Invalid CoinSwitch response structure');
     } catch (err) {
-      // Fallback: Fetch from public Binance Futures API
-      try {
-        const limitParam = limit || 100;
-        const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`);
-        if (res.data && Array.isArray(res.data)) {
-          const result = res.data.map(c => [
-            parseFloat(c[0]), // openTime
-            parseFloat(c[1]), // open
-            parseFloat(c[2]), // high
-            parseFloat(c[3]), // low
-            parseFloat(c[4]), // close
-            parseFloat(c[5])  // volume
-          ]);
-          this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
-          return result;
-        }
-        throw new Error('Invalid Binance response structure');
-      } catch (binanceErr) {
-        if (this.ohlcvCache[cacheKey]) return this.ohlcvCache[cacheKey].data;
-        logger.error(`fetchOHLCV fallback error for ${symbol}: ${binanceErr.message}`);
-        return [];
-      }
+      if (this.ohlcvCache[cacheKey]) return this.ohlcvCache[cacheKey].data;
+      logger.error(`fetchOHLCV error for ${symbol}: ${err.message}`);
+      return [];
     }
   }
 
