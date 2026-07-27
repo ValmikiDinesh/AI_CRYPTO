@@ -429,7 +429,14 @@ export default class PortfolioAgent extends BaseAgent {
         const asset = p.symbol ? p.symbol.split(':')[0].replace('/', '') : '';
         if (!asset || p.contracts <= 0) continue;
 
-        const existingInDb = portfolio.positions.find((pos) => pos && pos.asset === asset && pos.status === 'open');
+        let existingInDb = portfolio.positions.find((pos) => pos && pos.asset === asset && pos.status === 'open');
+        if (existingInDb && (!existingInDb.exchangeOrderId || existingInDb.exchangeOrderId === '—')) {
+          const tRecord = await Trade.findOne({ asset: existingInDb.asset }).sort({ createdAt: -1 });
+          if (tRecord && tRecord.exchangeOrderId) {
+            existingInDb.exchangeOrderId = tRecord.exchangeOrderId;
+          }
+        }
+
         if (!existingInDb) {
           this.logger.info(`📥 [RECONCILIATION] Found active position for ${asset} on CoinSwitch Pro missing in local DB. Importing immediately!`);
 
@@ -445,6 +452,9 @@ export default class PortfolioAgent extends BaseAgent {
           const stopLoss = side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk;
           const takeProfit = side === 'long' ? entryPrice + priceDeltaTarget : Math.max(0.000001, entryPrice - priceDeltaTarget);
 
+          const tRecord = await Trade.findOne({ asset }).sort({ createdAt: -1 });
+          const foundOrderId = p.id || p.orderId || tRecord?.exchangeOrderId || null;
+
           portfolio.positions.push({
             asset,
             side,
@@ -456,7 +466,8 @@ export default class PortfolioAgent extends BaseAgent {
             openedAt: new Date(),
             stopLoss,
             takeProfit,
-            unrealizedPnl: p.unrealizedPnl || 0
+            unrealizedPnl: p.unrealizedPnl || 0,
+            exchangeOrderId: foundOrderId
           });
 
           try {

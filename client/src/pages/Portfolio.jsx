@@ -107,21 +107,21 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
-            <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
-              <th className="px-6 py-4">Execution Date</th>
-              <th className="px-6 py-4">Order ID</th>
-              <th className="px-6 py-4">Asset</th>
-              <th className="px-6 py-4">Action</th>
-              <th className="px-6 py-4 text-right">Entry Price</th>
-              <th className="px-6 py-4 text-right">Current Price</th>
-              <th className="px-6 py-4 text-right">Stop Loss</th>
-              <th className="px-6 py-4 text-right">Target</th>
-              <th className="px-6 py-4 text-right">Quantity</th>
-              <th className="px-6 py-4 text-right">Commission</th>
-              <th className="px-6 py-4 text-right">PnL (Net)</th>
+            <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono whitespace-nowrap">
+              <th className="px-4 py-3">Execution Date</th>
+              <th className="px-4 py-3">Order ID</th>
+              <th className="px-4 py-3">Asset</th>
+              <th className="px-4 py-3">Action</th>
+              <th className="px-4 py-3 text-right">Entry Price</th>
+              <th className="px-4 py-3 text-right">Current Price</th>
+              <th className="px-4 py-3 text-right">Stop Loss</th>
+              <th className="px-4 py-3 text-right">Target</th>
+              <th className="px-4 py-3 text-right">Quantity</th>
+              <th className="px-4 py-3 text-right">Commission</th>
+              <th className="px-4 py-3 text-right">PnL (Net)</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#2c2c2e]/40">
+          <tbody className="divide-y divide-[#2c2c2e]/40 whitespace-nowrap">
             {filteredOpenTrades.map((trade, i) => {
               const price = trade.entryPrice;
               const currentPrice = (trade.currentPrice && trade.currentPrice > 0)
@@ -136,27 +136,28 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
               const grossPnl = currentPrice ? (isLong ? (currentPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - currentPrice) * trade.quantity) : 0;
               const netPnl = currentPrice ? grossPnl - fees : 0;
 
-              const orderId = trade.exchangeOrderId || trade.stopLossOrderId || trade.orderId;
+              const rawOrderId = trade.exchangeOrderId || trade.stopLossOrderId || trade.orderId;
+              const cleanOrderId = (rawOrderId && rawOrderId !== '—') ? rawOrderId : null;
 
               return (
                 <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                  <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
+                  <td className="px-4 py-3 text-zinc-500 font-mono text-[10px]">
                     {new Date(trade.openedAt || trade.createdAt || Date.now()).toLocaleString()}
                   </td>
-                  <td className="px-6 py-4 font-mono text-[9px]">
-                    {orderId ? (
-                      <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/80 text-zinc-300 font-mono" title={orderId}>
-                        {orderId.length > 14 ? `${orderId.slice(0, 10)}...` : orderId}
+                  <td className="px-4 py-3 font-mono text-[9px]">
+                    {cleanOrderId ? (
+                      <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm" title={cleanOrderId}>
+                        #{cleanOrderId.length > 5 ? cleanOrderId.slice(-5) : cleanOrderId}
                       </span>
                     ) : (
                       <span className="text-zinc-600 font-mono">—</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
+                  <td className="px-4 py-3 font-bold text-[#f5f5f7] font-mono">
                     {trade.asset?.replace('1000', '').replace('USDT', '')}
                   </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
                       trade.action === 'BUY'
                         ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
                         : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
@@ -164,32 +165,32 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
                       {trade.action}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
+                  <td className="px-4 py-3 text-right text-[#f5f5f7] font-mono font-bold">
                     {price ? `$${price.toFixed(6)}` : '—'}
                   </td>
-                  <td className="px-6 py-4 text-right text-sky-400 font-mono font-bold">
+                  <td className="px-4 py-3 text-right text-sky-400 font-mono font-bold">
                     {currentPrice ? `$${currentPrice.toFixed(6)}` : '—'}
                   </td>
-                  <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
+                  <td className="px-4 py-3 text-right text-[#ff453a] font-mono font-bold">
                     {(() => {
                       const sl = trade.stopLoss;
                       return sl ? (sl >= 1 ? `$${sl.toFixed(2)}` : `$${sl.toFixed(6)}`) : '—';
                     })()}
                   </td>
-                  <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
+                  <td className="px-4 py-3 text-right text-[#30d158] font-mono font-bold">
                     {(() => {
                       const tp = trade.takeProfit;
                       return tp ? (tp >= 1 ? `$${tp.toFixed(2)}` : `$${tp.toFixed(6)}`) : '—';
                     })()}
                   </td>
-                  <td className="px-6 py-4 text-right text-[#86868b] font-mono">
+                  <td className="px-4 py-3 text-right text-[#86868b] font-mono">
                     {trade.quantity?.toFixed(5) || '—'}
                   </td>
-                  <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+                  <td className="px-4 py-3 text-right text-[#ff9f0a] font-mono font-bold">
                     ${fees.toFixed(4)}
                   </td>
                   <td 
-                    className="px-6 py-4 text-right font-bold font-mono"
+                    className="px-4 py-3 text-right font-bold font-mono"
                     style={{ color: currentPrice ? (netPnl >= 0 ? '#30d158' : '#ff453a') : '#86868b' }}
                   >
                     {currentPrice ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : 'WAITING'}
@@ -1425,29 +1426,30 @@ export default function Portfolio() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
-                      <th className="px-6 py-4">Timeline (Open / Exit)</th>
-                      <th className="px-6 py-4">Order ID</th>
-                      <th className="px-6 py-4">Asset</th>
-                      <th className="px-6 py-4">Action</th>
-                      <th className="px-6 py-4 text-right">Entry Price</th>
-                      <th className="px-6 py-4 text-right">Stop Loss</th>
-                      <th className="px-6 py-4 text-right">Target</th>
-                      <th className="px-6 py-4 text-right">Exit Price</th>
-                      <th className="px-6 py-4 text-right">Quantity</th>
-                      <th className="px-6 py-4 text-right">Commission</th>
-                      <th className="px-6 py-4 text-right">Realized Return</th>
-                      <th className="px-6 py-4 text-right">Net Return</th>
+                    <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono whitespace-nowrap">
+                      <th className="px-4 py-3">Timeline (Open / Exit)</th>
+                      <th className="px-4 py-3">Order ID</th>
+                      <th className="px-4 py-3">Asset</th>
+                      <th className="px-4 py-3">Action</th>
+                      <th className="px-4 py-3 text-right">Entry Price</th>
+                      <th className="px-4 py-3 text-right">Stop Loss</th>
+                      <th className="px-4 py-3 text-right">Target</th>
+                      <th className="px-4 py-3 text-right">Exit Price</th>
+                      <th className="px-4 py-3 text-right">Quantity</th>
+                      <th className="px-4 py-3 text-right">Commission</th>
+                      <th className="px-4 py-3 text-right">Realized Return</th>
+                      <th className="px-4 py-3 text-right">Net Return</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#2c2c2e]/40">
+                  <tbody className="divide-y divide-[#2c2c2e]/40 whitespace-nowrap">
                     {filteredClosedTrades.map((trade, i) => {
                       const price = trade.entryPrice;
                       const exit = trade.exitPrice;
-                      const orderId = trade.exchangeOrderId || trade.stopLossOrderId || trade.orderId;
+                      const rawOrderId = trade.exchangeOrderId || trade.stopLossOrderId || trade.orderId;
+                      const cleanOrderId = (rawOrderId && rawOrderId !== '—') ? rawOrderId : null;
                       return (
                         <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                          <td className="px-6 py-4 text-zinc-500 font-mono text-[10px] leading-relaxed">
+                          <td className="px-4 py-3 text-zinc-500 font-mono text-[10px] leading-relaxed">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Open</span>
                               <span>{new Date(trade.createdAt).toLocaleString()}</span>
@@ -1457,10 +1459,10 @@ export default function Portfolio() {
                               <span>{trade.closedAt ? new Date(trade.closedAt).toLocaleString() : new Date(trade.updatedAt).toLocaleString()}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 font-mono text-[9px]">
-                            {orderId ? (
-                              <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/80 text-zinc-300 font-mono" title={orderId}>
-                                {orderId.length > 14 ? `${orderId.slice(0, 10)}...` : orderId}
+                          <td className="px-4 py-3 font-mono text-[9px]">
+                            {cleanOrderId ? (
+                              <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm" title={cleanOrderId}>
+                                #{cleanOrderId.length > 5 ? cleanOrderId.slice(-5) : cleanOrderId}
                               </span>
                             ) : (
                               <span className="text-zinc-600 font-mono">—</span>
