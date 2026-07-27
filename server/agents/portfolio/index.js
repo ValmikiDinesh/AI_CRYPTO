@@ -515,7 +515,6 @@ export default class PortfolioAgent extends BaseAgent {
             this.logger.warn(`🧹 [STRICT COINSWITCH SYNC] Position for ${pos.asset} is NOT active on CoinSwitch Pro. Marking closed in local DB.`);
             pos.status = 'closed';
             pos.closedAt = new Date();
-            Trade.updateMany({ asset: pos.asset, status: 'open' }, { status: 'closed', closedAt: new Date() }).catch(() => {});
           }
         }
       }
@@ -1553,7 +1552,7 @@ export default class PortfolioAgent extends BaseAgent {
       if (exchange.isDemo) return;
 
       const closedOrders = await exchange.fetchClosedOrders(undefined, undefined, 50);
-      const executedOrders = (closedOrders || []).filter(o => o.status === 'closed' && o.filled > 0);
+      const executedOrders = (closedOrders || []).filter(o => o.status === 'closed' && o.filled > 0 && (o.reduceOnly === true || o.info?.reduce_only === true));
 
       for (const order of executedOrders) {
         const asset = order.symbol.split(':')[0].replace('/', '').toUpperCase();
