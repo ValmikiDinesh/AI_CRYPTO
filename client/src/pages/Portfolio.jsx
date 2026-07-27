@@ -698,15 +698,15 @@ export default function Portfolio() {
       }));
   })();
 
-  const displayRealizedReturn = dateFilter === 'all' 
-    ? (portfolio.totalPnl || 0) 
-    : dateFilteredClosed.reduce((sum, t) => sum + ((t.pnl || 0) - (t.fees || 0)), 0);
+  const closedNetTotal = dateFilteredClosed.reduce((sum, t) => sum + ((t.pnl || 0) - (t.fees || 0)), 0);
 
-  const displayWinRate = dateFilter === 'all'
-    ? (portfolio.winRate || 0) * 100
-    : (dateFilteredClosed.length > 0
-        ? (dateFilteredClosed.filter(t => (t.pnl || 0) - (t.fees || 0) >= 0).length / dateFilteredClosed.length) * 100
-        : 0);
+  const displayRealizedReturn = dateFilteredClosed.length > 0 
+    ? closedNetTotal 
+    : (portfolio.totalPnl || 0);
+
+  const displayWinRate = dateFilteredClosed.length > 0
+    ? ((dateFilteredClosed.filter(t => (t.pnl || 0) - (t.fees || 0) >= 0).length / dateFilteredClosed.length) * 100)
+    : (portfolio.winRate ? portfolio.winRate * 100 : 0);
 
   const uniqueOpenAssetsCount = new Set(onlyOpenTrades.map(t => t.asset)).size;
   const displayOpenExposure = onlyOpenTrades.length > 0
