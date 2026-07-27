@@ -270,21 +270,20 @@ export default class MarketAgent extends BaseAgent {
   /** Expose current prices for other agents with multi-layer fallback. */
   getPrice(asset) {
     if (!asset) return 0;
-    if (this.prices[asset] && this.prices[asset] > 0) {
-      return this.prices[asset];
-    }
-    if (coinswitchWs && coinswitchWs.latestPrices && coinswitchWs.latestPrices[asset] > 0) {
-      return coinswitchWs.latestPrices[asset];
-    }
     const cleanAsset = asset.replace('/', '').replace(':USDT', '').toUpperCase();
-    if (cleanAsset && coinswitchWs && coinswitchWs.latestPrices && coinswitchWs.latestPrices[cleanAsset] > 0) {
-      return coinswitchWs.latestPrices[cleanAsset];
+    if (this.prices[asset] && this.prices[asset] > 0) return this.prices[asset];
+    if (cleanAsset && this.prices[cleanAsset] && this.prices[cleanAsset] > 0) return this.prices[cleanAsset];
+    if (coinswitchWs && coinswitchWs.latestPrices) {
+      if (coinswitchWs.latestPrices[asset] > 0) return coinswitchWs.latestPrices[asset];
+      if (cleanAsset && coinswitchWs.latestPrices[cleanAsset] > 0) return coinswitchWs.latestPrices[cleanAsset];
     }
     if (this.candles[asset] && this.candles[asset].length > 0) {
       const lastCandle = this.candles[asset][this.candles[asset].length - 1];
-      if (lastCandle && lastCandle.close > 0) {
-        return lastCandle.close;
-      }
+      if (lastCandle && lastCandle.close > 0) return lastCandle.close;
+    }
+    if (cleanAsset && this.candles[cleanAsset] && this.candles[cleanAsset].length > 0) {
+      const lastCandle = this.candles[cleanAsset][this.candles[cleanAsset].length - 1];
+      if (lastCandle && lastCandle.close > 0) return lastCandle.close;
     }
     return 0;
   }

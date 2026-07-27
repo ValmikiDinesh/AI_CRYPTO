@@ -1620,20 +1620,33 @@ export default class PortfolioAgent extends BaseAgent {
     let shouldClose = false;
     let reason = '';
 
-    // Configured Trailing SL activation threshold (e.g. $0.10 USDT net profit)
-    // Only activates in PROFIT zone — loss protection is handled by static exchange SL
-    const trailingStep = portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.10;
+    const minNetTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
 
-    // Trailing SL activates as soon as highestNetPnl reaches trailingStep ($0.10+)
-    if (position.highestNetPnl >= trailingStep) {
-      // Locked floor starts at trailingStep ($0.10) and trails upward with highestNetPnl
-      // Offset formula: locks at highestNetPnl - (trailingStep * 0.5), but NEVER drops below initial trailingStep ($0.10)
-      const offset = trailingStep * 0.5;
-      const lockedInFloor = Math.max(trailingStep, position.highestNetPnl - offset);
+    // 1. Direct Take-Profit Target Trigger (Sub-50ms WebSocket Execution)
+    if (side === 'long' && position.takeProfit && currentPrice >= position.takeProfit) {
+      shouldClose = true;
+      reason = `Take-Profit Target Triggered ($${currentPrice} >= $${position.takeProfit.toFixed(4)} target — +$${netPnl.toFixed(2)} Net PnL)`;
+    } else if (side === 'short' && position.takeProfit && currentPrice <= position.takeProfit) {
+      shouldClose = true;
+      reason = `Take-Profit Target Triggered ($${currentPrice} <= $${position.takeProfit.toFixed(4)} target — +$${netPnl.toFixed(2)} Net PnL)`;
+    }
+    // 2. Direct Net Scalp Profit Floor Target Trigger ($0.25+ Net Profit Guaranteed)
+    else if (netPnl >= minNetTarget) {
+      shouldClose = true;
+      reason = `Net Scalp Profit Target Triggered (+$${netPnl.toFixed(2)} Net PnL >= +$${minNetTarget.toFixed(2)} floor target)`;
+    }
 
-      if (netPnl <= lockedInFloor) {
-        shouldClose = true;
-        reason = `Trailing Stop-Loss Triggered (Peak $${position.highestNetPnl.toFixed(2)} → Closed @ +$${lockedInFloor.toFixed(2)} Net PnL)`;
+    // 3. Trailing Stop-Loss Trigger (Activates at $0.10+ Net Profit)
+    if (!shouldClose) {
+      const trailingStep = portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.10;
+      if (position.highestNetPnl >= trailingStep) {
+        const offset = trailingStep * 0.5;
+        const lockedInFloor = Math.max(trailingStep, position.highestNetPnl - offset);
+
+        if (netPnl <= lockedInFloor) {
+          shouldClose = true;
+          reason = `Trailing Stop-Loss Triggered (Peak $${position.highestNetPnl.toFixed(2)} → Closed @ +$${lockedInFloor.toFixed(2)} Net PnL)`;
+        }
       }
     }
     // In negative territory: do NOTHING — let the static exchange SL handle it
