@@ -512,11 +512,7 @@ export default class PortfolioAgent extends BaseAgent {
         if (pos && pos.status === 'open') {
           const cleanAsset = pos.asset ? pos.asset.replace('/', '').replace('_', '').toUpperCase() : '';
           if (!activeExchangeAssetSet.has(cleanAsset)) {
-            this.logger.warn(`🧹 [STRICT COINSWITCH SYNC] Position for ${pos.asset} is NOT active on CoinSwitch Pro. Fetching closed fill receipt...`);
-            pos.status = 'closed';
-            pos.closedAt = new Date();
-
-            // Fetch exact closed fill receipt from CoinSwitch Pro exchange
+            // Verify if there is a confirmed reduceOnly exit order on exchange before closing
             (async () => {
               try {
                 const { getExchange } = await import('../../services/exchangeService.js');
@@ -525,6 +521,10 @@ export default class PortfolioAgent extends BaseAgent {
                 const fillOrder = (closedOrders || []).find(o => (o.status === 'closed' || o.raw?.status === 'EXECUTED') && o.filled > 0 && (o.reduceOnly === true || o.raw?.reduce_only === true));
                 
                 if (fillOrder) {
+                  this.logger.warn(`🧹 [STRICT COINSWITCH SYNC] Position for ${pos.asset} closed on CoinSwitch Pro. Syncing fill receipt...`);
+                  pos.status = 'closed';
+                  pos.closedAt = new Date(fillOrder.timestamp || Date.now());
+
                   const exitPrice = parseFloat(fillOrder.price || fillOrder.raw?.avg_execution_price || pos.currentPrice);
                   const realizedPnl = parseFloat(fillOrder.realisedPnl || fillOrder.raw?.realised_pnl || 0);
                   const feeInUsdt = parseFloat(fillOrder.executionFee || fillOrder.raw?.execution_fee || 0) / 96.54;
@@ -545,6 +545,8 @@ export default class PortfolioAgent extends BaseAgent {
                     },
                     { sort: { createdAt: -1 } }
                   );
+                } else {
+                  this.logger.info(`ℹ️ [STRICT COINSWITCH SYNC] No exit order found for ${pos.asset}. Keeping position open in DB.`);
                 }
               } catch (syncErr) {
                 this.logger.error(`Error syncing closed fill receipt for ${pos.asset}: ${syncErr.message}`);
