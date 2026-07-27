@@ -147,7 +147,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
                   <td className="px-4 py-3 font-mono text-[9px]">
                     {cleanOrderId ? (
                       <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm" title={cleanOrderId}>
-                        #{cleanOrderId.length > 5 ? cleanOrderId.slice(-5) : cleanOrderId}
+                        {formatCoinSwitchOrderId(cleanOrderId)}
                       </span>
                     ) : (
                       <span className="text-zinc-600 font-mono">—</span>
@@ -1462,7 +1462,7 @@ export default function Portfolio() {
                           <td className="px-4 py-3 font-mono text-[9px]">
                             {cleanOrderId ? (
                               <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm" title={cleanOrderId}>
-                                #{cleanOrderId.length > 5 ? cleanOrderId.slice(-5) : cleanOrderId}
+                                {formatCoinSwitchOrderId(cleanOrderId)}
                               </span>
                             ) : (
                               <span className="text-zinc-600 font-mono">—</span>
