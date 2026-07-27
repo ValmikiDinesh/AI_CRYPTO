@@ -8,7 +8,17 @@ const COLORS = ['#0071e3', '#ff9f0a', '#30d158', '#ff453a', '#bf5af2'];
 
 const CORE_ASSETS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'LINKUSDT'];
 const MEME_ASSETS = ['DOGEUSDT', '1000SHIBUSDT', '1000PEPEUSDT', 'WIFUSDT', '1000FLOKIUSDT', '1000BONKUSDT', 'BOMEUSDT', 'PEOPLEUSDT'];
-const RECOMMENDED_ASSETS = ['AVAXUSDT', 'DOTUSDT', 'POLUSDT', 'LTCUSDT', 'PORTALUSDT', 'HEIUSDT', 'IDUSDT', 'LABUSDT', 'STGUSDT', 'EPICUSDT', 'RENDERUSDT', 'PENDLEUSDT', 'INJUSDT', 'OPUSDT'];
+const formatCoinSwitchOrderId = (orderId) => {
+  if (!orderId || orderId === '—') return '—';
+  if (orderId.includes('-')) {
+    const parts = orderId.split('-');
+    const lastPart = parts[parts.length - 1];
+    if (lastPart && lastPart.length >= 6) {
+      return '#' + lastPart.slice(0, 6);
+    }
+  }
+  return '#' + (orderId.length > 6 ? orderId.slice(0, 6) : orderId);
+};
 
 function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
   const prices = useMarketStore((s) => s.prices);
