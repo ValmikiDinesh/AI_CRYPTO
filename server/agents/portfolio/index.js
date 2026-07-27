@@ -483,7 +483,27 @@ export default class PortfolioAgent extends BaseAgent {
       }
     }
 
-    // 3. Position Deduplication & Binance-to-Database Sync
+    // 3. Strict 1-to-1 CoinSwitch Pro Exchange Sync & Ghost Position Purge
+    if (fetchedExchangeSuccessfully) {
+      const activeExchangeAssetSet = new Set(
+        activeExchangePositions
+          .filter(p => p && (p.contracts > 0 || p.amount > 0))
+          .map(p => p.symbol ? p.symbol.split(':')[0].replace('/', '').replace('_', '').toUpperCase() : '')
+      );
+
+      for (const pos of portfolio.positions) {
+        if (pos && pos.status === 'open') {
+          const cleanAsset = pos.asset ? pos.asset.replace('/', '').replace('_', '').toUpperCase() : '';
+          if (!activeExchangeAssetSet.has(cleanAsset)) {
+            this.logger.warn(`🧹 [STRICT COINSWITCH SYNC] Position for ${pos.asset} is NOT active on CoinSwitch Pro. Marking closed in local DB.`);
+            pos.status = 'closed';
+            pos.closedAt = new Date();
+            Trade.updateMany({ asset: pos.asset, status: 'open' }, { status: 'closed', closedAt: new Date() }).catch(() => {});
+          }
+        }
+      }
+    }
+
     const seenOpenAssets = new Set();
     for (let i = portfolio.positions.length - 1; i >= 0; i--) {
       const pos = portfolio.positions[i];
