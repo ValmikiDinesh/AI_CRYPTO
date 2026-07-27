@@ -72,9 +72,9 @@ export default class PortfolioAgent extends BaseAgent {
       this.logger.warn(`Failed to link WebSocket price stream to PortfolioAgent: ${wsErr.message}`);
     }
 
-    // Kick off the fast background exchange sync loop (runs every 2.5s, fully non-blocking)
+    // Kick off the fast background exchange sync loop (runs every 1.5s, fully non-blocking)
     this._runBackgroundSync();
-    this._bgSyncInterval = setInterval(() => this._runBackgroundSync(), 2500);
+    this._bgSyncInterval = setInterval(() => this._runBackgroundSync(), 1500);
   }
 
   /** Fire-and-forget background sync: runs exchange API calls outside the main 2s cycle */
@@ -110,6 +110,12 @@ export default class PortfolioAgent extends BaseAgent {
         // 3. SL/TP trigger order sync (sequential per position, throttled internally)
         const openPositions = (portfolio.positions || []).filter(p => p && p.status === 'open');
         for (const position of openPositions) {
+          // Dual Protection: evaluate exit on every background tick using latest price
+          const curPrice = this.marketAgent.getPrice(position.asset) || position.currentPrice;
+          if (curPrice && curPrice > 0) {
+            this.evaluateRealtimeExit(position.asset, curPrice);
+          }
+
           if (!this._lastTriggerSync) this._lastTriggerSync = {};
           // Already synced within the last 60s — skip
           if (Date.now() - (this._lastTriggerSync[position.asset] || 0) < 60000) continue;
