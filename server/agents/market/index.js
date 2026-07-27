@@ -91,7 +91,7 @@ export default class MarketAgent extends BaseAgent {
 
     // Phase 2: Secondary Assets (Meme Coins + Recommended Coins) — Staggered REST Preload for ALL 568 coins
     const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
-    const BATCH_SIZE = 25;
+    const BATCH_SIZE = 15;
     
     for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
       const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
@@ -108,7 +108,7 @@ export default class MarketAgent extends BaseAgent {
           }
         } catch (err) {}
       }));
-      await new Promise(r => setTimeout(r, 30));
+      await new Promise(r => setTimeout(r, 120));
     }
 
     this.logger.info(`✅ Phase 2 Complete: Preloaded 30 candles for all ${SUPPORTED_ASSETS.length} supported coins.`);
