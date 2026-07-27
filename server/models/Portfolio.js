@@ -12,6 +12,7 @@ const positionSchema = new mongoose.Schema({
   fees: { type: Number, default: 0 },
   stopLoss: { type: Number },
   takeProfit: { type: Number },
+  exchangeOrderId: { type: String },
   stopLossOrderId: { type: String },
   highestPrice: { type: Number },
   lowestPrice: { type: Number },
