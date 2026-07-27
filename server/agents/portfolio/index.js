@@ -547,7 +547,13 @@ export default class PortfolioAgent extends BaseAgent {
 
         const dbPosition = portfolio.positions.find((p) => p && p.asset === asset && p.status === 'open');
 
-        if (!dbPosition) {
+        if (dbPosition) {
+          // Synchronize exact exchange parameters to eliminate quantity & entry price mismatches
+          if (exchangePos.entryPrice > 0) dbPosition.entryPrice = exchangePos.entryPrice;
+          if (exchangePos.contracts > 0) dbPosition.quantity = exchangePos.contracts;
+          if (exchangePos.leverage > 0) dbPosition.leverage = exchangePos.leverage;
+          if (exchangePos.unrealizedPnl !== undefined) dbPosition.unrealizedPnl = exchangePos.unrealizedPnl;
+        } else {
           this.logger.info(`🔄 [RECONCILIATION] Active position for ${asset} found on Binance but not in DB. Importing...`);
 
           const side = exchangePos.side; // 'long' or 'short'
