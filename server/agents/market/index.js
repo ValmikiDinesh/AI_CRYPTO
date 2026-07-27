@@ -89,47 +89,29 @@ export default class MarketAgent extends BaseAgent {
 
     this.logger.info(`🚀 Phase 1 Boot Complete: Loaded priority candles for ${priorityList.length} assets in < 500ms.`);
 
-    // Phase 2: Secondary Assets — Single Bulk MongoDB Aggregation query (loads 500+ assets in <200ms)
+    // Phase 2: Secondary Assets (Meme Coins + Recommended Coins) — Staggered REST Preload for ALL 568 coins
     const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
-    try {
-      const dbCandleDocs = await MarketData.find({ asset: { $in: secondaryAssets }, interval: '5m' })
-        .sort({ openTime: -1 })
-        .limit(secondaryAssets.length * 30)
-        .lean();
-
-      // Group candles by asset
-      const candlesByAsset = {};
-      if (dbCandleDocs && dbCandleDocs.length > 0) {
-        dbCandleDocs.forEach(c => {
-          if (!candlesByAsset[c.asset]) candlesByAsset[c.asset] = [];
-          if (candlesByAsset[c.asset].length < 30) {
-            candlesByAsset[c.asset].push({
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-              volume: c.volume,
-              openTime: c.openTime,
-              closeTime: c.closeTime,
-              isClosed: c.isClosed
-            });
+    const BATCH_SIZE = 25;
+    
+    for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
+      const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (asset) => {
+        try {
+          if (this.candles[asset] && this.candles[asset].length >= 30) return;
+          const candles = await fetchCandles(asset, '5m', 30);
+          if (candles && candles.length > 0) {
+            this.candles[asset] = candles;
+            const lastCandle = candles[candles.length - 1];
+            if (!this.prices[asset] || this.prices[asset] <= 0) {
+              this.prices[asset] = lastCandle.close || lastCandle.price || 0;
+            }
           }
-        });
-      }
-
-      secondaryAssets.forEach(asset => {
-        const assetCandles = candlesByAsset[asset] ? candlesByAsset[asset].reverse() : [];
-        this.candles[asset] = assetCandles;
-        if (assetCandles.length > 0) {
-          const lastCandle = assetCandles[assetCandles.length - 1];
-          this.prices[asset] = lastCandle.close || lastCandle.price || 0;
-        }
-      });
-    } catch (dbErr) {
-      this.logger.debug(`Phase 2 bulk DB preload note: ${dbErr.message}`);
+        } catch (err) {}
+      }));
+      await new Promise(r => setTimeout(r, 30));
     }
 
-    this.logger.info('✅ Phase 2 Complete: Preloaded candles for all secondary assets via single bulk DB query.');
+    this.logger.info(`✅ Phase 2 Complete: Preloaded 30 candles for all ${SUPPORTED_ASSETS.length} supported coins.`);
 
     // Start REST polling loop AFTER Phase 2 finishes so ticker sync doesn't collide with initial candle loads
     if (!this.pollInterval) {
