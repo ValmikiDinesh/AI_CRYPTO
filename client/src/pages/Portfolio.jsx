@@ -200,17 +200,17 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
             })}
           </tbody>
           <tfoot className="border-t border-[#2c2c2e] bg-black/45">
-            <tr className="align-middle">
-              <td colSpan={8} className="px-6 py-4 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest">
+            <tr className="align-middle whitespace-nowrap">
+              <td colSpan={9} className="px-4 py-3 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest whitespace-nowrap">
                 Totals ({filteredOpenTrades.length} Open Trades)
               </td>
-              <td className="px-6 py-4 text-right">
+              <td className="px-4 py-3 text-right whitespace-nowrap">
                 <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
                 <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
                   -${totalOpenCommission.toFixed(4)}
                 </span>
               </td>
-              <td className="px-6 py-4 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60">
+              <td className="px-4 py-3 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60 whitespace-nowrap">
                 <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Combined Net PnL</span>
                 <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalOpenNetPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
                   {totalOpenNetPnl >= 0 ? '+' : ''}${totalOpenNetPnl.toFixed(2)}
@@ -1525,23 +1525,23 @@ export default function Portfolio() {
                     })}
                   </tbody>
                   <tfoot className="border-t border-[#2c2c2e] bg-black/45">
-                    <tr className="align-middle">
-                      <td colSpan={8} className="px-6 py-4 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest">
+                    <tr className="align-middle whitespace-nowrap">
+                      <td colSpan={9} className="px-4 py-3 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest whitespace-nowrap">
                         Totals ({filteredClosedTrades.length} Trades)
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
                         <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
                           -${totalCommission.toFixed(4)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Gross Return</span>
                         <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalGross >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
                           {totalGross >= 0 ? '+' : ''}${totalGross.toFixed(2)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60">
+                      <td className="px-4 py-3 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60 whitespace-nowrap">
                         <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Net Return</span>
                         <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalNet >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
                           {totalNet >= 0 ? '+' : ''}${totalNet.toFixed(2)}
