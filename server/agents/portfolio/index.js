@@ -559,6 +559,12 @@ export default class PortfolioAgent extends BaseAgent {
           if (exchangePos.contracts > 0) dbPosition.quantity = exchangePos.contracts;
           if (exchangePos.leverage > 0) dbPosition.leverage = exchangePos.leverage;
           if (exchangePos.unrealizedPnl !== undefined) dbPosition.unrealizedPnl = exchangePos.unrealizedPnl;
+          if (!dbPosition.exchangeOrderId || dbPosition.exchangeOrderId === '—') {
+            const activeTrade = await Trade.findOne({ asset, status: 'open' }).sort({ createdAt: -1 });
+            if (activeTrade && activeTrade.exchangeOrderId) {
+              dbPosition.exchangeOrderId = activeTrade.exchangeOrderId;
+            }
+          }
         } else {
           this.logger.info(`🔄 [RECONCILIATION] Active position for ${asset} found on Binance but not in DB. Importing...`);
 
@@ -688,6 +694,7 @@ export default class PortfolioAgent extends BaseAgent {
             stopLoss: calculatedStopLoss,
             takeProfit: calculatedTakeProfit,
             stopLossOrderId,
+            exchangeOrderId: (activeTrade && activeTrade.exchangeOrderId) ? activeTrade.exchangeOrderId : null,
             // Dynamic Profit Engine fields
             dynamicTrailingPct,
             category,
