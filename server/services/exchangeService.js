@@ -326,49 +326,51 @@ class CoinSwitchExchange {
         }
       }
     }
+     const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
 
-    const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
-
-    // Fast path: Public Binance Futures API (10ms, zero auth, zero retry delay)
+    // 1. Fast path: Public Binance Futures API (10ms, zero auth, 2s timeout)
     try {
       const limitParam = limit || 100;
-      const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 3000 });
+      const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 2000 });
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
         const result = res.data.map(c => [
-          parseFloat(c[0]), // openTime
-          parseFloat(c[1]), // open
-          parseFloat(c[2]), // high
-          parseFloat(c[3]), // low
-          parseFloat(c[4]), // close
-          parseFloat(c[5])  // volume
+          parseFloat(c[0]), parseFloat(c[1]), parseFloat(c[2]), parseFloat(c[3]), parseFloat(c[4]), parseFloat(c[5])
         ]);
         this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
         return result;
       }
     } catch (binanceErr) {}
 
+    // 2. Fast path: Public Binance Spot API (for coins not on Futures)
     try {
-      const path = `/futures/klines?symbol=${cleanSym}&interval=${cleanInterval}&limit=${limit}&exchange=EXCHANGE_2`;
-      const res = await this._requestWithRetry('GET', path);
-      const klines = res.data.data || res.data;
-      if (klines && Array.isArray(klines)) {
-        const result = klines.map(c => [
-          parseInt(c.start_time || c.time || c.timestamp),
-          parseFloat(c.o || c.open),
-          parseFloat(c.h || c.high),
-          parseFloat(c.l || c.low),
-          parseFloat(c.c || c.close),
-          parseFloat(c.volume)
+      const limitParam = limit || 100;
+      const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 2000 });
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const result = res.data.map(c => [
+          parseFloat(c[0]), parseFloat(c[1]), parseFloat(c[2]), parseFloat(c[3]), parseFloat(c[4]), parseFloat(c[5])
         ]);
         this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
         return result;
       }
-      throw new Error('Invalid CoinSwitch response structure');
-    } catch (err) {
-      if (this.ohlcvCache[cacheKey]) return this.ohlcvCache[cacheKey].data;
-      logger.error(`fetchOHLCV error for ${symbol}: ${err.message}`);
-      return [];
-    }
+    } catch (spotErr) {}
+
+    // 3. Fallback: CoinSwitch Direct (without 30s retry loops)
+    try {
+      const path = `/futures/klines?symbol=${cleanSym}&interval=${cleanInterval}&limit=${limit}&exchange=EXCHANGE_2`;
+      const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, { timeout: 2000 });
+      const klines = res.data?.data || res.data;
+      if (klines && Array.isArray(klines) && klines.length > 0) {
+        const result = klines.map(c => [
+          parseInt(c.start_time || c.time || c.timestamp),
+          parseFloat(c.o || c.open), parseFloat(c.h || c.high), parseFloat(c.l || c.low), parseFloat(c.c || c.close), parseFloat(c.volume)
+        ]);
+        this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
+        return result;
+      }
+    } catch (csErr) {}
+
+    if (this.ohlcvCache[cacheKey]) return this.ohlcvCache[cacheKey].data;
+    return [];
   }
 
   // REST API: Public fetchOrderBook
