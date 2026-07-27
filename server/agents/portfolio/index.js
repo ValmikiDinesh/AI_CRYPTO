@@ -437,9 +437,24 @@ export default class PortfolioAgent extends BaseAgent {
 
         let existingInDb = portfolio.positions.find((pos) => pos && pos.asset === asset && pos.status === 'open');
         if (existingInDb && (!existingInDb.exchangeOrderId || existingInDb.exchangeOrderId === '—')) {
-          const tRecord = await Trade.findOne({ asset: existingInDb.asset }).sort({ createdAt: -1 });
+          const tRecord = await Trade.findOne({ asset: existingInDb.asset, exchangeOrderId: { $exists: true, $ne: null } }).sort({ createdAt: -1 });
           if (tRecord && tRecord.exchangeOrderId) {
             existingInDb.exchangeOrderId = tRecord.exchangeOrderId;
+          } else {
+            // Query CoinSwitch Pro closed orders feed to get exact entry order ID
+            try {
+              const { getExchange } = await import('../../services/exchangeService.js');
+              const exchange = getExchange();
+              const closedOrders = await exchange.fetchClosedOrders(asset, undefined, 10);
+              const entryOrder = (closedOrders || []).find(o => (o.status === 'closed' || o.raw?.status === 'EXECUTED') && o.filled > 0 && !o.reduceOnly);
+              if (entryOrder && entryOrder.id) {
+                existingInDb.exchangeOrderId = entryOrder.id;
+                await Trade.findOneAndUpdate(
+                  { asset, status: 'open' },
+                  { exchangeOrderId: entryOrder.id, type: 'live', exchange: 'coinswitch' }
+                );
+              }
+            } catch (exErr) {}
           }
         }
 
@@ -458,8 +473,18 @@ export default class PortfolioAgent extends BaseAgent {
           const stopLoss = side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk;
           const takeProfit = side === 'long' ? entryPrice + priceDeltaTarget : Math.max(0.000001, entryPrice - priceDeltaTarget);
 
-          const tRecord = await Trade.findOne({ asset }).sort({ createdAt: -1 });
-          const foundOrderId = p.id || p.orderId || tRecord?.exchangeOrderId || null;
+          let foundOrderId = p.id || p.orderId || null;
+          if (!foundOrderId) {
+            try {
+              const { getExchange } = await import('../../services/exchangeService.js');
+              const exchange = getExchange();
+              const closedOrders = await exchange.fetchClosedOrders(asset, undefined, 10);
+              const entryOrder = (closedOrders || []).find(o => (o.status === 'closed' || o.raw?.status === 'EXECUTED') && o.filled > 0 && !o.reduceOnly);
+              if (entryOrder && entryOrder.id) {
+                foundOrderId = entryOrder.id;
+              }
+            } catch (e) {}
+          }
 
           portfolio.positions.push({
             asset,
