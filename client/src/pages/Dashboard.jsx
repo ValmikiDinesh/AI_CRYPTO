@@ -106,13 +106,7 @@ function LivePriceCard({ asset }) {
           <span className="text-sm font-semibold tracking-tight text-[#f5f5f7]">{asset.replace('1000', '').replace('USDT', '')}</span>
           <span className="text-[9px] text-[#86868b] font-bold uppercase tracking-wider font-mono">/ USDT</span>
         </div>
-        {signal ? (
-          <SignalBadge action={signal.action} />
-        ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-bold text-zinc-500 uppercase bg-zinc-900 border border-[#2c2c2e]/60 font-mono">
-            IDLE
-          </span>
-        )}
+        <SignalBadge action={signal?.action || tech?.action || 'HOLD'} />
       </div>
 
       <div className={`text-2xl font-bold font-mono tracking-tight my-4 transition-colors duration-300 ${priceColor}`}>

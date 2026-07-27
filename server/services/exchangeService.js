@@ -328,31 +328,42 @@ class CoinSwitchExchange {
     }
      const cacheKey = `${cleanSym}_${timeframe}_${limit}`;
 
-    // 1. Fast path: Public Binance Futures API (10ms, zero auth, 2s timeout)
-    try {
-      const limitParam = limit || 100;
-      const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 2000 });
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const result = res.data.map(c => [
-          parseFloat(c[0]), parseFloat(c[1]), parseFloat(c[2]), parseFloat(c[3]), parseFloat(c[4]), parseFloat(c[5])
-        ]);
-        this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
-        return result;
-      }
-    } catch (binanceErr) {}
+    const candidateSymbols = [
+      cleanSym,
+      cleanSym.replace(/^10000/, '1000'),
+      cleanSym.replace(/^10000/, ''),
+      cleanSym.replace(/^1000/, '')
+    ];
+
+    // 1. Fast path: Public Binance Futures API with multiplier symbol normalization
+    for (const sym of candidateSymbols) {
+      try {
+        const limitParam = limit || 100;
+        const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 2000 });
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const result = res.data.map(c => [
+            parseFloat(c[0]), parseFloat(c[1]), parseFloat(c[2]), parseFloat(c[3]), parseFloat(c[4]), parseFloat(c[5])
+          ]);
+          this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
+          return result;
+        }
+      } catch (binanceErr) {}
+    }
 
     // 2. Fast path: Public Binance Spot API (for coins not on Futures)
-    try {
-      const limitParam = limit || 100;
-      const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=${cleanSym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 2000 });
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const result = res.data.map(c => [
-          parseFloat(c[0]), parseFloat(c[1]), parseFloat(c[2]), parseFloat(c[3]), parseFloat(c[4]), parseFloat(c[5])
-        ]);
-        this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
-        return result;
-      }
-    } catch (spotErr) {}
+    for (const sym of candidateSymbols) {
+      try {
+        const limitParam = limit || 100;
+        const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${timeframe}&limit=${limitParam}`, { timeout: 2000 });
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const result = res.data.map(c => [
+            parseFloat(c[0]), parseFloat(c[1]), parseFloat(c[2]), parseFloat(c[3]), parseFloat(c[4]), parseFloat(c[5])
+          ]);
+          this.ohlcvCache[cacheKey] = { timestamp: now, data: result };
+          return result;
+        }
+      } catch (spotErr) {}
+    }
 
     // 3. Fallback: CoinSwitch Direct (without 30s retry loops)
     try {
