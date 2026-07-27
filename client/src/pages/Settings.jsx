@@ -191,7 +191,7 @@ export default function Settings() {
               Total Base Capital ($)
             </label>
             <p className="text-[11px] text-zinc-500 leading-relaxed">
-              Base trading allocation for demo paper-trading. (For live mode, this is dynamically fetched from the exchange wallet).
+              Base trading allocation dynamically synchronized with your live CoinSwitch Pro exchange wallet.
             </p>
             <div className="relative">
               <input
@@ -328,8 +328,7 @@ export default function Settings() {
             </h3>
           </div>
           <p className="text-[11px] text-zinc-500 max-w-2xl leading-relaxed">
-            Enter your hex-encoded public API Key and Secret Key generated from your CoinSwitch Pro Profile. 
-            If left blank, the trading engine will run in fully simulated paper-trading mode using live public market rates.
+            Enter your hex-encoded public API Key and Secret Key generated from your CoinSwitch Pro Profile to connect live exchange trading.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">

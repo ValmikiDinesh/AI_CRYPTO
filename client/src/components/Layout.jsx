@@ -101,8 +101,8 @@ export default function Layout() {
             <X size={14} />
           </button>
           
-          <span className="hidden lg:inline-block text-[8px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 font-extrabold uppercase tracking-widest font-mono scale-90">
-            PAPER
+          <span className="hidden lg:inline-block text-[8px] px-2 py-0.5 rounded-full bg-[#30d158]/10 text-[#30d158] border border-[#30d158]/20 font-extrabold uppercase tracking-widest font-mono scale-90">
+            LIVE
           </span>
         </div>
 
@@ -134,11 +134,11 @@ export default function Layout() {
         {/* Deployment Info Card */}
         <div className="m-4 p-4 rounded-2xl bg-[#1c1c1e] border border-[#2c2c2e]/40 backdrop-blur-sm text-[10px] text-zinc-400 leading-normal font-semibold">
           <span className="flex items-center gap-1.5 font-bold text-[#f5f5f7] uppercase tracking-widest text-[8px] mb-1.5 font-mono">
-            <ShieldAlert size={10} className="text-sky-400" />
+            <ShieldAlert size={10} className="text-emerald-400" />
             Cluster
           </span>
           <p className="text-[10px] text-zinc-400 font-medium leading-relaxed">
-            AI agents run automatically on startup executing paper orders.
+            AI agents run automatically on startup executing live orders on CoinSwitch Pro.
           </p>
         </div>
 

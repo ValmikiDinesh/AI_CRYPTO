@@ -257,12 +257,12 @@ export default function Dashboard() {
         <div>
           <h2 className="text-xl font-bold tracking-tight text-[#f5f5f7]">Overview</h2>
           <p className="text-[11px] text-[#86868b] mt-1 font-medium">
-            System status monitoring multi-agent consensus metrics, signal updates, and paper capital.
+            System status monitoring multi-agent consensus metrics, signal updates, and live capital.
           </p>
         </div>
         <div className="flex items-center gap-1.5 text-[9px] text-[#86868b] font-bold bg-[#1c1c1e] border border-[#2c2c2e]/40 rounded-full px-3 py-1 font-mono">
-          <span className="w-1 h-1 rounded-full bg-sky-400 animate-pulse" />
-          <span>Binance Futures Testnet Engine</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-[#30d158] animate-pulse" />
+          <span className="text-[#30d158]">CoinSwitch Pro Live Engine</span>
         </div>
       </div>
 
