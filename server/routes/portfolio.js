@@ -133,9 +133,9 @@ router.get('/performance', async (req, res, next) => {
     if (cachedPerformanceResponse && (Date.now() - lastPerformanceCacheTime < PERFORMANCE_CACHE_TTL_MS)) {
       return res.json(cachedPerformanceResponse);
     }
-    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID }).lean();
     if (!portfolio) {
-      portfolio = await Portfolio.findOne({});
+      portfolio = await Portfolio.findOne({}).lean();
     }
 
     if (!portfolio) {

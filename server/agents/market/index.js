@@ -78,7 +78,7 @@ export default class MarketAgent extends BaseAgent {
     const priorityList = Array.from(priorityAssets);
     await Promise.all(priorityList.map(async (asset) => {
       try {
-        const candles = await fetchCandles(asset, '5m', 100);
+        const candles = await fetchCandles(asset, '5m', 60);
         if (candles && candles.length > 0) {
           this.candles[asset] = candles;
           const lastCandle = candles[candles.length - 1];
@@ -94,7 +94,7 @@ export default class MarketAgent extends BaseAgent {
     try {
       const dbCandleDocs = await MarketData.find({ asset: { $in: secondaryAssets }, interval: '5m' })
         .sort({ openTime: -1 })
-        .limit(secondaryAssets.length * 60)
+        .limit(secondaryAssets.length * 30)
         .lean();
 
       // Group candles by asset
@@ -102,7 +102,7 @@ export default class MarketAgent extends BaseAgent {
       if (dbCandleDocs && dbCandleDocs.length > 0) {
         dbCandleDocs.forEach(c => {
           if (!candlesByAsset[c.asset]) candlesByAsset[c.asset] = [];
-          if (candlesByAsset[c.asset].length < 60) {
+          if (candlesByAsset[c.asset].length < 30) {
             candlesByAsset[c.asset].push({
               open: c.open,
               high: c.high,
@@ -267,9 +267,26 @@ export default class MarketAgent extends BaseAgent {
     });
   }
 
-  /** Expose current prices for other agents. */
+  /** Expose current prices for other agents with multi-layer fallback. */
   getPrice(asset) {
-    return this.prices[asset] || 0;
+    if (!asset) return 0;
+    if (this.prices[asset] && this.prices[asset] > 0) {
+      return this.prices[asset];
+    }
+    if (coinswitchWs && coinswitchWs.latestPrices && coinswitchWs.latestPrices[asset] > 0) {
+      return coinswitchWs.latestPrices[asset];
+    }
+    const cleanAsset = asset.replace('/', '').replace(':USDT', '').toUpperCase();
+    if (cleanAsset && coinswitchWs && coinswitchWs.latestPrices && coinswitchWs.latestPrices[cleanAsset] > 0) {
+      return coinswitchWs.latestPrices[cleanAsset];
+    }
+    if (this.candles[asset] && this.candles[asset].length > 0) {
+      const lastCandle = this.candles[asset][this.candles[asset].length - 1];
+      if (lastCandle && lastCandle.close > 0) {
+        return lastCandle.close;
+      }
+    }
+    return 0;
   }
 
   /** Expose candle history for other agents. */
