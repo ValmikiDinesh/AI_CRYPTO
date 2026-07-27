@@ -16,8 +16,9 @@ router.get('/', async (req, res, next) => {
     if (status) filter.status = status;
     if (asset) filter.asset = asset;
 
-    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
-      filter.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+    if (process.env.TRADING_MODE === 'live') {
+      filter.type = { $ne: 'paper' };
+      filter.exchangeOrderId = { $exists: true, $ne: null, $not: /^mock_/ };
     }
 
     const trades = await Trade.find(filter)

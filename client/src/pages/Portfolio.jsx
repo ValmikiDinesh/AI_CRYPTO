@@ -109,6 +109,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
           <thead>
             <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
               <th className="px-6 py-4">Execution Date</th>
+              <th className="px-6 py-4">Order ID</th>
               <th className="px-6 py-4">Asset</th>
               <th className="px-6 py-4">Action</th>
               <th className="px-6 py-4 text-right">Entry Price</th>
@@ -135,10 +136,21 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
               const grossPnl = currentPrice ? (isLong ? (currentPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - currentPrice) * trade.quantity) : 0;
               const netPnl = currentPrice ? grossPnl - fees : 0;
 
+              const orderId = trade.exchangeOrderId || trade.stopLossOrderId || trade.orderId;
+
               return (
                 <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
                   <td className="px-6 py-4 text-zinc-500 font-mono text-[10px]">
-                    {new Date(trade.createdAt).toLocaleString()}
+                    {new Date(trade.openedAt || trade.createdAt || Date.now()).toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 font-mono text-[9px]">
+                    {orderId ? (
+                      <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/80 text-zinc-300 font-mono" title={orderId}>
+                        {orderId.length > 14 ? `${orderId.slice(0, 10)}...` : orderId}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-600 font-mono">—</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
                     {trade.asset?.replace('1000', '').replace('USDT', '')}
@@ -1415,6 +1427,7 @@ export default function Portfolio() {
                   <thead>
                     <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono">
                       <th className="px-6 py-4">Timeline (Open / Exit)</th>
+                      <th className="px-6 py-4">Order ID</th>
                       <th className="px-6 py-4">Asset</th>
                       <th className="px-6 py-4">Action</th>
                       <th className="px-6 py-4 text-right">Entry Price</th>
@@ -1431,6 +1444,7 @@ export default function Portfolio() {
                     {filteredClosedTrades.map((trade, i) => {
                       const price = trade.entryPrice;
                       const exit = trade.exitPrice;
+                      const orderId = trade.exchangeOrderId || trade.stopLossOrderId || trade.orderId;
                       return (
                         <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
                           <td className="px-6 py-4 text-zinc-500 font-mono text-[10px] leading-relaxed">
@@ -1442,6 +1456,15 @@ export default function Portfolio() {
                               <span className="text-[8px] bg-amber-950/40 text-amber-500 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Exit</span>
                               <span>{trade.closedAt ? new Date(trade.closedAt).toLocaleString() : new Date(trade.updatedAt).toLocaleString()}</span>
                             </div>
+                          </td>
+                          <td className="px-6 py-4 font-mono text-[9px]">
+                            {orderId ? (
+                              <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/80 text-zinc-300 font-mono" title={orderId}>
+                                {orderId.length > 14 ? `${orderId.slice(0, 10)}...` : orderId}
+                              </span>
+                            ) : (
+                              <span className="text-zinc-600 font-mono">—</span>
+                            )}
                           </td>
                           <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
                             {trade.asset?.replace('1000', '').replace('USDT', '')}
