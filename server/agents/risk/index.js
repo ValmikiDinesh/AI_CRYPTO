@@ -44,12 +44,18 @@ export default class RiskAgent extends BaseAgent {
       const startOfToday = new Date(`${todayStr}T00:00:00.000+05:30`);
       const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
       
-      const count = await Trade.countDocuments({
+      const filter = {
         createdAt: { $gte: startOfToday, $lt: endOfToday },
         status: { $in: ['open', 'closed'] }
-      });
+      };
+      if (process.env.TRADING_MODE === 'live') {
+        filter.exchangeOrderId = { $exists: true, $ne: null };
+        filter.type = 'live';
+      }
+
+      const count = await Trade.countDocuments(filter);
       this.dailyTradeCount = count;
-      this.logger.info(`Recovered daily trade count from database: ${count} successful trades placed today (IST).`);
+      this.logger.info(`Recovered daily trade count from database: ${count} confirmed live trades executed today (IST).`);
     } catch (err) {
       this.logger.error(`Failed to recover daily trade count on startup: ${err.message}`);
     }
@@ -311,9 +317,15 @@ export default class RiskAgent extends BaseAgent {
     return { approved: true, reason: 'All risk checks passed' };
   }
 
-  incrementDailyTradeCount() {
+  incrementDailyTradeCount(trade) {
+    if (process.env.TRADING_MODE === 'live') {
+      const orderId = trade?.exchangeOrderId || (typeof trade === 'string' ? trade : null);
+      if (!orderId || orderId.startsWith('mock_')) {
+        return;
+      }
+    }
     this.dailyTradeCount++;
-    this.logger.info(`Incremented daily trade count: ${this.dailyTradeCount}/${this.maxDailyTrades}`);
+    this.logger.info(`Incremented daily trade count for confirmed trade: ${this.dailyTradeCount}/${this.maxDailyTrades}`);
   }
 
   async reject(reason, type, signal) {

@@ -26,8 +26,8 @@ export default class LearningAgent extends BaseAgent {
       // SKIP on first cycle to avoid blocking boot (566+ assets × 1.5s delay = ~14 min)
       const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
       if (this.lastDailyUpdateDate !== todayStr && this.cycleCount > 1) {
-        await this.updateDailyVolatilityHistory();
         this.lastDailyUpdateDate = todayStr;
+        this.updateDailyVolatilityHistory().catch(e => this.logger.error(`Daily volatility error: ${e.message}`));
       }
 
       // Analyze last 50 closed trades using lightweight lean query

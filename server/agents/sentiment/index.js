@@ -66,42 +66,7 @@ export default class SentimentAgent extends BaseAgent {
   }
 
   async fetchGeneralNews() {
-    const keysStr = process.env.CRYPTOCOMPARE_API_KEYS || process.env.CRYPTOCOMPARE_API_KEY || '';
-    const keys = keysStr.split(',').map(k => k.trim()).filter(Boolean);
-
-    if (keys.length === 0) {
-      this.logger.warn('No CryptoCompare API keys configured.');
-      return [];
-    }
-
-    if (this.currentKeyIndex === undefined) {
-      this.currentKeyIndex = 0;
-    }
-
-    for (let attempts = 0; attempts < keys.length; attempts++) {
-      const activeKey = keys[this.currentKeyIndex];
-      const headers = { Authorization: `Apikey ${activeKey}` };
-      const url = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&limit=50';
-
-      try {
-        this.logger.debug(`Fetching news using key index ${this.currentKeyIndex}...`);
-        const response = await axios.get(url, { headers, timeout: 10_000 });
-
-        if (response.data?.Response === 'Error' && response.data?.Message?.includes('rate limit')) {
-          this.logger.warn(`Rate limit reached for key index ${this.currentKeyIndex}. Rotating key...`);
-          this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length;
-          continue;
-        }
-
-        const data = response.data?.Data;
-        return Array.isArray(data) ? data : [];
-      } catch (err) {
-        this.logger.warn(`News fetch failed with key index ${this.currentKeyIndex}: ${err.message}. Rotating key...`);
-        this.currentKeyIndex = (this.currentKeyIndex + 1) % keys.length;
-      }
-    }
-
-    this.logger.error('All configured CryptoCompare API keys failed or hit rate limits.');
+    // External CryptoCompare sentiment API disabled. Neutral baseline sentiment used until alternative is implemented.
     return [];
   }
 

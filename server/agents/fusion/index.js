@@ -31,7 +31,12 @@ export default class FusionAgent extends BaseAgent {
   async execute() {
     if (!this._calcCache) this._calcCache = {};
 
+    let count = 0;
     for (const asset of SUPPORTED_ASSETS) {
+      count++;
+      if (count % 40 === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
       try {
         const technical = this.technicalAgent.getLastSignal(asset);
         const sentiment = this.sentimentAgent.getSentiment(asset);
@@ -54,10 +59,8 @@ export default class FusionAgent extends BaseAgent {
 
         this.lastSignals[asset] = fusedSignal;
 
-        // Persist to MongoDB and publish via Redis ONLY if actionable signal (BUY or SELL)
+        // Publish actionable fused signals via Redis in-memory stream
         if (fusedSignal.action !== ACTIONS.HOLD) {
-          const createdSignal = await Signal.create(fusedSignal);
-          this.lastSignals[asset] = createdSignal;
           await publishEvent(CHANNELS.FUSED_SIGNALS, fusedSignal);
 
           this.logger.info(
@@ -65,7 +68,10 @@ export default class FusionAgent extends BaseAgent {
           );
         }
       } catch (err) {
-        this.logger.error(`Fusion error for ${asset}: ${err.message}`);
+        const errStr = (err.message || '').toLowerCase();
+        if (!errStr.includes('client must be connected') && !errStr.includes('client was closed')) {
+          this.logger.error(`Fusion error for ${asset}: ${err.message}`);
+        }
       }
     }
   }

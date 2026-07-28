@@ -215,7 +215,11 @@ export default function Dashboard() {
       try {
         const res = await axios.get('/api/market/prices');
         if (res.data.success) {
-          useMarketStore.setState({ prices: res.data.data });
+          // Merge server prices into market store without overwriting live WebSocket prices
+          const currentPrices = useMarketStore.getState().prices;
+          const serverPrices = res.data.data;
+          const merged = { ...serverPrices, ...currentPrices };
+          useMarketStore.setState({ prices: merged });
         }
       } catch {}
     };

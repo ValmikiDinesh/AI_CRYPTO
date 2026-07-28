@@ -94,8 +94,27 @@ export const usePortfolioStore = create((set) => ({
     targetProfitThreshold: 1100,
     baseTradingCapital: 1000,
   },
+  allTrades: [],
+  stats: null,
 
-  setPortfolio: (data) => set((state) => ({ portfolio: { ...state.portfolio, ...data } })),
+  setPortfolio: (data) => {
+    if (data) {
+      useMarketStore.getState().setConnected(true);
+      // Only seed prices from portfolio if no live WebSocket price exists yet
+      if (data.positions && Array.isArray(data.positions)) {
+        const currentPrices = useMarketStore.getState().prices;
+        data.positions.forEach((p) => {
+          if (p && p.asset && p.currentPrice > 0 && !currentPrices[p.asset]) {
+            useMarketStore.getState().setPrice(p.asset, p.currentPrice);
+          }
+        });
+      }
+    }
+    set((state) => ({ portfolio: { ...state.portfolio, ...data } }));
+  },
+
+  setAllTrades: (trades) => set({ allTrades: Array.isArray(trades) ? trades : [] }),
+  setStats: (stats) => set({ stats }),
 }));
 
 // ─── Agent Store ─────────────────────────────────────────────────
@@ -196,8 +215,10 @@ socket.on('portfolio:update', (data) => {
         }
         return true;
       });
+      // Only seed prices from portfolio if no live WebSocket price exists yet
+      const currentPrices = useMarketStore.getState().prices;
       data.positions.forEach((p) => {
-        if (p && p.asset && p.currentPrice > 0) {
+        if (p && p.asset && p.currentPrice > 0 && !currentPrices[p.asset]) {
           useMarketStore.getState().setPrice(p.asset, p.currentPrice);
         }
       });

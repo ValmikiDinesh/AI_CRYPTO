@@ -276,7 +276,7 @@ export default class ExecutionAgent extends BaseAgent {
     const asset = signal.asset;
 
     if (getSystemWarmingUp()) {
-      this.logger.info(`⏳ [SYSTEM WARMUP COOLDOWN] Server is initializing/warming up asset feeds — skipping new trade signal execution for ${asset}`);
+      this.logger.debug(`⏳ [SYSTEM WARMUP COOLDOWN] Server is initializing/warming up asset feeds — skipping new trade signal execution for ${asset}`);
       return;
     }
 
@@ -315,130 +315,88 @@ export default class ExecutionAgent extends BaseAgent {
       try {
         const pendingTrade = await Trade.findOne({ asset, status: 'pending' });
         if (pendingTrade) {
-          this.logger.info(`Cancelling existing pending limit order for ${asset} (ID: ${pendingTrade.exchangeOrderId}) before processing new signal`);
-          
-          let filledQty = 0;
-          try {
-            const order = await fetchOrder(asset, pendingTrade.exchangeOrderId);
-            filledQty = order.filled || 0;
-          } catch (err) {
-            this.logger.warn(`Could not fetch order state before cancellation: ${err.message}`);
-          }
-
-          // Cancel order on exchange
-          try {
-            if (pendingTrade.exchangeOrderId && !pendingTrade.exchangeOrderId.startsWith('mock_')) {
-              await cancelOrder(asset, pendingTrade.exchangeOrderId);
-            }
-          } catch (cancelErr) {
-            this.logger.warn(`Could not cancel order ${pendingTrade.exchangeOrderId} on exchange: ${cancelErr.message}`);
-          }
-
-          // Fetch final exact filled quantity confirmed by Binance
-          let finalFilled = filledQty;
-          try {
-            const finalOrder = await fetchOrder(asset, pendingTrade.exchangeOrderId);
-            finalFilled = finalOrder.filled || filledQty;
-          } catch (err) {
-            this.logger.warn(`Could not fetch final order state after cancellation: ${err.message}`);
-          }
-
-          if (finalFilled > 0) {
-            this.logger.info(`🔄 Pending order ${pendingTrade.exchangeOrderId} for ${asset} had a partial fill of ${finalFilled} units. Transitioning to open with executed quantity.`);
-            
-            pendingTrade.status = 'open';
-            pendingTrade.quantity = finalFilled;
-            pendingTrade.executedAt = new Date();
-            await pendingTrade.save();
-            
-            // Add to portfolio active positions
-            let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
-            if (portfolio) {
-              const exists = portfolio.positions.some(p => p && p.asset === asset && p.status === 'open');
-              if (!exists) {
-                const category = getCategoryForAsset(asset);
-                const dynamicTrailingPct = undefined;
-
-                // Place trigger orders (SL/TP) for this executed portion
-                let stopLossOrderId = null;
-                if (!pendingTrade.exchangeOrderId.startsWith('mock_')) {
-                  stopLossOrderId = await this.placeTriggerOrders(
-                    { asset, stopLoss: pendingTrade.stopLoss, takeProfit: pendingTrade.takeProfit },
-                    finalFilled,
-                    pendingTrade.side === 'long' ? 'buy' : 'sell'
-                  );
-                }
-
-                portfolio.positions.push({
-                  asset: asset,
-                  side: pendingTrade.side,
-                  entryPrice: pendingTrade.entryPrice,
-                  currentPrice: pendingTrade.entryPrice,
-                  quantity: finalFilled,
-                  leverage: pendingTrade.leverage || 3,
-                  stopLoss: pendingTrade.stopLoss,
-                  takeProfit: pendingTrade.takeProfit,
-                  stopLossOrderId,
-                  status: 'open',
-                  openedAt: new Date(),
-                  fees: pendingTrade.fees || 0,
-                  // Dynamic Profit Engine fields
-                  dynamicTrailingPct,
-                  category,
-                  maxProfitReached: 0,
-                  maxDrawdownReached: 0,
-                });
-
-                // Refund the unused margin portion
-                const leverage = pendingTrade.leverage || 3;
-                const originalMarginReserved = (pendingTrade.entryPrice * pendingTrade.quantity) / leverage;
-                const actualMarginUsed = (pendingTrade.entryPrice * finalFilled) / leverage;
-                const marginRefund = originalMarginReserved - actualMarginUsed;
-                if (marginRefund > 0) {
-                  if (process.env.TRADING_MODE === 'live') {
-                    try {
-                      const { fetchBalance } = await import('../../services/exchangeService.js');
-                      const liveBal = await fetchBalance();
-                      if (liveBal && liveBal.USDT) {
-                        portfolio.availableBalance = liveBal.USDT.free;
-                        portfolio.totalBalance = liveBal.USDT.total;
-                      }
-                    } catch (bErr) {}
-                  } else {
-                    portfolio.availableBalance += marginRefund;
-                  }
-                }
-
-                await portfolio.save();
-              }
-            }
-          } else {
+          if (!pendingTrade.exchangeOrderId || pendingTrade.exchangeOrderId.startsWith('mock_') || pendingTrade.exchangeOrderId.startsWith('sim_')) {
+            this.logger.info(`Cancelling local pending trade for ${asset} (ID: ${pendingTrade.exchangeOrderId || 'local_draft'}) before processing new signal`);
             pendingTrade.status = 'cancelled';
-            pendingTrade.metadata = { ...(pendingTrade.metadata || {}), cancelReason: 'Superceded by new signal' };
-            pendingTrade.markModified('metadata');
+            pendingTrade.closedAt = new Date();
             await pendingTrade.save();
+          } else {
+            this.logger.info(`Cancelling existing pending limit order for ${asset} (ID: ${pendingTrade.exchangeOrderId}) before processing new signal`);
             
-            // Refund full margin and fees
-            const leverage = pendingTrade.leverage || 3;
-            const marginReserved = (pendingTrade.entryPrice * pendingTrade.quantity) / leverage;
-            const feeReserved = pendingTrade.fees || 0;
-            
-            let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
-            if (portfolio) {
-              if (process.env.TRADING_MODE === 'live') {
-                try {
-                  const { fetchBalance } = await import('../../services/exchangeService.js');
-                  const liveBal = await fetchBalance();
-                  if (liveBal && liveBal.USDT) {
-                    portfolio.availableBalance = liveBal.USDT.free;
-                    portfolio.totalBalance = liveBal.USDT.total;
+            let filledQty = 0;
+            try {
+              const order = await fetchOrder(asset, pendingTrade.exchangeOrderId);
+              filledQty = order?.filled || 0;
+            } catch (err) {
+              this.logger.warn(`Could not fetch order state before cancellation: ${err.message}`);
+            }
+
+            // Cancel order on exchange
+            try {
+              await cancelOrder(asset, pendingTrade.exchangeOrderId);
+            } catch (cancelErr) {
+              this.logger.warn(`Could not cancel order ${pendingTrade.exchangeOrderId} on exchange: ${cancelErr.message}`);
+            }
+
+            // Fetch final exact filled quantity confirmed by exchange
+            let finalFilled = filledQty;
+            try {
+              const finalOrder = await fetchOrder(asset, pendingTrade.exchangeOrderId);
+              finalFilled = finalOrder?.filled || filledQty;
+            } catch (err) {
+              this.logger.warn(`Could not fetch final order state after cancellation: ${err.message}`);
+            }
+
+            if (finalFilled > 0) {
+              this.logger.info(`🔄 Pending order ${pendingTrade.exchangeOrderId} for ${asset} had a partial fill of ${finalFilled} units. Transitioning to open with executed quantity.`);
+              
+              pendingTrade.status = 'open';
+              pendingTrade.quantity = finalFilled;
+              pendingTrade.executedAt = new Date();
+              await pendingTrade.save();
+
+              let portfolio = await Portfolio.findOne({}).sort({ createdAt: 1 });
+              if (portfolio) {
+                const exists = portfolio.positions.some(p => p && p.asset === asset && p.status === 'open');
+                if (!exists) {
+                  const category = getCategoryForAsset(asset);
+                  let stopLossOrderId = null;
+                  if (pendingTrade.exchangeOrderId && !pendingTrade.exchangeOrderId.startsWith('mock_')) {
+                    stopLossOrderId = await this.placeTriggerOrders(
+                      { asset, stopLoss: pendingTrade.stopLoss, takeProfit: pendingTrade.takeProfit },
+                      finalFilled,
+                      pendingTrade.side === 'long' ? 'buy' : 'sell'
+                    );
                   }
-                } catch (bErr) {}
-              } else {
-                portfolio.availableBalance += (marginReserved + feeReserved);
+
+                  portfolio.positions.push({
+                    asset: asset,
+                    side: pendingTrade.side,
+                    entryPrice: pendingTrade.entryPrice,
+                    currentPrice: pendingTrade.entryPrice,
+                    quantity: finalFilled,
+                    leverage: pendingTrade.leverage || 3,
+                    stopLoss: pendingTrade.stopLoss,
+                    takeProfit: pendingTrade.takeProfit,
+                    stopLossOrderId,
+                    exchangeOrderId: pendingTrade.exchangeOrderId,
+                    status: 'open',
+                    openedAt: new Date(),
+                    fees: pendingTrade.fees || 0,
+                    category,
+                    maxProfitReached: 0,
+                    maxDrawdownReached: 0,
+                  });
+
+                  await portfolio.save();
+                }
               }
-              await portfolio.save();
-              this.logger.info(`Updated available balance for cancelled trade on ${asset}`);
+            } else {
+              pendingTrade.status = 'cancelled';
+              pendingTrade.closedAt = new Date();
+              pendingTrade.metadata = { ...(pendingTrade.metadata || {}), cancelReason: 'Superceded by new signal' };
+              pendingTrade.markModified('metadata');
+              await pendingTrade.save();
             }
           }
         }
@@ -539,17 +497,15 @@ export default class ExecutionAgent extends BaseAgent {
     try {
       const exchange = getExchange();
       await exchange.loadMarkets();
-      const market = exchange.market(signal.asset);
-      
-      const minQuantity = market.limits?.amount?.min || 0;
-      const minNotional = market.limits?.cost?.min || 2.0;
+      const MIN_ORDER_NOTIONAL = 5.0; // Enforce minimum $5.00 order value floor
+      const minNotional = Math.max(MIN_ORDER_NOTIONAL, market.limits?.cost?.min || 5.0);
 
       // 1. Enforce minimum quantity limit
       if (quantity < minQuantity) {
         quantity = minQuantity;
       }
 
-      // 2. Enforce minimum notional value limit
+      // 2. Enforce minimum notional value limit (Must be at least $5.00)
       if (quantity * limitEntryPrice < minNotional) {
         quantity = minNotional / limitEntryPrice;
       }
@@ -561,6 +517,11 @@ export default class ExecutionAgent extends BaseAgent {
         const factor = Math.pow(10, decimals);
         quantity = Math.ceil(quantity * factor) / factor;
         
+        // Ensure final calculated order value is at least $5.00
+        if (quantity * limitEntryPrice < MIN_ORDER_NOTIONAL) {
+          quantity = Math.ceil((MIN_ORDER_NOTIONAL / limitEntryPrice) * factor) / factor;
+        }
+
         // Dynamically adjust positionValue and margin to exactly match the rounded-up quantity
         positionValue = quantity * limitEntryPrice;
         marginRequired = positionValue / leverage;
@@ -584,15 +545,14 @@ export default class ExecutionAgent extends BaseAgent {
 
     const side = signal.action === ACTIONS.BUY ? 'buy' : 'sell';
 
-    const dynamicTrailingPct = undefined;
-    const category = getCategoryForAsset(signal.asset);
+    const isLiveMode = process.env.TRADING_MODE === 'live' || (process.env.COINSWITCH_API_KEY && !process.env.COINSWITCH_API_KEY.includes('demo'));
 
     // Create trade record
     const trade = await Trade.create({
       userId: portfolio.userId,
       asset: signal.asset,
       action: signal.action,
-      type: 'paper',
+      type: isLiveMode ? 'live' : 'paper',
       side: signal.action === ACTIONS.BUY ? 'long' : 'short',
       entryPrice: limitEntryPrice,
       quantity,
@@ -604,7 +564,7 @@ export default class ExecutionAgent extends BaseAgent {
       riskScore: signal.riskScore,
       reasoning: signal.reasoning,
       status: 'pending',
-      exchange: 'binance_testnet',
+      exchange: isLiveMode ? 'coinswitch' : 'binance_testnet',
       metadata: signal.metadata || {},
       dynamicTrailingPct,
     });
@@ -671,11 +631,13 @@ export default class ExecutionAgent extends BaseAgent {
     const isFilled = order.status === 'closed' || (order.filled && order.filled >= quantity);
 
     if (isFilled) {
-      // Increment daily trade count in Risk Agent
-      this.riskAgent.incrementDailyTradeCount();
+      // Increment daily trade count in Risk Agent for confirmed executed trade
+      this.riskAgent.incrementDailyTradeCount({ exchangeOrderId: order?.id });
 
       // Update trade record
       trade.status = 'open';
+      trade.type = (process.env.TRADING_MODE === 'live' || (order && !order.id?.startsWith('mock_'))) ? 'live' : 'paper';
+      trade.exchange = (process.env.TRADING_MODE === 'live' || (order && !order.id?.startsWith('mock_'))) ? 'coinswitch' : 'binance_testnet';
       trade.entryPrice = executionPrice;
       trade.quantity = executionQuantity;
       trade.exchangeOrderId = order?.id;
@@ -719,6 +681,7 @@ export default class ExecutionAgent extends BaseAgent {
         stopLoss: signal.stopLoss,
         takeProfit: signal.takeProfit,
         stopLossOrderId: stopLossOrderId,
+        exchangeOrderId: order?.id,
         highestPrice: executionPrice,
         lowestPrice: executionPrice,
         trailingPct: signal.trailingPct || 0.03,
@@ -969,6 +932,7 @@ export default class ExecutionAgent extends BaseAgent {
           stopLoss: trade.stopLoss,
           takeProfit: trade.takeProfit,
           stopLossOrderId,
+          exchangeOrderId: trade.exchangeOrderId || (order && order.id),
           status: 'open',
           openedAt: new Date(),
           fees: actualFee,

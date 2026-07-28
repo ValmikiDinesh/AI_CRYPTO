@@ -21,7 +21,12 @@ export default class TechnicalAgent extends BaseAgent {
   async execute() {
     if (!this._calcCache) this._calcCache = {};
 
+    let count = 0;
     for (const asset of SUPPORTED_ASSETS) {
+      count++;
+      if (count % 40 === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
       try {
         const candles = this.marketAgent.getCandles(asset);
 
@@ -72,9 +77,8 @@ export default class TechnicalAgent extends BaseAgent {
 
         this.lastSignals[asset] = signalData;
 
-        // Persist to MongoDB and publish via Redis ONLY if actionable signal (BUY or SELL)
+        // Publish actionable signals via Redis in-memory stream
         if (signal.action !== 'HOLD' && signal.confidence >= 0.50) {
-          await Signal.create(signalData);
           await publishEvent(CHANNELS.TECHNICAL_SIGNALS, signalData);
           this.logger.info(
             `⚡ [TECHNICAL SIGNAL] ${asset}: ${signal.action} (confidence=${signal.confidence.toFixed(2)}, regime=${indicators.regime})`

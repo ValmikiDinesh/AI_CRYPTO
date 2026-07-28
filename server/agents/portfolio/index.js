@@ -18,6 +18,28 @@ import {
   calculateGlobalBP
 } from '../../services/recalculationEngine.js';
 
+/** Normalizes any exchange or DB asset string to canonical format (e.g., "CVX" -> "CVXUSDT", "CVX/USDT:USDT" -> "CVXUSDT") */
+function normalizeSymbol(sym) {
+  if (!sym) return '';
+  let clean = sym.toUpperCase().split(':')[0].replace('/', '').replace('_', '').trim();
+  if (!clean.endsWith('USDT')) {
+    clean += 'USDT';
+  }
+  return clean;
+}
+
+/** Safely parses timestamp numbers (seconds or ms) or ISO strings into a valid JS Date object */
+function parseOrderTimestamp(ts) {
+  if (!ts) return new Date();
+  const num = typeof ts === 'number' ? ts : (isNaN(Number(ts)) ? NaN : Number(ts));
+  if (!isNaN(num) && num > 0) {
+    const ms = num < 1e11 ? num * 1000 : num;
+    return new Date(ms);
+  }
+  const parsed = new Date(ts);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
 /** Helper function to interleave square-off execution: High Profit, High Loss, Next High Profit, Next High Loss... */
 function sortInterleavedSquareOff(positions) {
   if (!positions || !Array.isArray(positions)) return [];
@@ -80,7 +102,7 @@ export default class PortfolioAgent extends BaseAgent {
   /** Fire-and-forget background sync: runs exchange API calls outside the main 2s cycle */
   async _runBackgroundSync() {
     try {
-      const portfolio = await Portfolio.findOne({}).lean();
+      const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID }) || await Portfolio.findOne({});
       if (portfolio) {
         // 1. Fetch all live positions from exchange (one call, all symbols)
         try {
@@ -146,13 +168,13 @@ export default class PortfolioAgent extends BaseAgent {
         // 5. FAST RECONCILIATION: Close DB positions that no longer exist on the exchange
         if (this._fetchedExchangeSuccessfully && this._cachedExchangePositions) {
           const exchangeAssets = new Set(
-            this._cachedExchangePositions.map(p => p.symbol ? p.symbol.split(':')[0].replace('/', '').toUpperCase() : '')
+            this._cachedExchangePositions.map(p => normalizeSymbol(p.symbol || p.asset))
           );
 
           let portfolioChanged = false;
           for (const position of openPositions) {
             if (!position || !position.asset) continue;
-            const cleanAsset = position.asset.replace('/', '').replace('_', '').toUpperCase();
+            const cleanAsset = normalizeSymbol(position.asset);
 
             // Position is open in DB but does NOT exist on CoinSwitch Pro
             if (!exchangeAssets.has(cleanAsset)) {
@@ -207,16 +229,17 @@ export default class PortfolioAgent extends BaseAgent {
         // 6. REVERSE RECONCILIATION: Import new exchange positions that don't exist in DB yet
         if (this._fetchedExchangeSuccessfully && this._cachedExchangePositions && this._cachedExchangePositions.length > 0) {
           const dbOpenAssets = new Set(
-            (portfolio.positions || []).filter(p => p && p.status === 'open').map(p => p.asset.replace('/', '').replace('_', '').toUpperCase())
+            (portfolio.positions || []).filter(p => p && p.status === 'open').map(p => normalizeSymbol(p.asset))
           );
 
           let imported = false;
           for (const exchPos of this._cachedExchangePositions) {
-            const asset = exchPos.symbol ? exchPos.symbol.split(':')[0].replace('/', '') : '';
-            if (!asset || (exchPos.contracts || 0) <= 0) continue;
+            const rawAsset = exchPos.symbol || exchPos.asset || '';
+            if (!rawAsset || (exchPos.contracts || 0) <= 0) continue;
 
-            const cleanAsset = asset.replace('/', '').replace('_', '').toUpperCase();
+            const cleanAsset = normalizeSymbol(rawAsset);
             if (dbOpenAssets.has(cleanAsset)) continue; // Already in DB
+            const asset = cleanAsset;
 
             this.logger.info(`📥 [BG RECONCILIATION] Found active position for ${asset} on CoinSwitch Pro missing in DB. Importing now!`);
 
@@ -232,6 +255,20 @@ export default class PortfolioAgent extends BaseAgent {
             const stopLoss = side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk;
             const takeProfit = side === 'long' ? entryPrice + priceDeltaTarget : Math.max(0.000001, entryPrice - priceDeltaTarget);
 
+            let foundOrderId = exchPos.id || exchPos.orderId || exchPos.info?.order_id || exchPos.info?.id || null;
+            if (!foundOrderId) {
+              try {
+                const { getExchange } = await import('../../services/exchangeService.js');
+                const exchange = getExchange();
+                const symbol = `${asset.replace('USDT', '')}/USDT:USDT`;
+                const closedOrders = await exchange.fetchClosedOrders(symbol, undefined, 5);
+                const entryOrder = (closedOrders || []).find(o => (o.status === 'closed' || o.raw?.status === 'EXECUTED') && o.filled > 0 && !o.reduceOnly);
+                if (entryOrder && entryOrder.id) {
+                  foundOrderId = entryOrder.id;
+                }
+              } catch (e) {}
+            }
+
             portfolio.positions.push({
               asset,
               side,
@@ -243,16 +280,23 @@ export default class PortfolioAgent extends BaseAgent {
               openedAt: new Date(),
               stopLoss,
               takeProfit,
-              unrealizedPnl: exchPos.unrealizedPnl || 0
+              unrealizedPnl: exchPos.unrealizedPnl || 0,
+              exchangeOrderId: foundOrderId
             });
 
             try {
-              const existingTrade = await Trade.findOne({ asset, status: 'open' });
+              const query = foundOrderId
+                ? { $or: [{ exchangeOrderId: foundOrderId }, { asset, status: 'open' }] }
+                : { asset, status: 'open' };
+              const existingTrade = await Trade.findOne(query);
               if (!existingTrade) {
                 await Trade.create({
-                  asset, side, type: 'MARKET', entryPrice, quantity, leverage,
-                  status: 'open', openedAt: new Date(), stopLoss, takeProfit
+                  asset, side, action: side === 'long' ? 'BUY' : 'SELL', entryPrice, quantity, leverage,
+                  status: 'open', openedAt: new Date(), stopLoss, takeProfit, exchangeOrderId: foundOrderId, exchange: 'coinswitch'
                 });
+              } else if (!existingTrade.exchangeOrderId && foundOrderId) {
+                existingTrade.exchangeOrderId = foundOrderId;
+                await existingTrade.save();
               }
             } catch (tradeErr) {
               this.logger.debug(`[BG RECONCILIATION] Could not create Trade record for ${asset}: ${tradeErr.message}`);
@@ -502,18 +546,31 @@ export default class PortfolioAgent extends BaseAgent {
           });
 
           try {
-            await Trade.create({
-              asset,
-              side,
-              type: 'MARKET',
-              entryPrice,
-              quantity,
-              leverage,
-              status: 'open',
-              openedAt: new Date(),
-              stopLoss,
-              takeProfit
-            });
+            const query = foundOrderId
+              ? { $or: [{ exchangeOrderId: foundOrderId }, { asset, status: 'open' }] }
+              : { asset, status: 'open' };
+            const existingTrade = await Trade.findOne(query);
+            if (!existingTrade) {
+              await Trade.create({
+                userId: SYSTEM_USER_ID,
+                asset,
+                action: side === 'long' ? 'BUY' : 'SELL',
+                side,
+                type: 'live',
+                entryPrice,
+                quantity,
+                leverage,
+                status: 'open',
+                openedAt: new Date(),
+                stopLoss,
+                takeProfit,
+                exchangeOrderId: foundOrderId,
+                exchange: 'coinswitch'
+              });
+            } else if (!existingTrade.exchangeOrderId && foundOrderId) {
+              existingTrade.exchangeOrderId = foundOrderId;
+              await existingTrade.save();
+            }
           } catch (tradeErr) {
             this.logger.debug(`Could not create Trade record for reconciled ${asset}: ${tradeErr.message}`);
           }
@@ -530,19 +587,22 @@ export default class PortfolioAgent extends BaseAgent {
       const activeExchangeAssetSet = new Set(
         activeExchangePositions
           .filter(p => p && (p.contracts > 0 || p.amount > 0))
-          .map(p => p.symbol ? p.symbol.split(':')[0].replace('/', '').replace('_', '').toUpperCase() : '')
+          .map(p => normalizeSymbol(p.symbol || p.asset))
       );
 
       for (const pos of portfolio.positions) {
         if (pos && pos.status === 'open') {
-          const cleanAsset = pos.asset ? pos.asset.replace('/', '').replace('_', '').toUpperCase() : '';
+          const cleanAsset = normalizeSymbol(pos.asset);
 
           if (activeExchangeAssetSet.has(cleanAsset)) {
             // Guarantee that Trade document in DB remains status: 'open' as long as position is active on CoinSwitch
             Trade.updateMany(
-              { asset: pos.asset, status: 'closed', exchangeOrderId: pos.exchangeOrderId },
+              { asset: { $in: [cleanAsset, cleanAsset.replace('USDT', '')] }, status: 'closed' },
               { $set: { status: 'open' }, $unset: { closedAt: '', exitPrice: '', pnl: '', pnlPercent: '' } }
             ).catch(() => {});
+
+            // AUTOMATIC MANDATORY TRIGGER VERIFICATION & PLACEMENT ON COINSWITCH PRO
+            this.ensureLiveTriggersExist(pos).catch(() => {});
           } else {
             // Verify if there is a confirmed reduceOnly exit order on exchange before closing
             (async () => {
@@ -550,28 +610,41 @@ export default class PortfolioAgent extends BaseAgent {
                 const { getExchange } = await import('../../services/exchangeService.js');
                 const exchange = getExchange();
                 const closedOrders = await exchange.fetchClosedOrders(pos.asset, undefined, 10);
-                const fillOrder = (closedOrders || []).find(o => (o.status === 'closed' || o.raw?.status === 'EXECUTED') && o.filled > 0 && (o.reduceOnly === true || o.raw?.reduce_only === true));
+                const posOpenTime = new Date(pos.openedAt || pos.createdAt || 0).getTime();
+                const fillOrder = (closedOrders || []).find(o => {
+                  const isClosed = o.status === 'closed' || o.raw?.status === 'EXECUTED';
+                  const isReduceOnly = o.reduceOnly === true || o.raw?.reduce_only === true;
+                  const orderTime = parseOrderTimestamp(o.timestamp || o.raw?.updated_at || o.raw?.created_at).getTime();
+                  return isClosed && (o.filled > 0) && isReduceOnly && (orderTime >= posOpenTime - 60000);
+                });
                 
                 if (fillOrder) {
                   this.logger.warn(`🧹 [STRICT COINSWITCH SYNC] Position for ${pos.asset} closed on CoinSwitch Pro. Syncing fill receipt...`);
                   pos.status = 'closed';
-                  pos.closedAt = new Date(fillOrder.timestamp || Date.now());
+                  pos.closedAt = parseOrderTimestamp(fillOrder.timestamp || fillOrder.raw?.updated_at || fillOrder.raw?.created_at);
 
                   const exitPrice = parseFloat(fillOrder.price || fillOrder.raw?.avg_execution_price || pos.currentPrice);
-                  const realizedPnl = parseFloat(fillOrder.realisedPnl || fillOrder.raw?.realised_pnl || 0);
+                  const rawPnl = parseFloat(fillOrder.realisedPnl || fillOrder.raw?.realised_pnl || 0);
                   const feeInUsdt = parseFloat(fillOrder.executionFee || fillOrder.raw?.execution_fee || 0) / 96.54;
 
+                  const isLong = pos.side === 'long' || pos.action === 'BUY';
+                  const calculatedPnl = isLong 
+                    ? (exitPrice - pos.entryPrice) * pos.quantity 
+                    : (pos.entryPrice - exitPrice) * pos.quantity;
+
+                  const finalGrossPnl = (rawPnl !== 0) ? (rawPnl / 96.54) : calculatedPnl;
+
                   await Trade.findOneAndUpdate(
-                    { asset: pos.asset, status: { $in: ['open', 'pending'] } },
+                    { asset: { $in: [cleanAsset, cleanAsset.replace('USDT', '')] }, status: { $in: ['open', 'pending'] } },
                     {
                       $set: {
                         status: 'closed',
                         exitPrice: exitPrice,
                         quantity: fillOrder.filled || pos.quantity,
-                        pnl: realizedPnl,
-                        fees: feeInUsdt,
+                        pnl: finalGrossPnl,
+                        fees: feeInUsdt > 0 ? feeInUsdt : (pos.entryPrice * pos.quantity * 0.0010),
                         exchangeOrderId: fillOrder.id,
-                        closedAt: new Date(fillOrder.timestamp || Date.now()),
+                        closedAt: parseOrderTimestamp(fillOrder.timestamp || fillOrder.raw?.updated_at || fillOrder.raw?.created_at),
                         reasoning: 'Closed Manually / Triggered on CoinSwitch Pro Exchange'
                       }
                     },
@@ -593,22 +666,22 @@ export default class PortfolioAgent extends BaseAgent {
     for (let i = portfolio.positions.length - 1; i >= 0; i--) {
       const pos = portfolio.positions[i];
       if (pos && pos.status === 'open') {
-        if (seenOpenAssets.has(pos.asset)) {
-          this.logger.warn(`🧹 [DEDUPLICATION] Marking duplicate open position for ${pos.asset} as closed`);
-          pos.status = 'closed';
-          pos.closedAt = new Date();
+        const clean = normalizeSymbol(pos.asset);
+        if (seenOpenAssets.has(clean)) {
+          this.logger.warn(`🧹 [DEDUPLICATION] Removing duplicate open position entry for ${pos.asset}`);
+          portfolio.positions.splice(i, 1);
         } else {
-          seenOpenAssets.add(pos.asset);
+          seenOpenAssets.add(clean);
         }
       }
     }
 
     if (fetchedExchangeSuccessfully) {
       for (const exchangePos of activeExchangePositions) {
-        const asset = exchangePos.symbol.split(':')[0].replace('/', '');
+        const asset = normalizeSymbol(exchangePos.symbol || exchangePos.asset);
 
         // Skip assets not supported by this bot instance
-        if (!SUPPORTED_ASSETS.includes(asset)) {
+        if (!SUPPORTED_ASSETS.includes(asset) && !SUPPORTED_ASSETS.includes(asset.replace('USDT', ''))) {
           continue;
         }
 
@@ -619,7 +692,7 @@ export default class PortfolioAgent extends BaseAgent {
           continue;
         }
 
-        const dbPosition = portfolio.positions.find((p) => p && p.asset === asset && p.status === 'open');
+        const dbPosition = portfolio.positions.find((p) => p && normalizeSymbol(p.asset) === asset && p.status === 'open');
 
         if (dbPosition) {
           // Synchronize exact exchange parameters to eliminate quantity & entry price mismatches
@@ -745,7 +818,19 @@ export default class PortfolioAgent extends BaseAgent {
           let dynamicTrailingPct = undefined;
           const category = getCategoryForAsset(asset);
 
-          const estimatedEntryFee = entryPrice * quantity * 0.0005;
+          let resolvedOrderId = (activeTrade && activeTrade.exchangeOrderId) ? activeTrade.exchangeOrderId : (exchangePos.id || exchangePos.orderId || null);
+          if (!resolvedOrderId) {
+            try {
+              const { getExchange } = await import('../../services/exchangeService.js');
+              const exchange = getExchange();
+              const symbol = `${asset.replace('USDT', '')}/USDT:USDT`;
+              const closedOrders = await exchange.fetchClosedOrders(symbol, undefined, 5);
+              const entryOrder = (closedOrders || []).find(o => (o.status === 'closed' || o.raw?.status === 'EXECUTED') && o.filled > 0 && !o.reduceOnly);
+              if (entryOrder && entryOrder.id) {
+                resolvedOrderId = entryOrder.id;
+              }
+            } catch (e) {}
+          }
 
           // Add to portfolio positions array
           portfolio.positions.push({
@@ -762,7 +847,7 @@ export default class PortfolioAgent extends BaseAgent {
             stopLoss: calculatedStopLoss,
             takeProfit: calculatedTakeProfit,
             stopLossOrderId,
-            exchangeOrderId: (activeTrade && activeTrade.exchangeOrderId) ? activeTrade.exchangeOrderId : null,
+            exchangeOrderId: resolvedOrderId,
             // Dynamic Profit Engine fields
             dynamicTrailingPct,
             category,
@@ -771,11 +856,12 @@ export default class PortfolioAgent extends BaseAgent {
           });
 
           if (!activeTrade) {
+            const isLive = process.env.TRADING_MODE === 'live';
             await Trade.create({
               userId: portfolio.userId || null,
               asset,
               action: side === 'long' ? 'BUY' : 'SELL',
-              type: 'paper',
+              type: isLive ? 'live' : 'paper',
               side,
               entryPrice,
               quantity,
@@ -786,10 +872,10 @@ export default class PortfolioAgent extends BaseAgent {
               takeProfit: calculatedTakeProfit,
               confidence: 1.0,
               riskScore: 0.5,
-              reasoning: 'Imported via Binance reconciliation sync',
+              reasoning: 'Imported via CoinSwitch Pro reconciliation sync',
               status: 'open',
               executedAt: new Date(exchangePos.timestamp || Date.now()),
-              exchange: 'binance_testnet',
+              exchange: isLive ? 'coinswitch' : 'binance_testnet',
             });
             this.logger.info(`✅ [RECONCILIATION] Created matching Trade record for ${asset} (${side.toUpperCase()}) with fallback targets (SL: ${calculatedStopLoss}, TP: ${calculatedTakeProfit})`);
             
@@ -1030,7 +1116,7 @@ export default class PortfolioAgent extends BaseAgent {
           
           // Await close order and retrieve actual executed parameters from response
           const closeOrder = exitOrderType === 'market' 
-            ? await placeMarketOrder(position.asset, exitSide, closeQty)
+            ? await placeMarketOrder(position.asset, exitSide, closeQty, true)
             : await placeLimitOrder(position.asset, exitSide, closeQty, closePrice);
           
           actualClosePrice = closeOrder.average || closeOrder.price || closePrice;
@@ -1039,6 +1125,25 @@ export default class PortfolioAgent extends BaseAgent {
           }
         }
       } catch (err) {
+        const errStr = (err.message || '').toLowerCase();
+        if (errStr.includes('no open position') || errStr.includes('no_open_position') || errStr.includes('position not found')) {
+          this.logger.info(`ℹ️ [POSITION ALREADY CLOSED ON EXCHANGE] ${position.asset} has no open position on exchange. Syncing DB status to closed.`);
+          position.status = 'closed';
+          position.closedAt = new Date();
+          position.closePrice = closePrice;
+          position.realizedPnl = 0;
+          position.closeReason = `Closed on exchange (${reason})`;
+          try {
+            await Trade.findOneAndUpdate(
+              { asset: position.asset, status: 'open' },
+              { status: 'closed', closedAt: new Date(), exitPrice: closePrice, closeReason: position.closeReason }
+            );
+          } catch (tErr) {}
+          try { await portfolio.save(); } catch (sErr) {}
+          if (this._activeExitLocks) this._activeExitLocks.delete(position.asset);
+          return { success: true, synced: true };
+        }
+
         this.logger.error(`❌ [EXCHANGE EXIT FAILED] Failed to place offsetting close order on Exchange for ${position.asset}: ${err.message}. Initiating auto-ignore with limit order fallback.`);
         
         try {
@@ -1626,6 +1731,47 @@ export default class PortfolioAgent extends BaseAgent {
       for (const order of executedOrders) {
         const asset = order.symbol.split(':')[0].replace('/', '').toUpperCase();
 
+        // 1. If an open position trade exists in DB, update it cleanly with real entryPrice & exitPrice
+        const openTrade = await Trade.findOne({ asset, status: 'open' });
+        if (openTrade) {
+          this.logger.info(`🔄 [CLOSED TRADES SYNC] Updating open position trade for ${asset} to closed via exchange order ${order.id}...`);
+          const rawPnl = order.realisedPnl || order.raw?.realised_pnl || 0;
+          const feeUsdt = ((order.executionFee || order.raw?.execution_fee || 0) / 96.54) || (order.price * order.filled * 0.0010);
+          const finalPnl = (rawPnl !== 0) ? (rawPnl / 96.54) : (
+            openTrade.side === 'long'
+              ? (order.price - openTrade.entryPrice) * order.filled
+              : (openTrade.entryPrice - order.price) * order.filled
+          );
+
+          openTrade.status = 'closed';
+          openTrade.exitPrice = order.price;
+          openTrade.pnl = finalPnl;
+          openTrade.fees = (openTrade.fees || 0) + feeUsdt;
+          openTrade.pnlPercent = openTrade.entryPrice > 0 ? (finalPnl / (openTrade.entryPrice * openTrade.quantity)) * 100 : 0;
+          openTrade.closedAt = parseOrderTimestamp(order.timestamp || order.raw?.updated_at || order.raw?.created_at);
+          openTrade.exchangeOrderId = openTrade.exchangeOrderId || order.id;
+          openTrade.reasoning = order.raw?.order_type === 'STOP_MARKET' 
+            ? 'Stop-Loss Triggered on Exchange' 
+            : order.raw?.order_type === 'TAKE_PROFIT_MARKET' 
+              ? 'Take-Profit Triggered on Exchange' 
+              : 'Position Closed on Exchange';
+          await openTrade.save();
+          continue;
+        }
+
+        // 2. Standalone SL/TP trigger orders are safeguard orders — NEVER log as closed position trades
+        const isSlTpOrder = order.raw?.order_type === 'STOP_MARKET' || 
+                            order.raw?.order_type === 'TAKE_PROFIT_MARKET' ||
+                            order.raw?.order_type === 'STOP_LOSS' ||
+                            order.raw?.order_type === 'TAKE_PROFIT' ||
+                            order.type === 'stop_market' ||
+                            order.type === 'take_profit_market';
+
+        if (isSlTpOrder) {
+          this.logger.debug(`Ignoring standalone SL/TP trigger order ${order.id} for ${asset} (safeguard order, not a position trade).`);
+          continue;
+        }
+
         const existingTrade = await Trade.findOne({
           $or: [
             { exchangeOrderId: order.id },
@@ -1634,10 +1780,11 @@ export default class PortfolioAgent extends BaseAgent {
         });
 
         if (!existingTrade && order.reduceOnly) {
-          this.logger.info(`🔄 [CLOSED TRADES SYNC] Syncing closed order ${order.id} for ${asset} from CoinSwitch Pro...`);
+          this.logger.info(`🔄 [CLOSED TRADES SYNC] Syncing manual closed trade ${order.id} for ${asset} from CoinSwitch Pro...`);
           
-          const realizedPnl = order.realisedPnl || 0;
-          const feeUsdt = (order.executionFee || 0) / 96.56;
+          const rawPnl = order.realisedPnl || order.raw?.realised_pnl || 0;
+          const feeUsdt = ((order.executionFee || order.raw?.execution_fee || 0) / 96.54) || (order.price * order.filled * 0.0010);
+          const finalPnl = (rawPnl !== 0) ? (rawPnl / 96.54) : 0;
 
           await Trade.create({
             userId: SYSTEM_USER_ID,
@@ -1647,15 +1794,12 @@ export default class PortfolioAgent extends BaseAgent {
             entryPrice: order.price,
             exitPrice: order.price,
             quantity: order.filled,
-            realizedPnl,
-            pnlPercentage: (order.price > 0 && order.filled > 0) ? (realizedPnl / (order.price * order.filled)) * 100 : 0,
+            pnl: finalPnl,
+            pnlPercent: (order.price > 0 && order.filled > 0) ? (finalPnl / (order.price * order.filled)) * 100 : 0,
             status: 'closed',
-            exitReason: order.raw?.order_type === 'STOP_MARKET' 
-              ? 'Native Stop-Loss Triggered on Exchange' 
-              : order.raw?.order_type === 'TAKE_PROFIT_MARKET' 
-                ? 'Native Take-Profit Triggered on Exchange' 
-                : 'Closed Manually on CoinSwitch Pro',
-            closedAt: new Date(order.timestamp || Date.now()),
+            exchangeOrderId: order.id,
+            reasoning: 'Closed Manually on CoinSwitch Pro',
+            closedAt: parseOrderTimestamp(order.timestamp || order.raw?.updated_at || order.raw?.created_at),
             fees: feeUsdt
           });
         }
@@ -1773,8 +1917,6 @@ export default class PortfolioAgent extends BaseAgent {
     // In negative territory: do NOTHING — let the static exchange SL handle it
 
     if (shouldClose) {
-      if (!this._activeExitLocks) this._activeExitLocks = new Set();
-      this._activeExitLocks.add(asset);
       try {
         this.logger.info(`⚡ [WEBSOCKET SUB-50MS EXIT] ${asset} ${side.toUpperCase()} triggered: ${reason}`);
         await this.closePosition(portfolio, position, currentPrice, reason, false);
@@ -1784,9 +1926,62 @@ export default class PortfolioAgent extends BaseAgent {
         this._recentlyClosed[position.asset] = Date.now();
         // Clear peak tracking for this asset
         if (this._peakNetPnlMap) delete this._peakNetPnlMap[cleanAsset];
-      } finally {
-        this._activeExitLocks.delete(asset);
+      } catch (exitErr) {
+        this.logger.error(`Sub-50ms exit error for ${asset}: ${exitErr.message}`);
       }
+    }
+  }
+
+  async ensureLiveTriggersExist(pos) {
+    if (!pos || pos.status !== 'open' || process.env.TRADING_MODE !== 'live') return;
+    if (pos.stopLossOrderId && pos.takeProfitOrderId && pos.stopLossOrderId !== 'pending' && pos.takeProfitOrderId !== 'pending') return;
+
+    try {
+      const { getExchange } = await import('../../services/exchangeService.js');
+      const exchange = getExchange();
+      const exitSide = pos.side === 'long' ? 'sell' : 'buy';
+
+      // 1. Mandatory Native Stop-Loss trigger order on CoinSwitch Pro
+      if (!pos.stopLossOrderId && pos.stopLoss && pos.stopLoss > 0) {
+        try {
+          const slRes = await exchange.createOrder(pos.asset, 'stop_market', exitSide, pos.quantity, undefined, {
+            stopPrice: pos.stopLoss,
+            reduceOnly: true
+          });
+          if (slRes && slRes.id) {
+            pos.stopLossOrderId = slRes.id;
+            this.logger.info(`✅ [MANDATORY SL ATTACHED] Placed native Stop-Loss order ${slRes.id} @ $${pos.stopLoss} for ${pos.asset} on CoinSwitch Pro`);
+          }
+        } catch (slErr) {
+          if (slErr.message && slErr.message.includes('already exists')) {
+            pos.stopLossOrderId = 'existing_exchange_sl';
+          } else {
+            this.logger.warn(`⚠️ [MANDATORY SL ATTACH FAILED] Could not attach Stop-Loss for ${pos.asset}: ${slErr.message}`);
+          }
+        }
+      }
+
+      // 2. Mandatory Native Take-Profit trigger order on CoinSwitch Pro
+      if (!pos.takeProfitOrderId && pos.takeProfit && pos.takeProfit > 0) {
+        try {
+          const tpRes = await exchange.createOrder(pos.asset, 'take_profit_market', exitSide, pos.quantity, undefined, {
+            stopPrice: pos.takeProfit,
+            reduceOnly: true
+          });
+          if (tpRes && tpRes.id) {
+            pos.takeProfitOrderId = tpRes.id;
+            this.logger.info(`✅ [MANDATORY TP ATTACHED] Placed native Take-Profit order ${tpRes.id} @ $${pos.takeProfit} for ${pos.asset} on CoinSwitch Pro`);
+          }
+        } catch (tpErr) {
+          if (tpErr.message && tpErr.message.includes('already exists')) {
+            pos.takeProfitOrderId = 'existing_exchange_tp';
+          } else {
+            this.logger.warn(`⚠️ [MANDATORY TP ATTACH FAILED] Could not attach Take-Profit for ${pos.asset}: ${tpErr.message}`);
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Error ensuring live triggers for ${pos.asset}: ${err.message}`);
     }
   }
 }

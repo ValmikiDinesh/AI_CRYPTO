@@ -152,6 +152,7 @@ async function bootAgents() {
   logger.info('Agent pipeline: Market → Technical → Sentiment → Prediction → Fusion → Risk → Execution → Portfolio → Learning');
 
   // Return marketAgent so boot() can await its dataReadyPromise
+  global.supervisorRef = supervisorAgent;
   return marketAgent;
 }
 
@@ -172,12 +173,20 @@ const shutdown = async (signal) => {
   }, 2000);
   forceExitTimeout.unref();
 
-  // 1. Close HTTP server
+  // 1. Stop all agent execution cycles first before closing DB connection
+  if (global.supervisorRef) {
+    try {
+      global.supervisorRef.stopAll();
+      logger.info('All agents stopped');
+    } catch (sErr) {}
+  }
+
+  // 2. Close HTTP server
   server.close(() => {
     logger.info('HTTP server closed');
   });
 
-  // 2. Disconnect Mongoose
+  // 3. Disconnect Mongoose
   try {
     await mongoose.connection.close();
     logger.info('MongoDB connection closed');

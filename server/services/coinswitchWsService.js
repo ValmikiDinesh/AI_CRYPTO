@@ -5,7 +5,7 @@ import logger from '../utils/logger.js';
 class CoinSwitchWsService {
   constructor() {
     this.socket = null;
-    this.callbacks = [];
+    this.callbacks = new Set();
     this.isConnected = false;
     this.latestPrices = {};
   }
@@ -84,7 +84,9 @@ class CoinSwitchWsService {
   }
 
   onPriceUpdate(callback) {
-    this.callbacks.push(callback);
+    if (typeof callback === 'function') {
+      this.callbacks.add(callback);
+    }
   }
 
   getPrice(asset) {

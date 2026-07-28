@@ -25,8 +25,13 @@ export default class PredictionAgent extends BaseAgent {
     const assetsData = [];
     const candleMap = {};
 
+    let count = 0;
     // 1. Gather technical and sentiment indicators for all assets
     for (const asset of SUPPORTED_ASSETS) {
+      count++;
+      if (count % 40 === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
       try {
         const candles = this.marketAgent.getCandles(asset);
         if (!candles || candles.length < 20) {
@@ -136,10 +141,9 @@ export default class PredictionAgent extends BaseAgent {
 
       this.predictions[asset] = prediction;
 
-      // Persist to MongoDB & publish via Redis ONLY if directional prediction (up or down)
+      // Publish directional predictions via Redis in-memory stream
       if (prediction.direction !== 'neutral' && prediction.probability >= 0.55) {
         try {
-          await Prediction.create(prediction);
           await publishEvent(CHANNELS.PREDICTIONS, prediction);
 
           const reasoningSnippet = prediction.metadata?.reasoning || 'No details';
@@ -147,7 +151,10 @@ export default class PredictionAgent extends BaseAgent {
             `⚡ [PREDICTION] ${asset} (${prediction.model}): predicted ${prediction.direction} (prob=${prediction.probability.toFixed(2)}) — ${reasoningSnippet.substring(0, 80)}`
           );
         } catch (err) {
-          this.logger.error(`Error saving prediction for ${asset}: ${err.message}`);
+          const errStr = (err.message || '').toLowerCase();
+          if (!errStr.includes('client must be connected') && !errStr.includes('client was closed')) {
+            this.logger.error(`Error saving prediction for ${asset}: ${err.message}`);
+          }
         }
       }
     }

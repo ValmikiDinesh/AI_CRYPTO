@@ -89,9 +89,20 @@ export default class MarketAgent extends BaseAgent {
 
     this.logger.info(`🚀 Phase 1 Boot Complete: Loaded priority candles for ${priorityList.length} assets in < 500ms.`);
 
-    // Phase 2: Secondary Assets (Meme Coins + Recommended Coins) — Staggered REST Preload for ALL 568 coins
+    // Resolve readiness signal IMMEDIATELY after Phase 1 so server boot completes in <500ms
+    if (this._dataReadyResolve) {
+      this._dataReadyResolve();
+      this._dataReadyResolve = null;
+    }
+
+    // Start REST polling loop
+    if (!this.pollInterval) {
+      this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
+    }
+
+    // Phase 2: Secondary Assets (Meme Coins + Recommended Coins) — Gentle Background Preload (non-blocking)
     const secondaryAssets = SUPPORTED_ASSETS.filter(a => !priorityAssets.has(a));
-    const BATCH_SIZE = 15;
+    const BATCH_SIZE = 5;
     
     for (let i = 0; i < secondaryAssets.length; i += BATCH_SIZE) {
       const batch = secondaryAssets.slice(i, i + BATCH_SIZE);
@@ -108,21 +119,10 @@ export default class MarketAgent extends BaseAgent {
           }
         } catch (err) {}
       }));
-      await new Promise(r => setTimeout(r, 120));
+      await new Promise(r => setTimeout(r, 400));
     }
 
     this.logger.info(`✅ Phase 2 Complete: Preloaded 30 candles for all ${SUPPORTED_ASSETS.length} supported coins.`);
-
-    // Start REST polling loop AFTER Phase 2 finishes so ticker sync doesn't collide with initial candle loads
-    if (!this.pollInterval) {
-      this.pollInterval = setInterval(() => this.pollMarketData(), INTERVALS.ANALYSIS_CYCLE_MS);
-    }
-
-    // Signal to boot() that ALL asset data is ready
-    if (this._dataReadyResolve) {
-      this._dataReadyResolve();
-      this._dataReadyResolve = null;
-    }
   }
 
   async pollMarketData() {

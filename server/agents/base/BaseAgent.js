@@ -52,9 +52,9 @@ export default class BaseAgent {
   /** Single execution cycle with error handling and logging. */
   async runCycle() {
     if (this.isExecuting) {
-      // Force-release if stuck for more than 120 seconds
-      if (this._cycleStartedAt && (Date.now() - this._cycleStartedAt) > 120000) {
-        this.logger.warn(`${this.name} cycle force-released after 120s hang`);
+      // Force-release if stuck for more than 15 seconds
+      if (this._cycleStartedAt && (Date.now() - this._cycleStartedAt) > 15000) {
+        this.logger.warn(`${this.name} cycle force-released after 15s hang`);
         this.isExecuting = false;
       } else {
         this.logger.debug(`${this.name} cycle skipped — previous cycle still executing`);
@@ -68,9 +68,9 @@ export default class BaseAgent {
       this.lastHeartbeat = Date.now();
       this.cycleCount++;
 
-      // Timeout guard: force-abort if execute() hangs longer than 120s
+      // Timeout guard: force-abort if execute() hangs longer than 15s
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Cycle timed out after 120s')), 120000)
+        setTimeout(() => reject(new Error('Cycle timed out after 15s')), 15000)
       );
       await Promise.race([this.execute(), timeoutPromise]);
 

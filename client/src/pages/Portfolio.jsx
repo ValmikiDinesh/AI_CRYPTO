@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { usePortfolioStore, useMarketStore, useCurrencyStore } from '../store.js';
+import { usePortfolioStore, useMarketStore, useCurrencyStore, socket } from '../store.js';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
 import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity, Search, Medal, Skull, AlertCircle, ArrowUpDown } from 'lucide-react';
 import axios from 'axios';
@@ -22,8 +22,9 @@ const formatCoinSwitchOrderId = (orderId) => {
   return '#' + (orderId.length > 6 ? orderId.slice(0, 6) : orderId);
 };
 
-function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
+function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openOrders }) {
   const prices = useMarketStore((s) => s.prices);
+  const [openSubTab, setOpenSubTab] = useState('positions'); // 'positions' | 'stopLoss' | 'takeProfit'
   const [openLedgerTab, setOpenLedgerTab] = useState('all');
   const [, setTick] = useState(0);
   const persistentOpenTradesRef = useRef([]);
@@ -50,6 +51,21 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
     if (openLedgerTab === 'recommended') return !CORE_ASSETS.includes(trade.asset) && !MEME_ASSETS.includes(trade.asset);
     return true;
   });
+
+  // Real exchange open trigger orders (Stop Loss and Take Profit) from CoinSwitch Pro
+  const liveSlOrders = (openOrders && openOrders.length > 0)
+    ? openOrders.filter(o => 
+        (o.type && (o.type.includes('stop') || o.type.includes('loss'))) ||
+        (o.raw && o.raw.order_type && o.raw.order_type.includes('STOP'))
+      )
+    : filteredOpenTrades.filter(t => t.stopLoss && t.stopLoss > 0);
+
+  const liveTpOrders = (openOrders && openOrders.length > 0)
+    ? openOrders.filter(o => 
+        (o.type && (o.type.includes('take_profit') || o.type.includes('profit'))) ||
+        (o.raw && o.raw.order_type && o.raw.order_type.includes('TAKE_PROFIT'))
+      )
+    : filteredOpenTrades.filter(t => t.takeProfit && t.takeProfit > 0);
 
   if (activeTradesList.length === 0 && (!openPositionsCount || openPositionsCount === 0)) {
     return (
@@ -90,148 +106,330 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount }) {
 
   return (
     <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
-      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#2c2c2e]/60 p-6 pb-4 mb-4 gap-4">
-        <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
-          Active Open Positions
-        </h3>
-        <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
-          {[
-            { id: 'all', label: 'All' },
-            { id: 'core', label: 'Core Crypto' },
-            { id: 'meme', label: 'Meme Coins' },
-            { id: 'recommended', label: 'Recommended' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setOpenLedgerTab(tab.id)}
-              className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
-                openLedgerTab === tab.id
-                  ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
-                  : 'text-[#86868b] hover:text-[#f5f5f7]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      {/* Primary Order Type Navigation Bar */}
+      <div className="flex flex-col border-b border-[#2c2c2e]/60 bg-black/20">
+        <div className="flex flex-wrap items-center justify-between p-4 px-6 gap-4 border-b border-[#2c2c2e]/40">
+          <div className="flex items-center gap-2">
+            {[
+              { id: 'positions', label: 'Open Positions', count: filteredOpenTrades.length, color: 'text-sky-400 border-sky-500/30 bg-sky-500/10' },
+              { id: 'stopLoss', label: 'Stop Loss Orders', count: liveSlOrders.length, color: 'text-red-400 border-red-500/30 bg-red-500/10' },
+              { id: 'takeProfit', label: 'Take Profit Orders', count: liveTpOrders.length, color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setOpenSubTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-xs font-bold transition-all duration-200 border cursor-pointer ${
+                  openSubTab === tab.id
+                    ? `${tab.color} shadow-lg font-extrabold`
+                    : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 border border-current/20 font-bold">
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'core', label: 'Core Crypto' },
+              { id: 'meme', label: 'Meme Coins' },
+              { id: 'recommended', label: 'Recommended' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setOpenLedgerTab(tab.id)}
+                className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
+                  openLedgerTab === tab.id
+                    ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
+                    : 'text-[#86868b] hover:text-[#f5f5f7]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono whitespace-nowrap">
-              <th className="px-4 py-3">Execution Date</th>
-              <th className="px-4 py-3">Order ID</th>
-              <th className="px-4 py-3">Asset</th>
-              <th className="px-4 py-3">Action</th>
-              <th className="px-4 py-3 text-right">Entry Price</th>
-              <th className="px-4 py-3 text-right">Current Price</th>
-              <th className="px-4 py-3 text-right">Stop Loss</th>
-              <th className="px-4 py-3 text-right">Target</th>
-              <th className="px-4 py-3 text-right">Quantity</th>
-              <th className="px-4 py-3 text-right">Commission</th>
-              <th className="px-4 py-3 text-right">PnL (Net)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#2c2c2e]/40 whitespace-nowrap">
-            {filteredOpenTrades.map((trade, i) => {
-              const price = trade.entryPrice;
-              const currentPrice = (trade.currentPrice && trade.currentPrice > 0)
-                ? trade.currentPrice
-                : (prices && prices[trade.asset] !== undefined && prices[trade.asset] > 0)
+      {/* TAB 1: OPEN POSITIONS */}
+      {openSubTab === 'positions' && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono whitespace-nowrap">
+                <th className="px-4 py-3">Execution Date</th>
+                <th className="px-4 py-3">Order ID</th>
+                <th className="px-4 py-3">Asset</th>
+                <th className="px-4 py-3">Action</th>
+                <th className="px-4 py-3 text-right">Entry Price</th>
+                <th className="px-4 py-3 text-right">Current Price</th>
+                <th className="px-4 py-3 text-right">Stop Loss</th>
+                <th className="px-4 py-3 text-right">Target</th>
+                <th className="px-4 py-3 text-right">Quantity</th>
+                <th className="px-4 py-3 text-right">Commission</th>
+                <th className="px-4 py-3 text-right">PnL (Net)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#2c2c2e]/40 whitespace-nowrap">
+              {filteredOpenTrades.map((trade, i) => {
+                const price = trade.entryPrice;
+                const currentPrice = (prices && prices[trade.asset] !== undefined && prices[trade.asset] > 0)
                   ? prices[trade.asset]
-                  : (trade.entryPrice || 0);
-              const fees = (trade.fees && trade.fees > 0)
-                ? trade.fees 
-                : (trade.entryPrice * trade.quantity * 0.0005);
-              const isLong = trade.side === 'long' || trade.action === 'BUY';
-              const grossPnl = currentPrice ? (isLong ? (currentPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - currentPrice) * trade.quantity) : 0;
-              const netPnl = currentPrice ? grossPnl - fees : 0;
+                  : (trade.currentPrice && trade.currentPrice > 0)
+                    ? trade.currentPrice
+                    : (trade.entryPrice || 0);
+                const fees = (trade.fees && trade.fees > 0)
+                  ? trade.fees 
+                  : (trade.entryPrice * trade.quantity * 0.0005);
+                const isLong = trade.side === 'long' || trade.action === 'BUY';
+                const grossPnl = currentPrice ? (isLong ? (currentPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - currentPrice) * trade.quantity) : 0;
+                const netPnl = currentPrice ? grossPnl - fees : 0;
 
-              const rawOrderId = trade.exchangeOrderId || trade.stopLossOrderId || trade.orderId;
-              const cleanOrderId = (rawOrderId && rawOrderId !== '—') ? rawOrderId : null;
+                const rawOrderId = trade.exchangeOrderId || trade.orderId;
+                const cleanOrderId = (rawOrderId && rawOrderId !== '—') ? rawOrderId : null;
 
-              return (
-                <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                  <td className="px-4 py-3 text-zinc-500 font-mono text-[10px]">
-                    {new Date(trade.openedAt || trade.createdAt || Date.now()).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-[9px]">
-                    {cleanOrderId ? (
-                      <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm" title={cleanOrderId}>
-                        {formatCoinSwitchOrderId(cleanOrderId)}
+                return (
+                  <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+                    <td className="px-4 py-3 text-zinc-500 font-mono text-[10px]">
+                      {new Date(trade.openedAt || trade.createdAt || Date.now()).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-[9px]">
+                      {cleanOrderId ? (
+                        <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm" title={cleanOrderId}>
+                          {formatCoinSwitchOrderId(cleanOrderId)}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-600 font-mono">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-[#f5f5f7] font-mono">
+                      {trade.asset?.replace('1000', '').replace('USDT', '')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+                        trade.action === 'BUY'
+                          ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+                          : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
+                      }`}>
+                        {trade.action}
                       </span>
-                    ) : (
-                      <span className="text-zinc-600 font-mono">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-[#f5f5f7] font-mono">
-                    {trade.asset?.replace('1000', '').replace('USDT', '')}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
-                      trade.action === 'BUY'
-                        ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
-                        : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
-                    }`}>
-                      {trade.action}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-[#f5f5f7] font-mono font-bold">
-                    {price ? `$${price.toFixed(6)}` : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right text-sky-400 font-mono font-bold">
-                    {currentPrice ? `$${currentPrice.toFixed(6)}` : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right text-[#ff453a] font-mono font-bold">
-                    {(() => {
-                      const sl = trade.stopLoss;
-                      return sl ? (sl >= 1 ? `$${sl.toFixed(2)}` : `$${sl.toFixed(6)}`) : '—';
-                    })()}
-                  </td>
-                  <td className="px-4 py-3 text-right text-[#30d158] font-mono font-bold">
-                    {(() => {
-                      const tp = trade.takeProfit;
-                      return tp ? (tp >= 1 ? `$${tp.toFixed(2)}` : `$${tp.toFixed(6)}`) : '—';
-                    })()}
-                  </td>
-                  <td className="px-4 py-3 text-right text-[#86868b] font-mono">
-                    {trade.quantity?.toFixed(5) || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right text-[#ff9f0a] font-mono font-bold">
-                    ${fees.toFixed(4)}
-                  </td>
-                  <td 
-                    className="px-4 py-3 text-right font-bold font-mono"
-                    style={{ color: currentPrice ? (netPnl >= 0 ? '#30d158' : '#ff453a') : '#86868b' }}
-                  >
-                    {currentPrice ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : 'WAITING'}
-                  </td>
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#f5f5f7] font-mono font-bold">
+                      {price ? `$${price.toFixed(6)}` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sky-400 font-mono font-bold">
+                      {currentPrice ? `$${currentPrice.toFixed(6)}` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#ff453a] font-mono font-bold">
+                      {(() => {
+                        const sl = trade.stopLoss;
+                        return sl ? (sl >= 1 ? `$${sl.toFixed(2)}` : `$${sl.toFixed(6)}`) : '—';
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#30d158] font-mono font-bold">
+                      {(() => {
+                        const tp = trade.takeProfit;
+                        return tp ? (tp >= 1 ? `$${tp.toFixed(2)}` : `$${tp.toFixed(6)}`) : '—';
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#86868b] font-mono">
+                      {trade.quantity?.toFixed(5) || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#ff9f0a] font-mono font-bold">
+                      ${fees.toFixed(4)}
+                    </td>
+                    <td 
+                      className="px-4 py-3 text-right font-bold font-mono"
+                      style={{ color: currentPrice ? (netPnl >= 0 ? '#30d158' : '#ff453a') : '#86868b' }}
+                    >
+                      {currentPrice ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : 'WAITING'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot className="border-t border-[#2c2c2e] bg-black/45">
+              <tr className="align-middle whitespace-nowrap">
+                <td colSpan={9} className="px-4 py-3 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest whitespace-nowrap">
+                  Totals ({filteredOpenTrades.length} Open Positions)
+                </td>
+                <td className="px-4 py-3 text-right whitespace-nowrap">
+                  <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
+                  <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
+                    -${totalOpenCommission.toFixed(4)}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60 whitespace-nowrap">
+                  <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Combined Net PnL</span>
+                  <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalOpenNetPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+                    {totalOpenNetPnl >= 0 ? '+' : ''}${totalOpenNetPnl.toFixed(2)}
+                  </span>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {/* TAB 2: STOP LOSS ORDERS (REAL EXCHANGE OPEN ORDERS) */}
+      {openSubTab === 'stopLoss' && (
+        <div className="overflow-x-auto">
+          {liveSlOrders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+              <Activity size={20} className="text-red-500/50 mb-2" />
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                NO ACTIVE STOP LOSS ORDERS PLACED ON EXCHANGE
+              </span>
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono whitespace-nowrap">
+                  <th className="px-4 py-3">Placed Date</th>
+                  <th className="px-4 py-3">Stop Loss Order ID</th>
+                  <th className="px-4 py-3">Asset</th>
+                  <th className="px-4 py-3">Order Type</th>
+                  <th className="px-4 py-3">Exit Action</th>
+                  <th className="px-4 py-3 text-right">Trigger Stop Price</th>
+                  <th className="px-4 py-3 text-center">Status</th>
                 </tr>
-              );
-            })}
-          </tbody>
-          <tfoot className="border-t border-[#2c2c2e] bg-black/45">
-            <tr className="align-middle whitespace-nowrap">
-              <td colSpan={9} className="px-4 py-3 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest whitespace-nowrap">
-                Totals ({filteredOpenTrades.length} Open Trades)
-              </td>
-              <td className="px-4 py-3 text-right whitespace-nowrap">
-                <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
-                <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
-                  -${totalOpenCommission.toFixed(4)}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60 whitespace-nowrap">
-                <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Combined Net PnL</span>
-                <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalOpenNetPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
-                  {totalOpenNetPnl >= 0 ? '+' : ''}${totalOpenNetPnl.toFixed(2)}
-                </span>
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+              </thead>
+              <tbody className="divide-y divide-[#2c2c2e]/40 whitespace-nowrap">
+                {liveSlOrders.map((o, i) => {
+                  const orderId = o.id || o.raw?.order_id || 'placed_sl_trigger';
+                  const asset = o.symbol || o.raw?.symbol || o.asset || '';
+                  const orderType = o.raw?.order_type || o.type?.toUpperCase() || 'STOP_MARKET';
+                  const side = o.side?.toUpperCase() || o.raw?.side || 'SELL';
+                  const triggerPrice = o.stopPrice || parseFloat(o.raw?.trigger_price || 0) || o.stopLoss;
+                  const status = o.raw?.status || 'RAISED / ACTIVE';
+                  const createdAt = o.raw?.created_at ? new Date(o.raw.created_at).toLocaleString() : (o.openedAt ? new Date(o.openedAt).toLocaleString() : '—');
+
+                  return (
+                    <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+                      <td className="px-4 py-3 text-zinc-500 font-mono text-[10px]">
+                        {createdAt}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[9px]">
+                        <span className="px-2 py-0.5 rounded bg-red-950/30 border border-red-800/40 text-red-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm">
+                          {formatCoinSwitchOrderId(orderId)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-bold text-[#f5f5f7] font-mono">
+                        {asset.replace('1000', '').replace('USDT', '')}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[8px]">
+                          {orderType}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+                          side === 'SELL'
+                            ? 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
+                            : 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+                        }`}>
+                          {side}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-[#ff453a] font-mono font-bold text-sm">
+                        {triggerPrice ? (triggerPrice >= 1 ? `$${triggerPrice.toFixed(2)}` : `$${triggerPrice.toFixed(6)}`) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider bg-red-500/10 border border-red-500/20 text-red-400 font-mono">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                          {status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: TAKE PROFIT ORDERS (REAL EXCHANGE OPEN ORDERS) */}
+      {openSubTab === 'takeProfit' && (
+        <div className="overflow-x-auto">
+          {liveTpOrders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center h-44">
+              <Activity size={20} className="text-emerald-500/50 mb-2" />
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest font-mono">
+                NO ACTIVE TAKE PROFIT ORDERS PLACED ON EXCHANGE
+              </span>
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-black/35 border-b border-[#2c2c2e]/60 text-[#86868b] font-bold text-[9px] uppercase tracking-widest font-mono whitespace-nowrap">
+                  <th className="px-4 py-3">Placed Date</th>
+                  <th className="px-4 py-3">Take Profit Order ID</th>
+                  <th className="px-4 py-3">Asset</th>
+                  <th className="px-4 py-3">Order Type</th>
+                  <th className="px-4 py-3">Exit Action</th>
+                  <th className="px-4 py-3 text-right">Trigger Target Price</th>
+                  <th className="px-4 py-3 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#2c2c2e]/40 whitespace-nowrap">
+                {liveTpOrders.map((o, i) => {
+                  const orderId = o.id || o.raw?.order_id || 'placed_tp_trigger';
+                  const asset = o.symbol || o.raw?.symbol || o.asset || '';
+                  const orderType = o.raw?.order_type || o.type?.toUpperCase() || 'TAKE_PROFIT_MARKET';
+                  const side = o.side?.toUpperCase() || o.raw?.side || 'SELL';
+                  const triggerPrice = o.stopPrice || parseFloat(o.raw?.trigger_price || 0) || o.takeProfit;
+                  const status = o.raw?.status || 'RAISED / ACTIVE';
+                  const createdAt = o.raw?.created_at ? new Date(o.raw.created_at).toLocaleString() : (o.openedAt ? new Date(o.openedAt).toLocaleString() : '—');
+
+                  return (
+                    <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+                      <td className="px-4 py-3 text-zinc-500 font-mono text-[10px]">
+                        {createdAt}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[9px]">
+                        <span className="px-2 py-0.5 rounded bg-emerald-950/30 border border-emerald-800/40 text-emerald-300 font-mono font-bold text-[9px] inline-block whitespace-nowrap shadow-sm">
+                          {formatCoinSwitchOrderId(orderId)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-bold text-[#f5f5f7] font-mono">
+                        {asset.replace('1000', '').replace('USDT', '')}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 font-mono font-bold text-[8px]">
+                          {orderType}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+                          side === 'SELL'
+                            ? 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
+                            : 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+                        }`}>
+                          {side}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-[#30d158] font-mono font-bold text-sm">
+                        {triggerPrice ? (triggerPrice >= 1 ? `$${triggerPrice.toFixed(2)}` : `$${triggerPrice.toFixed(6)}`) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          {status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -253,9 +451,19 @@ export default function Portfolio() {
     const symbol = currency === 'INR' ? '₹' : '$';
     return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
   };
+  const storedAllTrades = usePortfolioStore((s) => s.allTrades);
+  const storedStats = usePortfolioStore((s) => s.stats);
+  const setStorePortfolio = usePortfolioStore((s) => s.setPortfolio);
+  const setStoreAllTrades = usePortfolioStore((s) => s.setAllTrades);
+  const setStoreStats = usePortfolioStore((s) => s.setStats);
+
   const [trades, setTrades] = useState([]);
-  const [allTrades, setAllTrades] = useState([]);
-  const [stats, setStats] = useState(null);
+  const [allTrades, setAllTrades] = useState(storedAllTrades || []);
+  const [openOrders, setOpenOrders] = useState([]);
+  const [stats, setStats] = useState(storedStats || null);
+  const [loading, setLoading] = useState(
+    (!storedAllTrades || storedAllTrades.length === 0) && (!portfolio || !portfolio.totalBalance)
+  );
   const [activeTab, setActiveTab] = useState('open'); // default to active open positions tab
   const [ledgerTab, setLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
   const [closedLedgerTab, setClosedLedgerTab] = useState('all'); // 'all' | 'core' | 'meme' | 'recommended'
@@ -367,7 +575,14 @@ export default function Portfolio() {
 
   const onlyOpenTrades = rawOpenTrades
     .filter((trade, index, self) => index === self.findIndex((t) => t.asset === trade.asset));
-  const onlyClosedTrades = allTrades.filter((trade) => trade.status === 'closed');
+  const onlyClosedTrades = allTrades.filter((trade) => {
+    if (!trade || trade.status !== 'closed') return false;
+    const isStandaloneSlTpTrigger = (trade.entryPrice && trade.exitPrice && Math.abs(trade.entryPrice - trade.exitPrice) < 0.000001) && (
+      (trade.reasoning && (trade.reasoning.includes('Native Stop-Loss') || trade.reasoning.includes('Native Take-Profit'))) ||
+      (trade.metadata && trade.metadata.isSlTpOrder === true)
+    );
+    return !isStandaloneSlTpTrigger;
+  });
 
   const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
     if (!filterByDate(trade.closedAt || trade.updatedAt || trade.createdAt)) return false;
@@ -396,31 +611,53 @@ export default function Portfolio() {
     setIsSyncingExchange(true);
     try {
       await axios.get('/api/portfolio/sync-closed-trades');
-      await fetchAllTrades();
-      await fetchPerformance();
-      await fetchStats();
+      await fetchPortfolioAllData();
     } catch {}
     setIsSyncingExchange(false);
   };
 
-  useEffect(() => {
-    fetchTrades();
-    fetchStats();
-    fetchPerformance();
-    fetchAllTrades();
-    axios.get('/api/portfolio').then((res) => {
+  const fetchPortfolioAllData = async () => {
+    try {
+      const res = await axios.get('/api/portfolio/all-data');
       if (res.data?.success && res.data?.data) {
-        usePortfolioStore.getState().setPortfolio(res.data.data);
+        const { portfolio: pData, allTrades: tData, stats: sData, closedTrades: cData, openOrders: oOrders } = res.data.data;
+        if (pData) setStorePortfolio(pData);
+        if (tData) {
+          setStoreAllTrades(tData);
+          setAllTrades(tData);
+        }
+        if (sData) {
+          setStoreStats(sData);
+          setStats(sData);
+        }
+        if (cData) setTrades(cData);
+        if (oOrders) setOpenOrders(oOrders);
       }
-    }).catch(() => {});
+    } catch (err) {
+      console.error("Failed to load portfolio data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPortfolioAllData();
     axios.get('/api/portfolio/sync-closed-trades').catch(() => {});
 
-    const liveTimer = setInterval(() => {
-      fetchPerformance();
-      fetchAllTrades();
-    }, 1000);
+    const handleUpdate = () => {
+      fetchPortfolioAllData();
+    };
 
-    return () => clearInterval(liveTimer);
+    socket.on('portfolio:update', handleUpdate);
+    socket.on('trade:execution', handleUpdate);
+
+    const liveTimer = setInterval(fetchPortfolioAllData, 4000);
+
+    return () => {
+      socket.off('portfolio:update', handleUpdate);
+      socket.off('trade:execution', handleUpdate);
+      clearInterval(liveTimer);
+    };
   }, []);
 
   const fetchPerformance = async () => {
@@ -849,6 +1086,25 @@ export default function Portfolio() {
           </div>
         </div>
       </div>
+
+      {loading && allTrades.length === 0 && (
+        <div className="space-y-6 animate-pulse my-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-5">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="glass-panel bg-[#1c1c1e] py-4 px-5 h-[112px] rounded-2xl border border-[#2c2c2e]/60">
+                <div className="h-3 w-16 bg-zinc-800 rounded mb-4" />
+                <div className="h-6 w-24 bg-zinc-700/60 rounded" />
+              </div>
+            ))}
+          </div>
+          <div className="glass-panel bg-[#1c1c1e] h-64 rounded-2xl border border-[#2c2c2e]/60 flex flex-col items-center justify-center gap-3">
+            <Activity className="animate-spin text-sky-400" size={24} />
+            <span className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-widest">
+              INITIALIZING PORTFOLIO METRICS & TRANSACTIONS...
+            </span>
+          </div>
+        </div>
+      )}
 
       {portfolio.tradingPaused && (
         <div className="glass-panel bg-red-950/20 border border-red-500/30 p-5 rounded-2xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -1376,7 +1632,7 @@ export default function Portfolio() {
           )}
         </div>
       ) : activeTab === 'open' ? (
-        <OpenTradesLedger onlyOpenTrades={onlyOpenTrades} formatVal={formatVal} openPositionsCount={portfolio?.openPositions} />
+        <OpenTradesLedger onlyOpenTrades={onlyOpenTrades} formatVal={formatVal} openPositionsCount={portfolio?.openPositions} openOrders={openOrders} />
       ) : activeTab === 'closed' ? (
         /* Closed Trades Ledger */
         <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">

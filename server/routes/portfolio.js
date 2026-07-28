@@ -3,6 +3,7 @@ import Portfolio from '../models/Portfolio.js';
 import Trade from '../models/Trade.js';
 import { SYSTEM_USER_ID } from '../config/constants.js';
 import { sendTelegramMessage } from '../services/telegramService.js';
+import { fetchOpenOrders } from '../services/exchangeService.js';
 
 const router = express.Router();
 
@@ -20,6 +21,146 @@ router.get('/sync-closed-trades', (req, res, next) => {
       });
     }
     res.json({ success: true, message: 'Exchange closed trades sync initiated in background.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+let cachedAllDataResponse = null;
+let lastAllDataCacheTime = 0;
+let isRefreshingAllData = false;
+const ALL_DATA_CACHE_TTL_MS = 3000;
+
+async function refreshAllDataCache() {
+  if (isRefreshingAllData) return;
+  isRefreshingAllData = true;
+  try {
+    const tradeFilter = {};
+    if (process.env.TRADING_MODE === 'live') {
+      tradeFilter.exchangeOrderId = { $exists: true, $ne: null };
+    }
+
+    const matchStage = { status: 'closed' };
+    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+      matchStage.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+    }
+
+    const [portfolioDoc, rawClosedTrades, openTrades, statsAggregation] = await Promise.all([
+      Portfolio.findOne({ userId: SYSTEM_USER_ID }).lean().then(p => p || Portfolio.findOne({}).lean()),
+      Trade.find({ ...tradeFilter, status: 'closed' }).sort({ createdAt: -1 }).limit(150).lean(),
+      Trade.find({ ...tradeFilter, status: 'open' }).sort({ createdAt: -1 }).limit(200).lean(),
+      Trade.aggregate([
+        { $match: matchStage },
+        {
+          $group: {
+            _id: null,
+            totalTrades: { $sum: 1 },
+            totalPnl: { $sum: '$pnl' },
+            avgPnl: { $avg: '$pnl' },
+            winners: { $sum: { $cond: [{ $gt: ['$pnl', 0] }, 1, 0] } },
+            losers: { $sum: { $cond: [{ $lt: ['$pnl', 0] }, 1, 0] } },
+            avgConfidence: { $avg: '$confidence' },
+            bestTrade: { $max: '$pnl' },
+            worstTrade: { $min: '$pnl' },
+          },
+        },
+      ])
+    ]);
+
+    // Filter out standalone SL/TP trigger safeguard orders (SL/TP trigger orders are safeguard orders, not closed position trades)
+    const closedTrades = (rawClosedTrades || []).filter(t => {
+      if (!t || t.status !== 'closed') return false;
+      const isStandaloneSlTpTrigger = 
+        (t.reasoning && (
+          t.reasoning.includes('Native Stop-Loss') ||
+          t.reasoning.includes('Native Take-Profit') ||
+          t.reasoning.includes('Stop-Loss Triggered') ||
+          t.reasoning.includes('Take-Profit Triggered') ||
+          t.reasoning.includes('Safeguard')
+        )) ||
+        (t.metadata && t.metadata.isSlTpOrder === true) ||
+        (t.entryPrice && t.exitPrice && Math.abs(t.entryPrice - t.exitPrice) < 0.000001 && (t.reasoning?.includes('Trigger') || t.reasoning?.includes('Stop')));
+      return !isStandaloneSlTpTrigger;
+    });
+
+    let portfolio = portfolioDoc || {
+      userId: SYSTEM_USER_ID,
+      totalBalance: 100,
+      availableBalance: 100,
+      positions: []
+    };
+
+    if (portfolio && portfolio.positions) {
+      const seenAssets = new Set();
+      portfolio.positions = portfolio.positions.filter((pos) => {
+        if (pos && pos.status === 'open') {
+          if (seenAssets.has(pos.asset)) return false;
+          seenAssets.add(pos.asset);
+        }
+        return true;
+      }).map(pos => {
+        if (pos && pos.status === 'open') {
+          let curPrice = pos.currentPrice || pos.entryPrice || 0;
+          if (portfolioAgentRef && portfolioAgentRef.marketAgent) {
+            const livePrice = portfolioAgentRef.marketAgent.getPrice(pos.asset);
+            if (livePrice && livePrice > 0) curPrice = livePrice;
+          }
+          const isLong = pos.side === 'long' || pos.action === 'BUY';
+          const unrealizedPnl = isLong
+            ? (curPrice - pos.entryPrice) * pos.quantity
+            : (pos.entryPrice - curPrice) * pos.quantity;
+          return { ...pos, currentPrice: curPrice, unrealizedPnl };
+        }
+        return pos;
+      });
+    }
+
+    let liveOpenOrders = [];
+    if (process.env.TRADING_MODE === 'live') {
+      try {
+        liveOpenOrders = await fetchOpenOrders();
+      } catch (e) {}
+    }
+
+    const combinedTrades = [...closedTrades, ...openTrades];
+    const stats = statsAggregation[0] || {
+      totalTrades: 0, totalPnl: 0, avgPnl: 0,
+      winners: 0, losers: 0, avgConfidence: 0,
+      bestTrade: 0, worstTrade: 0,
+    };
+
+    cachedAllDataResponse = {
+      success: true,
+      data: {
+        portfolio,
+        allTrades: combinedTrades,
+        closedTrades,
+        openTrades,
+        openOrders: liveOpenOrders,
+        stats
+      }
+    };
+    lastAllDataCacheTime = Date.now();
+  } catch (err) {
+    console.error(`refreshAllDataCache error: ${err.message}`);
+  } finally {
+    isRefreshingAllData = false;
+  }
+}
+
+// GET /api/portfolio/all-data — instant stale-while-revalidate payload for portfolio page
+router.get('/all-data', async (req, res, next) => {
+  try {
+    if (cachedAllDataResponse) {
+      res.json(cachedAllDataResponse);
+      if (Date.now() - lastAllDataCacheTime >= ALL_DATA_CACHE_TTL_MS) {
+        refreshAllDataCache();
+      }
+      return;
+    }
+
+    await refreshAllDataCache();
+    res.json(cachedAllDataResponse || { success: true, data: { portfolio: {}, allTrades: [], closedTrades: [], openTrades: [], stats: {} } });
   } catch (err) {
     next(err);
   }
@@ -158,14 +299,10 @@ router.get('/performance', async (req, res, next) => {
     let liveAvailableBalance = portfolio.availableBalance;
 
     if (process.env.TRADING_MODE === 'live') {
-      try {
-        const { fetchBalance } = await import('../services/exchangeService.js');
-        const liveBal = await fetchBalance();
-        if (liveBal && liveBal.USDT) {
-          liveTotalBalance = liveBal.USDT.total;
-          liveAvailableBalance = liveBal.USDT.free;
-        }
-      } catch (bErr) {}
+      if (portfolioAgentRef && portfolioAgentRef._cachedLiveBalance) {
+        liveTotalBalance = portfolioAgentRef._cachedLiveBalance.total || liveTotalBalance;
+        liveAvailableBalance = portfolioAgentRef._cachedLiveBalance.free || liveAvailableBalance;
+      }
     }
 
     if (process.env.DASHBOARD_RESET_TIMESTAMP) {
@@ -249,6 +386,7 @@ router.get('/performance', async (req, res, next) => {
         usdToInrRate: portfolio.usdToInrRate || 96.54,
         coinSwitchApiKey: portfolio.coinSwitchApiKey || "",
         coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
+        dynamicTargets: portfolio.dynamicTargets || null,
       },
     };
 

@@ -185,16 +185,19 @@ class CoinSwitchExchange {
   // Global throttle: ensures minimum gap between private API calls to stay under rate limits
   async _throttle() {
     return new Promise(resolve => {
-      this._requestQueue = this._requestQueue.then(async () => {
-        const now = Date.now();
-        const elapsed = now - this._lastRequestTime;
-        const minGap = 600; // minimum 600ms between API requests
-        if (elapsed < minGap) {
-          await new Promise(r => setTimeout(r, minGap - elapsed));
-        }
-        this._lastRequestTime = Date.now();
-        resolve();
-      });
+      this._requestQueue = this._requestQueue
+        .catch(() => {})
+        .then(async () => {
+          const now = Date.now();
+          const elapsed = now - this._lastRequestTime;
+          const minGap = 600; // minimum 600ms between API requests
+          if (elapsed < minGap) {
+            await new Promise(r => setTimeout(r, minGap - elapsed));
+          }
+          this._lastRequestTime = Date.now();
+          resolve();
+        })
+        .catch(() => resolve());
     });
   }
 
@@ -208,12 +211,13 @@ class CoinSwitchExchange {
         const url = `https://coinswitch.co/trade/api/v2${path}`;
         let res;
         
+        const reqConfig = { ...(auth || {}), timeout: 8000 };
         if (method.toUpperCase() === 'GET') {
-          res = await axios.get(url, auth || {});
+          res = await axios.get(url, reqConfig);
         } else if (method.toUpperCase() === 'DELETE') {
-          res = await axios.delete(url, { ...(auth || {}), data: body });
+          res = await axios.delete(url, { ...reqConfig, data: body });
         } else {
-          res = await axios.post(url, body, auth || {});
+          res = await axios.post(url, body, reqConfig);
         }
         return res;
       } catch (err) {
@@ -414,8 +418,13 @@ class CoinSwitchExchange {
     }
   }
 
-  // Private API: fetchBalance (Simulated or Live)
+  // Private API: fetchBalance (Simulated or Live with 10s TTL Cache)
   async fetchBalance() {
+    const now = Date.now();
+    if (this._cachedBalanceResult && (now - (this._lastBalanceFetchTime || 0)) < 10000) {
+      return this._cachedBalanceResult;
+    }
+
     const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
       return { USDT: { free: 1000, used: 0, total: 1000 } };
@@ -438,18 +447,26 @@ class CoinSwitchExchange {
           }
         }
       } catch (err) {
-        logger.error(`CoinSwitch fetchBalance live error: ${err.message}`);
+        if (!err.message?.includes('429') && !err.response?.status === 429) {
+          logger.warn(`CoinSwitch fetchBalance live warning: ${err.message}`);
+        }
+        if (this._cachedBalanceResult) {
+          return this._cachedBalanceResult;
+        }
       }
     }
 
     if (usdtTotal > 0) {
-      return {
+      const result = {
         USDT: {
           free: usdtFree,
           used: usdtTotal - usdtFree,
           total: usdtTotal
         }
       };
+      this._cachedBalanceResult = result;
+      this._lastBalanceFetchTime = now;
+      return result;
     }
 
     // Default Fallback: Return database fields
@@ -463,7 +480,7 @@ class CoinSwitchExchange {
   }
 
   // Private API: createMarketOrder (Simulated or Live)
-  async createMarketOrder(symbol, side, amount) {
+  async createMarketOrder(symbol, side, amount, isReduceOnly = false) {
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const ticker = await this.fetchTicker(symbol);
     const price = ticker.last || 1.0;
@@ -475,6 +492,9 @@ class CoinSwitchExchange {
       order_type: 'MARKET',
       quantity: parseFloat(amount)
     };
+    if (isReduceOnly) {
+      body.reduce_only = true;
+    }
 
     const auth = await this._signRequest('POST', '/futures/order', body);
     if (auth && !this.isDemo) {
@@ -500,8 +520,9 @@ class CoinSwitchExchange {
           };
         }
       } catch (err) {
-        logger.error(`CoinSwitch createMarketOrder live error: ${err.message}`);
-        throw err;
+        const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+        logger.error(`CoinSwitch createMarketOrder live error: ${detail}`);
+        throw new Error(detail);
       }
     }
 
@@ -670,7 +691,7 @@ class CoinSwitchExchange {
   async fetchPositions(symbol) {
     const now = Date.now();
     const cacheKey = symbol || 'ALL';
-    if (this.positionsCache[cacheKey] && (now - this.positionsCache[cacheKey].timestamp < 3000)) {
+    if (this.positionsCache[cacheKey] && (now - this.positionsCache[cacheKey].timestamp < 4000)) {
       return this.positionsCache[cacheKey].data;
     }
 
@@ -813,6 +834,25 @@ class CoinSwitchExchange {
 
       // Live implementation
       const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
+      
+      // 1. Fetch and cancel all live open trigger orders (SL / TP) explicitly
+      if (!this.isDemo) {
+        try {
+          const openOrders = await this.fetchOpenOrders(cleanSym);
+          if (openOrders && openOrders.length > 0) {
+            for (const order of openOrders) {
+              if (order.id) {
+                await this.cancelOrder(cleanSym, order.id).catch(() => {});
+                logger.info(`🧹 [CANCEL ALL] Explicitly cancelled open trigger order ${order.id} (${order.type}) for ${cleanSym}`);
+              }
+            }
+          }
+        } catch (e) {
+          logger.warn(`Trigger order sweep warning for ${cleanSym}: ${e.message}`);
+        }
+      }
+
+      // 2. Call bulk cancel_all endpoint
       const path = '/futures/cancel_all';
       const body = {
         exchange: 'EXCHANGE_2',
@@ -1035,12 +1075,12 @@ export const fetchOrderBook = async (symbol, limit = 20) => {
   }
 };
 
-export const placeMarketOrder = async (symbol, side, amount) => {
+export const placeMarketOrder = async (symbol, side, amount, isReduceOnly = false) => {
   try {
     const exchange = getExchange();
     await exchange.loadMarkets();
-    const order = await exchange.createMarketOrder(symbol, side, amount);
-    logger.info(`CoinSwitch market order placed: ${side} ${amount} ${symbol} → ID ${order.id}`);
+    const order = await exchange.createMarketOrder(symbol, side, amount, isReduceOnly);
+    logger.info(`CoinSwitch market order placed (${isReduceOnly ? 'reduceOnly' : 'entry'}): ${side} ${amount} ${symbol} → ID ${order.id}`);
     return order;
   } catch (err) {
     logger.error(`placeMarketOrder(${symbol}, ${side}) error: ${err.message}`);
@@ -1168,6 +1208,16 @@ export const setLeverage = async (symbol, leverage) => {
   }
 };
 
+export const fetchOpenOrders = async (symbol, since, limit, params = {}) => {
+  try {
+    const exchange = getExchange();
+    return await exchange.fetchOpenOrders(symbol, since, limit, params);
+  } catch (err) {
+    logger.error(`fetchOpenOrders error: ${err.message}`);
+    return [];
+  }
+};
+
 export default {
   getExchange,
   fetchCandles,
@@ -1181,6 +1231,7 @@ export default {
   cancelAllOrders,
   fetchBalance,
   fetchPositions,
+  fetchOpenOrders,
   checkAssetLiquidity,
   setLeverage,
 };

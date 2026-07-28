@@ -8,10 +8,19 @@ import { SYSTEM_USER_ID } from '../config/constants.js';
 
 const router = express.Router();
 
+const tradeListCache = new Map();
+const TRADE_CACHE_TTL_MS = 1000;
+
 // GET /api/trades — list trades
 router.get('/', async (req, res, next) => {
   try {
     const { status, asset, limit = 50, page = 1 } = req.query;
+    const cacheKey = `${status || ''}_${asset || ''}_${limit}_${page}_${process.env.TRADING_MODE}`;
+    const cached = tradeListCache.get(cacheKey);
+    if (cached && (Date.now() - cached.time < TRADE_CACHE_TTL_MS)) {
+      return res.json(cached.payload);
+    }
+
     const filter = {};
     if (status) filter.status = status;
     if (asset) filter.asset = asset;
@@ -20,19 +29,23 @@ router.get('/', async (req, res, next) => {
       filter.exchangeOrderId = { $exists: true, $ne: null };
     }
 
-    const trades = await Trade.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .lean();
+    const [trades, total] = await Promise.all([
+      Trade.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit))
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .lean(),
+      Trade.countDocuments(filter)
+    ]);
 
-    const total = await Trade.countDocuments(filter);
-
-    res.json({
+    const payload = {
       success: true,
       data: trades,
       pagination: { total, page: parseInt(page), limit: parseInt(limit) },
-    });
+    };
+
+    tradeListCache.set(cacheKey, { payload, time: Date.now() });
+    res.json(payload);
   } catch (err) {
     next(err);
   }
