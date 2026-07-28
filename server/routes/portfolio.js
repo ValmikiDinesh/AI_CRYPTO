@@ -628,12 +628,20 @@ const handleUpdateConfig = async (req, res, next) => {
       portfolio.exitOrderType = req.body.exitOrderType;
     }
 
-    if (req.body.minNetProfitTarget !== undefined && !isNaN(parseFloat(req.body.minNetProfitTarget))) {
-      portfolio.minNetProfitTarget = parseFloat(req.body.minNetProfitTarget);
+    if (req.body.minNetProfitTarget !== undefined) {
+      if (req.body.minNetProfitTarget === null || req.body.minNetProfitTarget === 0 || req.body.minNetProfitTarget === '0' || req.body.minNetProfitTarget === 'off' || req.body.minNetProfitTarget === '') {
+        portfolio.minNetProfitTarget = null;
+      } else if (!isNaN(parseFloat(req.body.minNetProfitTarget)) && parseFloat(req.body.minNetProfitTarget) > 0) {
+        portfolio.minNetProfitTarget = parseFloat(req.body.minNetProfitTarget);
+      }
     }
 
-    if (req.body.trailingStopUsd !== undefined && !isNaN(parseFloat(req.body.trailingStopUsd))) {
-      portfolio.trailingStopUsd = parseFloat(req.body.trailingStopUsd);
+    if (req.body.trailingStopUsd !== undefined) {
+      if (req.body.trailingStopUsd === null || req.body.trailingStopUsd === 0 || req.body.trailingStopUsd === '0' || req.body.trailingStopUsd === 'off' || req.body.trailingStopUsd === '') {
+        portfolio.trailingStopUsd = null;
+      } else if (!isNaN(parseFloat(req.body.trailingStopUsd)) && parseFloat(req.body.trailingStopUsd) > 0) {
+        portfolio.trailingStopUsd = parseFloat(req.body.trailingStopUsd);
+      }
     }
 
     // Recalculate targetProfitThreshold dynamically based on Sweep Target Profit Pct
@@ -646,15 +654,23 @@ const handleUpdateConfig = async (req, res, next) => {
 
     // Send Telegram notification
     try {
+      const scalpStatus = (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0)
+        ? `$${portfolio.minNetProfitTarget.toFixed(2)} USDT ✅ ON`
+        : `OFF ❌ DISABLED`;
+
+      const trailingSlStatus = (portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0)
+        ? `$${portfolio.trailingStopUsd.toFixed(2)} USDT ✅ ON`
+        : `OFF ❌ DISABLED`;
+
       const telegramMsg = `
 <b>⚙️ System Settings Updated</b>
 
-<b>Dynamic Scalp Target:</b> $${(portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25).toFixed(2)} USDT
-<b>Dynamic Trailing Stop Loss:</b> $${(portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40).toFixed(2)} USDT
-<b>Total Base Capital:</b> $${portfolio.baseTradingCapital?.toFixed(4)} USD
-<b>Sweep Target Profit:</b> ${portfolio.sweepTargetProfitPct}%
-<b>Basket Profit Target:</b> ${portfolio.basketProfitTargetPct}%
-<b>USD to INR Rate:</b> ₹${portfolio.usdToInrRate || 96.54}
+📊 <b>Dynamic Scalp Target:</b> ${scalpStatus}
+📊 <b>Dynamic Trailing Stop Loss:</b> ${trailingSlStatus}
+💰 <b>Total Base Capital:</b> $${portfolio.baseTradingCapital?.toFixed(4)} USD
+📈 <b>Sweep Target Profit:</b> ${portfolio.sweepTargetProfitPct}%
+📈 <b>Basket Profit Target:</b> ${portfolio.basketProfitTargetPct}%
+💱 <b>USD to INR Rate:</b> ₹${portfolio.usdToInrRate || 96.54}
 
 <i>All trading agents and risk parameters have been synchronized with these updated configurations.</i>
 `.trim();
@@ -690,8 +706,8 @@ const handleUpdateConfig = async (req, res, next) => {
       coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
       entryOrderType: portfolio.entryOrderType || "market",
       exitOrderType: portfolio.exitOrderType || "market",
-      minNetProfitTarget: portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25,
-      trailingStopUsd: portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40,
+      minNetProfitTarget: (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : null,
+      trailingStopUsd: (portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0) ? portfolio.trailingStopUsd : null,
     });
 
     res.json({ success: true, message: 'Portfolio configuration updated successfully', data: portfolio });

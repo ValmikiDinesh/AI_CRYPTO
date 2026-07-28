@@ -55,7 +55,7 @@ export default function Settings() {
   const [baseTradingCapital, setBaseTradingCapital] = useState(100);
   const [basketProfitTargetPct, setBasketProfitTargetPct] = useState(10);
   const [sweepTargetProfitPct, setSweepTargetProfitPct] = useState(10);
-  const [trailingStopUsd, setTrailingStopUsd] = useState(0.40);
+  const [trailingStopUsd, setTrailingStopUsd] = useState('');
   const [coinSwitchApiKey, setCoinSwitchApiKey] = useState('');
   const [coinSwitchApiSecret, setCoinSwitchApiSecret] = useState('');
   const [loading, setLoading] = useState(true);
@@ -78,7 +78,7 @@ export default function Settings() {
           setBaseTradingCapital(res.data.data.baseTradingCapital || 100);
           setBasketProfitTargetPct(res.data.data.basketProfitTargetPct || 10);
           setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct || 10);
-          setTrailingStopUsd(res.data.data.trailingStopUsd !== undefined ? res.data.data.trailingStopUsd : 0.40);
+          setTrailingStopUsd((res.data.data.trailingStopUsd && res.data.data.trailingStopUsd > 0) ? res.data.data.trailingStopUsd : '');
           setCoinSwitchApiKey(res.data.data.coinSwitchApiKey || '');
           setCoinSwitchApiSecret(res.data.data.coinSwitchApiSecret || '');
           if (res.data.data.usdToInrRate) {
@@ -104,24 +104,25 @@ export default function Settings() {
     setStoreRate(parsedRate);
 
     try {
-      const res = await axios.post('/api/portfolio/config', {
-        baseTradingCapital: parseFloat(baseTradingCapital),
-        basketProfitTargetPct: parseFloat(basketProfitTargetPct),
-        sweepTargetProfitPct: parseFloat(sweepTargetProfitPct),
-        trailingStopUsd: parseFloat(trailingStopUsd),
-        usdToInrRate: parsedRate,
-        coinSwitchApiKey,
-        coinSwitchApiSecret,
-      });
+        const parsedTrailing = parseFloat(trailingStopUsd);
+        const res = await axios.post('/api/portfolio/config', {
+          baseTradingCapital: parseFloat(baseTradingCapital),
+          basketProfitTargetPct: parseFloat(basketProfitTargetPct),
+          sweepTargetProfitPct: parseFloat(sweepTargetProfitPct),
+          trailingStopUsd: (!isNaN(parsedTrailing) && parsedTrailing > 0) ? parsedTrailing : null,
+          usdToInrRate: parsedRate,
+          coinSwitchApiKey,
+          coinSwitchApiSecret,
+        });
 
-      if (res.data.success) {
-        setFeedback({ type: 'success', message: 'Settings successfully saved and applied to trading agents.' });
-        if (res.data.data) {
-          usePortfolioStore.getState().setPortfolio(res.data.data);
-          setBaseTradingCapital(res.data.data.baseTradingCapital);
-          setBasketProfitTargetPct(res.data.data.basketProfitTargetPct);
-          setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct);
-          setTrailingStopUsd(res.data.data.trailingStopUsd !== undefined ? res.data.data.trailingStopUsd : 0.40);
+        if (res.data.success) {
+          setFeedback({ type: 'success', message: 'Settings successfully saved and applied to trading agents.' });
+          if (res.data.data) {
+            usePortfolioStore.getState().setPortfolio(res.data.data);
+            setBaseTradingCapital(res.data.data.baseTradingCapital);
+            setBasketProfitTargetPct(res.data.data.basketProfitTargetPct);
+            setSweepTargetProfitPct(res.data.data.sweepTargetProfitPct);
+            setTrailingStopUsd((res.data.data.trailingStopUsd && res.data.data.trailingStopUsd > 0) ? res.data.data.trailingStopUsd : '');
           setCoinSwitchApiKey(res.data.data.coinSwitchApiKey || '');
           setCoinSwitchApiSecret(res.data.data.coinSwitchApiSecret || '');
         }
@@ -271,14 +272,13 @@ export default function Settings() {
             <div className="relative">
               <input
                 type="number"
-                min="0.05"
+                min="0"
                 max="100"
                 step="0.05"
-                required
                 value={trailingStopUsd}
                 onChange={(e) => setTrailingStopUsd(e.target.value)}
                 className="w-full bg-[#2c2c2e]/50 border border-[#3a3a3c] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-rose-500 font-mono"
-                placeholder="e.g. 0.40"
+                placeholder="OFF (disabled)"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono text-zinc-500">USD ($)</span>
             </div>

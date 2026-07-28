@@ -247,9 +247,9 @@ export default class PortfolioAgent extends BaseAgent {
             const entryPrice = exchPos.entryPrice || exchPos.markPrice || 0;
             const quantity = exchPos.contracts || exchPos.amount || 0;
             const leverage = exchPos.leverage || portfolio.defaultLeverage || 5;
-            const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+            const minTarget = (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : null;
             const totalFeeEst = entryPrice * quantity * 0.001;
-            const priceDeltaTarget = quantity > 0 ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
+            const priceDeltaTarget = (minTarget && quantity > 0) ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
             const priceDeltaRisk = quantity > 0 ? ((0.40 + totalFeeEst) / quantity) : (entryPrice * 0.03);
 
             const stopLoss = side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk;
@@ -509,9 +509,9 @@ export default class PortfolioAgent extends BaseAgent {
           const entryPrice = p.entryPrice || p.markPrice || 0;
           const quantity = p.contracts || p.amount || 0;
           const leverage = p.leverage || portfolio.defaultLeverage || 5;
-          const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+          const minTarget = (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : null;
           const totalFeeEst = entryPrice * quantity * 0.001;
-          const priceDeltaTarget = quantity > 0 ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
+          const priceDeltaTarget = (minTarget && quantity > 0) ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
           const priceDeltaRisk = quantity > 0 ? ((0.40 + totalFeeEst) / quantity) : (entryPrice * 0.03);
 
           const stopLoss = side === 'long' ? Math.max(0.000001, entryPrice - priceDeltaRisk) : entryPrice + priceDeltaRisk;
@@ -802,9 +802,9 @@ export default class PortfolioAgent extends BaseAgent {
             );
           }
 
-          const minTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
+          const minTarget = (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : null;
           const totalFeeEst = entryPrice * quantity * 0.001; // 0.1% total round-trip fee estimate
-          const priceDeltaTarget = quantity > 0 ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
+          const priceDeltaTarget = (minTarget && quantity > 0) ? ((minTarget + totalFeeEst) / quantity) : (entryPrice * 0.02);
           const priceDeltaRisk = quantity > 0 ? ((0.40 + totalFeeEst) / quantity) : (entryPrice * 0.03);
 
           const calculatedStopLoss = (activeTrade && activeTrade.stopLoss) 
@@ -1885,8 +1885,6 @@ export default class PortfolioAgent extends BaseAgent {
     let shouldClose = false;
     let reason = '';
 
-    const minNetTarget = portfolio.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25;
-
     // 1. Direct Take-Profit Target Trigger (Sub-50ms WebSocket Execution)
     if (side === 'long' && position.takeProfit && currentPrice >= position.takeProfit) {
       shouldClose = true;
@@ -1895,15 +1893,15 @@ export default class PortfolioAgent extends BaseAgent {
       shouldClose = true;
       reason = `Take-Profit Target Triggered ($${currentPrice} <= $${position.takeProfit.toFixed(4)} target — +$${netPnl.toFixed(2)} Net PnL)`;
     }
-    // 2. Direct Net Scalp Profit Floor Target Trigger ($0.25+ Net Profit Guaranteed)
-    else if (netPnl >= minNetTarget) {
+    // 2. Direct Net Scalp Profit Floor Target Trigger (Only when minNetProfitTarget is ON)
+    else if (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0 && netPnl >= portfolio.minNetProfitTarget) {
       shouldClose = true;
-      reason = `Net Scalp Profit Target Triggered (+$${netPnl.toFixed(2)} Net PnL >= +$${minNetTarget.toFixed(2)} floor target)`;
+      reason = `Net Scalp Profit Target Triggered (+$${netPnl.toFixed(2)} Net PnL >= +$${portfolio.minNetProfitTarget.toFixed(2)} floor target)`;
     }
 
-    // 3. Trailing Stop-Loss Trigger (Activates at $0.10+ Net Profit)
-    if (!shouldClose) {
-      const trailingStep = portfolio.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.10;
+    // 3. Trailing Stop-Loss Trigger (Only when trailingStopUsd is ON)
+    if (!shouldClose && portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0) {
+      const trailingStep = portfolio.trailingStopUsd;
       if (position.highestNetPnl >= trailingStep) {
         const offset = trailingStep * 0.5;
         const lockedInFloor = Math.max(trailingStep, position.highestNetPnl - offset);

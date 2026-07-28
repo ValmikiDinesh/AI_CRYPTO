@@ -78,15 +78,15 @@ export default function Trading() {
   const tech = useSignalStore((s) => s.technicalSignals[selectedAsset]);
   const sent = useSignalStore((s) => s.sentimentSignals[selectedAsset]);
   const portfolio = usePortfolioStore((s) => s.portfolio);
-  const [scalpInput, setScalpInput] = useState(portfolio?.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25);
-  const [trailingSlInput, setTrailingSlInput] = useState(portfolio?.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40);
+  const [scalpInput, setScalpInput] = useState((portfolio?.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : "");
+  const [trailingSlInput, setTrailingSlInput] = useState((portfolio?.trailingStopUsd && portfolio.trailingStopUsd > 0) ? portfolio.trailingStopUsd : "");
 
   useEffect(() => {
     if (portfolio?.minNetProfitTarget !== undefined) {
-      setScalpInput(portfolio.minNetProfitTarget);
+      setScalpInput((portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : "");
     }
     if (portfolio?.trailingStopUsd !== undefined) {
-      setTrailingSlInput(portfolio.trailingStopUsd);
+      setTrailingSlInput((portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0) ? portfolio.trailingStopUsd : "");
     }
   }, [portfolio?.minNetProfitTarget, portfolio?.trailingStopUsd]);
 
@@ -234,9 +234,15 @@ export default function Trading() {
       });
       if (res.data.success && res.data.data) {
         usePortfolioStore.getState().setPortfolio(res.data.data);
-        if (typeField === 'minNetProfitTarget') setScalpInput(res.data.data.minNetProfitTarget);
-        if (typeField === 'trailingStopUsd') setTrailingSlInput(res.data.data.trailingStopUsd);
-        setOrderFeedback({ type: 'success', message: `Applied: ${typeField === 'minNetProfitTarget' ? 'Scalp Target' : 'Trailing SL'} = $${parseFloat(value).toFixed(2)}` });
+        if (typeField === 'minNetProfitTarget') {
+          setScalpInput((res.data.data.minNetProfitTarget && res.data.data.minNetProfitTarget > 0) ? res.data.data.minNetProfitTarget : "");
+        }
+        if (typeField === 'trailingStopUsd') {
+          setTrailingSlInput((res.data.data.trailingStopUsd && res.data.data.trailingStopUsd > 0) ? res.data.data.trailingStopUsd : "");
+        }
+        const label = typeField === 'minNetProfitTarget' ? 'Scalp Target' : typeField === 'trailingStopUsd' ? 'Trailing SL' : typeField;
+        const displayVal = (value === null || value === 0 || value === '0' || value === '') ? 'OFF' : `$${parseFloat(value).toFixed(2)}`;
+        setOrderFeedback({ type: 'success', message: `Applied: ${label} = ${displayVal}` });
       } else {
         setOrderFeedback({ type: 'error', message: res.data.message || 'Failed to update settings' });
       }
@@ -254,15 +260,17 @@ export default function Trading() {
       const slVal = parseFloat(trailingSlInput);
 
       const payload = {};
-      if (!isNaN(scalpVal) && scalpVal > 0) payload.minNetProfitTarget = scalpVal;
-      if (!isNaN(slVal) && slVal > 0) payload.trailingStopUsd = slVal;
+      payload.minNetProfitTarget = (!isNaN(scalpVal) && scalpVal > 0) ? scalpVal : null;
+      payload.trailingStopUsd = (!isNaN(slVal) && slVal > 0) ? slVal : null;
 
       const res = await axiosActual.post('/api/portfolio/config', payload);
       if (res.data.success && res.data.data) {
         usePortfolioStore.getState().setPortfolio(res.data.data);
-        if (res.data.data.minNetProfitTarget !== undefined) setScalpInput(res.data.data.minNetProfitTarget);
-        if (res.data.data.trailingStopUsd !== undefined) setTrailingSlInput(res.data.data.trailingStopUsd);
-        setOrderFeedback({ type: 'success', message: `✅ Settings Saved! Scalp Target: $${res.data.data.minNetProfitTarget?.toFixed(2)}, Trailing SL: $${res.data.data.trailingStopUsd?.toFixed(2)}` });
+        setScalpInput((res.data.data.minNetProfitTarget && res.data.data.minNetProfitTarget > 0) ? res.data.data.minNetProfitTarget : "");
+        setTrailingSlInput((res.data.data.trailingStopUsd && res.data.data.trailingStopUsd > 0) ? res.data.data.trailingStopUsd : "");
+        const scalpText = (res.data.data.minNetProfitTarget && res.data.data.minNetProfitTarget > 0) ? `$${res.data.data.minNetProfitTarget.toFixed(2)}` : 'OFF';
+        const slText = (res.data.data.trailingStopUsd && res.data.data.trailingStopUsd > 0) ? `$${res.data.data.trailingStopUsd.toFixed(2)}` : 'OFF';
+        setOrderFeedback({ type: 'success', message: `✅ Settings Saved! Scalp Target: ${scalpText}, Trailing SL: ${slText}` });
       } else {
         setOrderFeedback({ type: 'error', message: res.data.message || 'Failed to save settings' });
       }
@@ -330,10 +338,12 @@ export default function Trading() {
 
           {/* Net Scalp Target ($ USDT) */}
           {(() => {
-            const currentScalp = parseFloat(portfolio?.minNetProfitTarget !== undefined ? portfolio.minNetProfitTarget : 0.25);
-            const currentSl = parseFloat(portfolio?.trailingStopUsd !== undefined ? portfolio.trailingStopUsd : 0.40);
-            const isCustomScalp = ![0.10, 0.25, 0.50].some(preset => Math.abs(currentScalp - preset) < 0.001);
-            const isCustomSl = ![0.10, 0.25, 0.40, 1.00].some(preset => Math.abs(currentSl - preset) < 0.001);
+            const currentScalp = (portfolio?.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? parseFloat(portfolio.minNetProfitTarget) : null;
+            const currentSl = (portfolio?.trailingStopUsd && portfolio.trailingStopUsd > 0) ? parseFloat(portfolio.trailingStopUsd) : null;
+            const isScalpOff = currentScalp === null;
+            const isSlOff = currentSl === null;
+            const isCustomScalp = !isScalpOff && ![0.10, 0.25, 0.50].some(preset => Math.abs(currentScalp - preset) < 0.001);
+            const isCustomSl = !isSlOff && ![0.10, 0.25, 0.40, 1.00].some(preset => Math.abs(currentSl - preset) < 0.001);
 
             return (
               <>
@@ -341,20 +351,26 @@ export default function Trading() {
                   <span className="text-[9px] text-[#bf5af2] uppercase tracking-widest font-bold font-mono">Scalp Target:</span>
                   <div className="flex items-center bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
                     <button
+                      onClick={() => { setScalpInput(""); handleToggleOrderType('minNetProfitTarget', null); }}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${isScalpOff ? 'bg-[#ff9f0a] text-black shadow font-extrabold' : 'text-[#86868b] hover:text-white'}`}
+                    >
+                      OFF
+                    </button>
+                    <button
                       onClick={() => { setScalpInput(0.10); handleToggleOrderType('minNetProfitTarget', 0.10); }}
-                      className={`px-2 py-1 rounded cursor-pointer transition-all ${Math.abs(currentScalp - 0.10) < 0.001 ? 'bg-[#bf5af2] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${!isScalpOff && Math.abs(currentScalp - 0.10) < 0.001 ? 'bg-[#bf5af2] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
                     >
                       $0.10
                     </button>
                     <button
                       onClick={() => { setScalpInput(0.25); handleToggleOrderType('minNetProfitTarget', 0.25); }}
-                      className={`px-2 py-1 rounded cursor-pointer transition-all ${Math.abs(currentScalp - 0.25) < 0.001 ? 'bg-[#bf5af2] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${!isScalpOff && Math.abs(currentScalp - 0.25) < 0.001 ? 'bg-[#bf5af2] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
                     >
                       $0.25
                     </button>
                     <button
                       onClick={() => { setScalpInput(0.50); handleToggleOrderType('minNetProfitTarget', 0.50); }}
-                      className={`px-2 py-1 rounded cursor-pointer transition-all ${Math.abs(currentScalp - 0.50) < 0.001 ? 'bg-[#bf5af2] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${!isScalpOff && Math.abs(currentScalp - 0.50) < 0.001 ? 'bg-[#bf5af2] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
                     >
                       $0.50
                     </button>
@@ -362,23 +378,33 @@ export default function Trading() {
                       <span className="text-[#bf5af2] text-[10px] font-bold">$</span>
                       <input
                         type="number"
-                        min="0.01"
+                        min="0"
                         max="100"
                         step="0.05"
                         value={scalpInput}
                         onChange={(e) => setScalpInput(e.target.value)}
                         onBlur={() => {
                           const val = parseFloat(scalpInput);
-                          if (!isNaN(val) && val > 0) handleToggleOrderType('minNetProfitTarget', val);
+                          if (!isNaN(val) && val > 0) {
+                            handleToggleOrderType('minNetProfitTarget', val);
+                          } else {
+                            setScalpInput("");
+                            handleToggleOrderType('minNetProfitTarget', null);
+                          }
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             const val = parseFloat(scalpInput);
-                            if (!isNaN(val) && val > 0) handleToggleOrderType('minNetProfitTarget', val);
+                            if (!isNaN(val) && val > 0) {
+                              handleToggleOrderType('minNetProfitTarget', val);
+                            } else {
+                              setScalpInput("");
+                              handleToggleOrderType('minNetProfitTarget', null);
+                            }
                           }
                         }}
                         className={`w-12 text-white text-[10px] font-mono px-1 py-0.5 rounded border focus:outline-none ${isCustomScalp ? 'bg-transparent border-[#bf5af2] text-[#bf5af2] font-bold' : 'bg-[#1c1c1e] border-[#3a3a3c] focus:border-[#bf5af2]'}`}
-                        placeholder="0.25"
+                        placeholder="OFF"
                       />
                     </div>
                   </div>
@@ -391,26 +417,32 @@ export default function Trading() {
                   <span className="text-[9px] text-[#ff453a] uppercase tracking-widest font-bold font-mono">Trailing SL:</span>
                   <div className="flex items-center bg-black p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono">
                     <button
+                      onClick={() => { setTrailingSlInput(""); handleToggleOrderType('trailingStopUsd', null); }}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${isSlOff ? 'bg-[#ff9f0a] text-black shadow font-extrabold' : 'text-[#86868b] hover:text-white'}`}
+                    >
+                      OFF
+                    </button>
+                    <button
                       onClick={() => { setTrailingSlInput(0.10); handleToggleOrderType('trailingStopUsd', 0.10); }}
-                      className={`px-2 py-1 rounded cursor-pointer transition-all ${Math.abs(currentSl - 0.10) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${!isSlOff && Math.abs(currentSl - 0.10) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
                     >
                       $0.10
                     </button>
                     <button
                       onClick={() => { setTrailingSlInput(0.25); handleToggleOrderType('trailingStopUsd', 0.25); }}
-                      className={`px-2 py-1 rounded cursor-pointer transition-all ${Math.abs(currentSl - 0.25) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${!isSlOff && Math.abs(currentSl - 0.25) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
                     >
                       $0.25
                     </button>
                     <button
                       onClick={() => { setTrailingSlInput(0.40); handleToggleOrderType('trailingStopUsd', 0.40); }}
-                      className={`px-2 py-1 rounded cursor-pointer transition-all ${Math.abs(currentSl - 0.40) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${!isSlOff && Math.abs(currentSl - 0.40) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
                     >
                       $0.40
                     </button>
                     <button
                       onClick={() => { setTrailingSlInput(1.00); handleToggleOrderType('trailingStopUsd', 1.00); }}
-                      className={`px-2 py-1 rounded cursor-pointer transition-all ${Math.abs(currentSl - 1.00) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
+                      className={`px-2 py-1 rounded cursor-pointer transition-all ${!isSlOff && Math.abs(currentSl - 1.00) < 0.001 ? 'bg-[#ff453a] text-white shadow font-bold' : 'text-[#86868b] hover:text-white'}`}
                     >
                       $1.00
                     </button>
@@ -418,23 +450,33 @@ export default function Trading() {
                       <span className="text-[#ff453a] text-[10px] font-bold">$</span>
                       <input
                         type="number"
-                        min="0.01"
+                        min="0"
                         max="100"
                         step="0.05"
                         value={trailingSlInput}
                         onChange={(e) => setTrailingSlInput(e.target.value)}
                         onBlur={() => {
                           const val = parseFloat(trailingSlInput);
-                          if (!isNaN(val) && val > 0) handleToggleOrderType('trailingStopUsd', val);
+                          if (!isNaN(val) && val > 0) {
+                            handleToggleOrderType('trailingStopUsd', val);
+                          } else {
+                            setTrailingSlInput("");
+                            handleToggleOrderType('trailingStopUsd', null);
+                          }
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             const val = parseFloat(trailingSlInput);
-                            if (!isNaN(val) && val > 0) handleToggleOrderType('trailingStopUsd', val);
+                            if (!isNaN(val) && val > 0) {
+                              handleToggleOrderType('trailingStopUsd', val);
+                            } else {
+                              setTrailingSlInput("");
+                              handleToggleOrderType('trailingStopUsd', null);
+                            }
                           }
                         }}
                         className={`w-12 text-white text-[10px] font-mono px-1 py-0.5 rounded border focus:outline-none ${isCustomSl ? 'bg-transparent border-[#ff453a] text-[#ff453a] font-bold' : 'bg-[#1c1c1e] border-[#3a3a3c] focus:border-[#ff453a]'}`}
-                        placeholder="0.40"
+                        placeholder="OFF"
                       />
                     </div>
                   </div>

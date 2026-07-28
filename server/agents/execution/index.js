@@ -737,7 +737,7 @@ export default class ExecutionAgent extends BaseAgent {
           targetProfitThreshold: portfolio.targetProfitThreshold || 110,
           baseTradingCapital: portfolio.baseTradingCapital || 100,
           basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
-          minNetProfitTarget: portfolio.minNetProfitTarget || 0.25,
+          minNetProfitTarget: (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : null,
           positions: portfolio.positions,
           updatedAt: new Date()
         });
