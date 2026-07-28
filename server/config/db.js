@@ -8,9 +8,10 @@ import { logger } from '../utils/logger.js';
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      maxPoolSize: 10,
+      maxPoolSize: 100,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      waitQueueTimeoutMS: 10000,
     });
 
     logger.info(`MongoDB connected: ${conn.connection.host}:${conn.connection.port}/${conn.connection.name}`);

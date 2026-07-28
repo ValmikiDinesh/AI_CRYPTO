@@ -52,14 +52,10 @@ export default class BaseAgent {
   /** Single execution cycle with error handling and logging. */
   async runCycle() {
     if (this.isExecuting) {
-      // Force-release if stuck for more than 15 seconds
-      if (this._cycleStartedAt && (Date.now() - this._cycleStartedAt) > 15000) {
-        this.logger.warn(`${this.name} cycle force-released after 15s hang`);
-        this.isExecuting = false;
-      } else {
-        this.logger.debug(`${this.name} cycle skipped — previous cycle still executing`);
-        return;
-      }
+      // Never force-release. If the previous cycle is still executing, we must wait for it to finish, 
+      // otherwise we spawn overlapping DB queries and exhaust the Mongoose connection pool.
+      this.logger.debug(`${this.name} cycle skipped — previous cycle still executing`);
+      return;
     }
     this.isExecuting = true;
     this._cycleStartedAt = Date.now();
@@ -68,11 +64,9 @@ export default class BaseAgent {
       this.lastHeartbeat = Date.now();
       this.cycleCount++;
 
-      // Timeout guard: force-abort if execute() hangs longer than 15s
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Cycle timed out after 15s')), 15000)
-      );
-      await Promise.race([this.execute(), timeoutPromise]);
+      // Do not use Promise.race to forcefully abort. If it hangs, we wait for it to finish or naturally timeout via network socket.
+      // Forcefully aborting but leaving the background Promise running causes massive memory leaks and Mongoose connection exhaustion.
+      await this.execute();
 
       this.status = 'running'; // Reset to running on success
       const duration = Date.now() - start;

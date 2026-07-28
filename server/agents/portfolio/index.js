@@ -1588,6 +1588,8 @@ export default class PortfolioAgent extends BaseAgent {
       targetProfitThreshold: portfolio.targetProfitThreshold || 110,
       baseTradingCapital: portfolio.baseTradingCapital || 100,
       basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
+      minNetProfitTarget: (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : null,
+      trailingStopUsd: (portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0) ? portfolio.trailingStopUsd : null,
       manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
       autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
       dynamicTargets: {

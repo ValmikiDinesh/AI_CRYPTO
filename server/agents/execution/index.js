@@ -497,8 +497,14 @@ export default class ExecutionAgent extends BaseAgent {
     try {
       const exchange = getExchange();
       await exchange.loadMarkets();
+      
+      // CCXT standardizes most perpetuals as 'COIN/USDT:USDT' or 'COIN/USDT'
+      const baseCoin = signal.asset.replace('USDT', '');
+      const market = exchange.markets[`${baseCoin}/USDT:USDT`] || exchange.markets[`${baseCoin}/USDT`] || exchange.markets[signal.asset] || {};
+      
       const MIN_ORDER_NOTIONAL = 5.0; // Enforce minimum $5.00 order value floor
       const minNotional = Math.max(MIN_ORDER_NOTIONAL, market.limits?.cost?.min || 5.0);
+      const minQuantity = market.limits?.amount?.min || 0;
 
       // 1. Enforce minimum quantity limit
       if (quantity < minQuantity) {
@@ -528,6 +534,12 @@ export default class ExecutionAgent extends BaseAgent {
       }
     } catch (err) {
       this.logger.warn(`Failed to dynamically retrieve lot constraints for ${signal.asset}: ${err.message}`);
+      
+      // Fallback: manually ensure $5.00 minimum if exchange metadata fails
+      if (quantity * limitEntryPrice < 5.0) {
+        quantity = 5.0 / limitEntryPrice;
+        positionValue = quantity * limitEntryPrice;
+      }
     }
 
     if (quantity <= 0) {
@@ -566,7 +578,6 @@ export default class ExecutionAgent extends BaseAgent {
       status: 'pending',
       exchange: isLiveMode ? 'coinswitch' : 'binance_testnet',
       metadata: signal.metadata || {},
-      dynamicTrailingPct,
     });
 
     // Attempt order placement with retries
@@ -643,9 +654,7 @@ export default class ExecutionAgent extends BaseAgent {
       trade.exchangeOrderId = order?.id;
       trade.executedAt = new Date(order.timestamp || Date.now());
       trade.fees = actualFee;
-      if (dynamicTrailingPct) {
-        trade.dynamicTrailingPct = dynamicTrailingPct;
-      }
+      trade.fees = actualFee;
       await trade.save();
 
       // Place native Stop-Loss and Take-Profit orders directly on CoinSwitch Pro
@@ -688,7 +697,6 @@ export default class ExecutionAgent extends BaseAgent {
         status: 'open',
         fees: actualFee,
         // Dynamic Profit Engine fields
-        dynamicTrailingPct,
         category,
         maxProfitReached: 0,
         maxDrawdownReached: 0,
@@ -937,7 +945,6 @@ export default class ExecutionAgent extends BaseAgent {
           openedAt: new Date(),
           fees: actualFee,
           // Dynamic Profit Engine fields
-          dynamicTrailingPct: undefined,
           category,
           maxProfitReached: 0,
           maxDrawdownReached: 0,

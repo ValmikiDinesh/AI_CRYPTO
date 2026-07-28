@@ -580,6 +580,8 @@ router.get('/volatility-profile', async (req, res, next) => {
 
 // POST & PUT /api/portfolio/config — update portfolio configurations (base capital, profit target percentage, keys)
 const handleUpdateConfig = async (req, res, next) => {
+  const { logger } = await import('../utils/logger.js');
+  logger.info(`[CONFIG] HTTP POST /config hit with body: ${JSON.stringify(req.body)}`);
   try {
     const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct, usdToInrRate, coinSwitchApiKey, coinSwitchApiSecret } = req.body;
 
@@ -674,9 +676,13 @@ const handleUpdateConfig = async (req, res, next) => {
 
 <i>All trading agents and risk parameters have been synchronized with these updated configurations.</i>
 `.trim();
-      await sendTelegramMessage(telegramMsg);
+      
+      // Fire-and-forget to prevent blocking the API response if Telegram API is slow
+      sendTelegramMessage(telegramMsg).catch(err => {
+        console.error('Failed to send Telegram notification on config update:', err.message);
+      });
     } catch (tgErr) {
-      console.error('Failed to send Telegram notification on config update:', tgErr);
+      console.error('Error generating Telegram notification:', tgErr);
     }
 
     // Trigger update on WebSocket/Redis channel

@@ -383,15 +383,6 @@ export default function Trading() {
                         step="0.05"
                         value={scalpInput}
                         onChange={(e) => setScalpInput(e.target.value)}
-                        onBlur={() => {
-                          const val = parseFloat(scalpInput);
-                          if (!isNaN(val) && val > 0) {
-                            handleToggleOrderType('minNetProfitTarget', val);
-                          } else {
-                            setScalpInput("");
-                            handleToggleOrderType('minNetProfitTarget', null);
-                          }
-                        }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             const val = parseFloat(scalpInput);
@@ -455,15 +446,6 @@ export default function Trading() {
                         step="0.05"
                         value={trailingSlInput}
                         onChange={(e) => setTrailingSlInput(e.target.value)}
-                        onBlur={() => {
-                          const val = parseFloat(trailingSlInput);
-                          if (!isNaN(val) && val > 0) {
-                            handleToggleOrderType('trailingStopUsd', val);
-                          } else {
-                            setTrailingSlInput("");
-                            handleToggleOrderType('trailingStopUsd', null);
-                          }
-                        }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             const val = parseFloat(trailingSlInput);

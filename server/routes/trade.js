@@ -276,7 +276,7 @@ router.post('/manual', async (req, res, next) => {
     });
 
     // Notify Telegram
-    await sendTelegramMessage(
+    sendTelegramMessage(
       `🔔 <b>Manual Trade Executed!</b>\n` +
       `<b>Asset</b>: ${asset.replace('USDT', '')}/USDT\n` +
       `<b>Action</b>: ${action} (${side === 'long' ? 'LONG' : 'SHORT'})\n` +
@@ -285,7 +285,7 @@ router.post('/manual', async (req, res, next) => {
       `<b>Stop Loss</b>: ${stopLoss ? '$' + formatPrice(stopLoss) : '—'}\n` +
       `<b>Target</b>: ${takeProfit ? '$' + formatPrice(takeProfit) : '—'}\n` +
       `<b>Leverage</b>: ${leverage}x`
-    );
+    ).catch(err => console.error(`Failed to send telegram notification: ${err.message}`));
 
     await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
       totalBalance: portfolio.totalBalance,
@@ -517,7 +517,7 @@ router.post('/manual-close', async (req, res, next) => {
     });
 
     // Notify Telegram
-    await sendTelegramMessage(
+    sendTelegramMessage(
       `✅ <b>Position Closed! [Manual]</b>\n` +
       `<b>Asset</b>: ${asset.replace('USDT', '')}/USDT\n` +
       `<b>Side</b>: ${pos.side.toUpperCase()}\n` +
@@ -528,7 +528,7 @@ router.post('/manual-close', async (req, res, next) => {
       `<b>Commission Paid</b>: $${totalPositionFees.toFixed(4)}\n` +
       `<b>Net PnL (After Fees)</b>: ${(pnl - totalPositionFees) >= 0 ? '+' : ''}$${(pnl - totalPositionFees).toFixed(2)}\n` +
       `<b>Reason</b>: Manually closed by user`
-    );
+    ).catch(err => console.error(`Failed to send telegram notification: ${err.message}`));
 
     await publishEvent(CHANNELS.PORTFOLIO_UPDATES, {
       totalBalance: portfolio.totalBalance,
