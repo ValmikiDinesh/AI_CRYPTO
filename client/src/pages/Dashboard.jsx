@@ -271,12 +271,19 @@ export default function Dashboard() {
       </div>
 
       {/* Portfolio Stats Grid */}
-      <div className="grid-layout-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <StatCard
           icon={DollarSign}
-          label="Net Worth"
-          value={formatVal(portfolio.totalBalance)}
-          subValue={`Margin Available: ${formatVal(portfolio.availableBalance)}`}
+          label="Live Total Balance"
+          value={formatVal(portfolio.liveTotalBalance || portfolio.totalBalance)}
+          subValue={`Margin Available: ${formatVal(portfolio.liveAvailableBalance || portfolio.availableBalance)}`}
+          iconColor="#86868b"
+        />
+        <StatCard
+          icon={Target}
+          label="Target Anchor (Base Capital)"
+          value={formatVal(portfolio.baseTradingCapital)}
+          subValue="Frozen Goalpost Baseline"
           iconColor="#86868b"
         />
         <StatCard

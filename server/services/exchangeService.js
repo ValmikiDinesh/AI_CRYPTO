@@ -7,7 +7,6 @@ import { logger } from '../utils/logger.js';
 class CoinSwitchExchange {
   constructor() {
     this.baseUrl = 'https://coinswitch.co/trade/api/v2';
-    this.isDemo = true;
     this.markets = {};
     this.timeOffset = 0;
     this.leverageCache = new Map(); // symbol -> leverage (already set this session)
@@ -33,9 +32,7 @@ class CoinSwitchExchange {
     }
   }
 
-  enableDemoTrading(isDemo) {
-    this.isDemo = isDemo;
-  }
+
 
   async loadMarkets() {
     // Return standard supported assets with their limits/precisions as baseline fallbacks
@@ -50,7 +47,7 @@ class CoinSwitchExchange {
       'DOGEUSDT': { precision: { amount: 1, price: 5 }, limits: { amount: { min: 0.1, step: 0.1, max: 100000 } }, symbol: 'DOGEUSDT' },
     };
 
-    if (!this.isDemo) {
+
       try {
         const path = '/futures/instrument_info?exchange=EXCHANGE_2';
         const auth = await this._signRequest('GET', path);
@@ -82,7 +79,6 @@ class CoinSwitchExchange {
       } catch (err) {
         logger.warn(`Failed to dynamically load instrument info from CoinSwitch: ${err.message}. Using baseline fallback markets.`);
       }
-    }
     return this.markets;
   }
 
@@ -100,10 +96,14 @@ class CoinSwitchExchange {
     let dec = this.markets[cleanSym]?.precision?.amount;
     if (dec === undefined || dec === null) dec = 3;
 
-    let formatted = num.toFixed(dec);
+    // Strict Truncation (floor) for quantities to prevent Precision Errors on max-capacity orders
+    const factor = Math.pow(10, dec);
+    let formatted = (Math.floor(num * factor) / factor).toFixed(dec);
+    
     if (parseFloat(formatted) === 0 && num > 0) {
       for (let d = dec + 1; d <= 8; d++) {
-        formatted = num.toFixed(d);
+        const factorD = Math.pow(10, d);
+        formatted = (Math.floor(num * factorD) / factorD).toFixed(d);
         if (parseFloat(formatted) > 0) break;
       }
     }
@@ -132,6 +132,39 @@ class CoinSwitchExchange {
       }
     }
     return formatted;
+  }
+
+  async fetchAssetFeeRate(asset) {
+    // Returns { maker: 0.0005, taker: 0.0005 } format (e.g. 0.05%)
+    const now = Date.now();
+    if (!this._feeCache) this._feeCache = {};
+    if (!this._lastFeeFetchTime || (now - this._lastFeeFetchTime) > 3600000) { // 1-hour cache
+      try {
+        const path = '/futures/instrument_info?exchange=EXCHANGE_2';
+        const auth = await this._signRequest('GET', path);
+        if (auth) {
+          const res = await axios.get(`https://coinswitch.co/trade/api/v2${path}`, auth);
+          if (res.data && res.data.data) {
+            this._feeCache = res.data.data;
+            this._lastFeeFetchTime = now;
+          }
+        }
+      } catch (err) {
+        logger.warn(`Failed to dynamically load fees: ${err.message}. Using default/stale cache.`);
+      }
+    }
+    
+    if (this._feeCache) {
+      const symbolKey = Object.keys(this._feeCache).find(k => k.replace('/', '').toUpperCase() === asset.toUpperCase());
+      if (symbolKey && this._feeCache[symbolKey]) {
+        const info = this._feeCache[symbolKey];
+        const makerFee = parseFloat(info.maker_fee || 0.0002);
+        const takerFee = parseFloat(info.taker_fee || 0.0005);
+        return { maker: makerFee, taker: takerFee };
+      }
+    }
+    
+    return { maker: 0.0002, taker: 0.0005 };
   }
 
   // Generate Ed25519 signature for CoinSwitch Pro API
@@ -419,9 +452,9 @@ class CoinSwitchExchange {
   }
 
   // Private API: fetchBalance (Simulated or Live with 10s TTL Cache)
-  async fetchBalance() {
+  async fetchBalance(forceRefresh = false) {
     const now = Date.now();
-    if (this._cachedBalanceResult && (now - (this._lastBalanceFetchTime || 0)) < 10000) {
+    if (!forceRefresh && this._cachedBalanceResult && (now - (this._lastBalanceFetchTime || 0)) < 10000) {
       return this._cachedBalanceResult;
     }
 
@@ -435,7 +468,7 @@ class CoinSwitchExchange {
 
     // 1. Check Futures Wallet Balance (if any USDT is specifically held)
     const auth = await this._signRequest('GET', '/futures/wallet_balance');
-    if (auth && !this.isDemo) {
+    if (auth) {
       try {
         const res = await axios.get(`https://coinswitch.co/trade/api/v2/futures/wallet_balance`, auth);
         if (res.data && res.data.data && res.data.data.base_asset_balances) {
@@ -480,7 +513,8 @@ class CoinSwitchExchange {
   }
 
   // Private API: createMarketOrder (Simulated or Live)
-  async createMarketOrder(symbol, side, amount, isReduceOnly = false) {
+  async createMarketOrder(symbol, side, amount, params = {}) {
+    const isReduceOnly = params.reduceOnly === true || params.reduce_only === true;
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const ticker = await this.fetchTicker(symbol);
     const price = ticker.last || 1.0;
@@ -490,17 +524,18 @@ class CoinSwitchExchange {
       symbol: cleanSym,
       side: side.toUpperCase(),
       order_type: 'MARKET',
-      quantity: parseFloat(amount)
+      quantity: parseFloat(this.amountToPrecision(cleanSym, amount))
     };
     if (isReduceOnly) {
       body.reduce_only = true;
     }
 
     const auth = await this._signRequest('POST', '/futures/order', body);
-    if (auth && !this.isDemo) {
+    if (auth) {
       try {
         try {
-          await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+          const targetLeverage = params.leverage || parseInt(process.env.DEFAULT_LEVERAGE) || 3;
+          await this.ensureLeverage(symbol, targetLeverage);
         } catch (levErr) {
           logger.warn(`Non-blocking leverage setup warning for ${symbol}: ${levErr.message}`);
         }
@@ -514,9 +549,9 @@ class CoinSwitchExchange {
             side: side,
             price: parseFloat(o.averagePrice || o.price || price),
             amount: parseFloat(o.quantity),
-            filled: parseFloat(o.quantity),
+            filled: parseFloat(o.exec_quantity || o.executedQuantity || o.quantity),
             status: 'closed',
-            fee: { cost: o.fee ? parseFloat(o.fee) / 83.5 : amount * price * 0.0005, currency: 'USDT' }
+            fee: { cost: o.fee ? parseFloat(o.fee) : amount * price * 0.0005, currency: 'USDT' }
           };
         }
       } catch (err) {
@@ -525,38 +560,31 @@ class CoinSwitchExchange {
         throw new Error(detail);
       }
     }
-
-    // Paper-trading simulation
-    return {
-      id: 'sim_' + Math.random().toString(36).substr(2, 9),
-      symbol: symbol,
-      type: 'market',
-      side: side,
-      price: price,
-      amount: parseFloat(amount),
-      filled: parseFloat(amount),
-      status: 'closed',
-      fee: { cost: amount * price * 0.0005, currency: 'USDT' }
-    };
+    throw new Error('CoinSwitch API keys missing for createMarketOrder');
   }
 
   // Private API: createLimitOrder (Simulated or Live)
-  async createLimitOrder(symbol, side, amount, price) {
+  async createLimitOrder(symbol, side, amount, price, params = {}) {
+    const isReduceOnly = params.reduceOnly === true || params.reduce_only === true;
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const body = {
       exchange: 'EXCHANGE_2',
       symbol: cleanSym,
       side: side.toUpperCase(),
       order_type: 'LIMIT',
-      quantity: parseFloat(amount),
-      price: parseFloat(price)
+      quantity: parseFloat(this.amountToPrecision(cleanSym, amount)),
+      price: parseFloat(this.priceToPrecision(cleanSym, price))
     };
+    if (isReduceOnly) {
+      body.reduce_only = true;
+    }
 
     const auth = await this._signRequest('POST', '/futures/order', body);
-    if (auth && !this.isDemo) {
+    if (auth) {
       try {
         try {
-          await this.ensureLeverage(symbol, parseInt(process.env.DEFAULT_LEVERAGE) || 3);
+          const targetLeverage = params.leverage || parseInt(process.env.DEFAULT_LEVERAGE) || 3;
+          await this.ensureLeverage(symbol, targetLeverage);
         } catch (levErr) {
           logger.warn(`Non-blocking leverage setup warning for ${symbol}: ${levErr.message}`);
         }
@@ -581,36 +609,11 @@ class CoinSwitchExchange {
         throw new Error(errorMsg);
       }
     }
-
-    // Paper-trading simulation
-    return {
-      id: 'sim_' + Math.random().toString(36).substr(2, 9),
-      symbol: symbol,
-      type: 'limit',
-      side: side,
-      price: price,
-      amount: parseFloat(amount),
-      filled: 0,
-      status: 'open',
-      fee: { cost: 0, currency: 'USDT' }
-    };
+    throw new Error('CoinSwitch API keys missing for createLimitOrder');
   }
 
-  // Private API: createOrder (Simulated or Live)
+  // Private API: createOrder (Live Only)
   async createOrder(symbol, type, side, amount, price, params = {}) {
-    if (this.isDemo) {
-      const stopPrice = params.stopPrice || params.triggerPrice;
-      return {
-        id: 'sim_trigger_' + Math.random().toString(36).substr(2, 9),
-        symbol,
-        type,
-        side,
-        price,
-        amount,
-        status: 'open',
-        stopPrice
-      };
-    }
 
     const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
     const rawStop = params.stopPrice !== undefined && params.stopPrice !== null ? params.stopPrice : (params.triggerPrice !== undefined && params.triggerPrice !== null ? params.triggerPrice : params.trigger_price);
@@ -638,15 +641,15 @@ class CoinSwitchExchange {
       symbol: cleanSym,
       side: side.toUpperCase(),
       order_type: orderType,
-      quantity: qty
+      quantity: parseFloat(this.amountToPrecision(cleanSym, qty))
     };
 
     if (price !== undefined && price !== null) {
-      body.price = parseFloat(price);
+      body.price = parseFloat(this.priceToPrecision(cleanSym, price));
     }
 
     if (stopPrice !== undefined && stopPrice !== null) {
-      body.trigger_price = parseFloat(stopPrice);
+      body.trigger_price = parseFloat(this.priceToPrecision(cleanSym, stopPrice));
     }
 
     if (isTriggerOrder) {
@@ -700,40 +703,38 @@ class CoinSwitchExchange {
       return [];
     }
 
-    if (!this.isDemo) {
-      try {
-        const path = symbol
-          ? `/futures/positions?exchange=EXCHANGE_2&symbol=${symbol.replace('/', '').replace(':USDT', '').toUpperCase()}`
-          : `/futures/positions?exchange=EXCHANGE_2`;
-          
-        const res = await this._requestWithRetry('GET', path);
-        if (res) {
-          if (res.data) {
-            if (res.data.message && res.data.message.includes('no open Positions')) {
-              this.positionsCache[cacheKey] = { timestamp: now, data: [] };
-              return [];
-            }
-            if (res.data.data) {
-              const rawData = res.data.data.positions || res.data.data.orders || res.data.data;
-              const data = Array.isArray(rawData) ? rawData : [rawData];
-              const result = data.filter(p => p && (p.symbol || p.asset)).map(p => ({
-                symbol: (p.symbol || p.asset || '').replace('/', '').replace(':USDT', '').toUpperCase(),
-                contracts: parseFloat(p.quantity || p.position_size || p.positionSize || p.contracts || 0),
-                side: (p.side || p.position_side || p.positionSide || 'LONG').toLowerCase(),
-                entryPrice: parseFloat(p.entryPrice || p.avg_entry_price || p.avgEntryPrice || p.entry_price || 0),
-                markPrice: parseFloat(p.mark_price || p.markPrice || p.currentPrice || p.entryPrice || 0),
-                unrealizedPnl: parseFloat(p.unrealised_pnl || p.unrealizedPnl || 0),
-                leverage: parseFloat(p.leverage || 5)
-              }));
-              this.positionsCache[cacheKey] = { timestamp: now, data: result };
-              return result;
-            }
+    try {
+      const path = symbol
+        ? `/futures/positions?exchange=EXCHANGE_2&symbol=${symbol.replace('/', '').replace(':USDT', '').toUpperCase()}`
+        : `/futures/positions?exchange=EXCHANGE_2`;
+        
+      const res = await this._requestWithRetry('GET', path);
+      if (res) {
+        if (res.data) {
+          if (res.data.message && res.data.message.includes('no open Positions')) {
+            this.positionsCache[cacheKey] = { timestamp: now, data: [] };
+            return [];
+          }
+          if (res.data.data) {
+            const rawData = res.data.data.positions || res.data.data.orders || res.data.data;
+            const data = Array.isArray(rawData) ? rawData : [rawData];
+            const result = data.filter(p => p && (p.symbol || p.asset)).map(p => ({
+              symbol: (p.symbol || p.asset || '').replace('/', '').replace(':USDT', '').toUpperCase(),
+              contracts: parseFloat(p.quantity || p.position_size || p.positionSize || p.contracts || 0),
+              side: (p.side || p.position_side || p.positionSide || 'LONG').toLowerCase(),
+              entryPrice: parseFloat(p.entryPrice || p.avg_entry_price || p.avgEntryPrice || p.entry_price || 0),
+              markPrice: parseFloat(p.mark_price || p.markPrice || p.currentPrice || p.entryPrice || 0),
+              unrealizedPnl: parseFloat(p.unrealised_pnl || p.unrealizedPnl || 0),
+              leverage: parseFloat(p.leverage || 5)
+            }));
+            this.positionsCache[cacheKey] = { timestamp: now, data: result };
+            return result;
           }
         }
-      } catch (err) {
-        if (this.positionsCache[cacheKey]) return this.positionsCache[cacheKey].data;
-        logger.error(`CoinSwitch fetchPositions live error: ${err.message}`);
       }
+    } catch (err) {
+      if (this.positionsCache[cacheKey]) return this.positionsCache[cacheKey].data;
+      logger.error(`CoinSwitch fetchPositions live error: ${err.message}`);
     }
 
     // Default Fallback: Return open positions from DB
@@ -763,61 +764,49 @@ class CoinSwitchExchange {
         return { id: id || 'mock', symbol, status: 'closed', filled: 1.0, amount: 1.0 };
       }
 
-      if (!this.isDemo) {
-        // Live implementation
-        const path = `/futures/order?order_id=${id}`;
-        const res = await this._requestWithRetry('GET', path);
-        if (res && res.data && res.data.data) {
-          const o = res.data.data.order || res.data.data;
-          
-          let status = 'open';
-          if (o.status === 'EXECUTED' || o.status === 'PARTIALLY_EXECUTED') {
-            status = 'closed';
-          } else if (o.status === 'CANCELLED') {
-            status = 'canceled';
-          }
-
-          return {
-            id: o.order_id || o.orderId,
-            symbol: symbol,
-            status: status,
-            price: parseFloat(o.avg_execution_price || o.averagePrice || o.price || 0),
-            amount: parseFloat(o.quantity || 0),
-            filled: parseFloat(o.exec_quantity || o.executedQuantity || o.quantity || 0),
-            fee: { cost: parseFloat(o.execution_fee || o.fee || 0) / 83.5, currency: 'USDT' }
-          };
-        } else {
-          throw new Error(`Order ${id} not found or invalid response from exchange`);
+      // Live implementation
+      const path = `/futures/order?order_id=${id}`;
+      const res = await this._requestWithRetry('GET', path);
+      if (res && res.data && res.data.data) {
+        const o = res.data.data.order || res.data.data;
+        
+        let status = 'open';
+        if (o.status === 'EXECUTED') {
+          status = 'closed';
+        } else if (o.status === 'CANCELLED') {
+          status = 'canceled';
         }
+
+        return {
+          id: o.order_id || o.orderId,
+          symbol: symbol,
+          status: status,
+          price: parseFloat(o.avg_execution_price || o.averagePrice || o.price || 0),
+          amount: parseFloat(o.quantity || 0),
+          filled: parseFloat(o.exec_quantity || o.executedQuantity || o.quantity || 0),
+          fee: { cost: parseFloat(o.execution_fee || o.fee || 0), currency: 'USDT' }
+        };
+      } else {
+        throw new Error(`Order ${id} not found or invalid response from exchange`);
       }
     } catch (err) {
       logger.error(`CoinSwitch fetchOrder live error: ${err.message}`);
-      if (!this.isDemo) {
-        throw err;
-      }
+      throw err;
     }
-    // Default simulated fallback for demo/sim orders
-    return { id, symbol, status: 'closed', filled: 1.0, amount: 1.0 };
   }
 
-  // Private API: cancelOrder (Simulated or Live)
+  // Private API: cancelOrder (Live Only)
   async cancelOrder(id, symbol) {
     try {
-      if (id && id.startsWith('sim_')) {
-        return { id, symbol, status: 'canceled' };
-      }
-
       // Live implementation
       const body = {
         exchange: 'EXCHANGE_2',
         order_id: id
       };
       const path = '/futures/order';
-      if (!this.isDemo) {
-        const res = await this._requestWithRetry('DELETE', path, body);
-        if (res && res.data && res.data.data) {
-          return { id, symbol, status: 'canceled', raw: res.data.data };
-        }
+      const res = await this._requestWithRetry('DELETE', path, body);
+      if (res && res.data && res.data.data) {
+        return { id, symbol, status: 'canceled', raw: res.data.data };
       }
     } catch (err) {
       logger.error(`CoinSwitch cancelOrder live error: ${err.message}`);
@@ -825,31 +814,27 @@ class CoinSwitchExchange {
     return { id, symbol, status: 'canceled' };
   }
 
-  // Private API: cancelAllOrders (Simulated or Live)
+  // Private API: cancelAllOrders (Live Only)
   async cancelAllOrders(symbol) {
     try {
-      if (!symbol || symbol.startsWith('sim_')) {
-        return { symbol, status: 'all_canceled' };
-      }
+      if (!symbol) return { symbol, status: 'all_canceled' };
 
       // Live implementation
       const cleanSym = symbol.replace('/', '').replace(':USDT', '').toUpperCase();
       
       // 1. Fetch and cancel all live open trigger orders (SL / TP) explicitly
-      if (!this.isDemo) {
-        try {
-          const openOrders = await this.fetchOpenOrders(cleanSym);
-          if (openOrders && openOrders.length > 0) {
-            for (const order of openOrders) {
-              if (order.id) {
-                await this.cancelOrder(cleanSym, order.id).catch(() => {});
-                logger.info(`🧹 [CANCEL ALL] Explicitly cancelled open trigger order ${order.id} (${order.type}) for ${cleanSym}`);
-              }
+      try {
+        const openOrders = await this.fetchOpenOrders(cleanSym);
+        if (openOrders && openOrders.length > 0) {
+          for (const order of openOrders) {
+            if (order.id) {
+              await this.cancelOrder(order.id, cleanSym).catch(() => {});
+              logger.info(`🧹 [CANCEL ALL] Explicitly cancelled open trigger order ${order.id} (${order.type}) for ${cleanSym}`);
             }
           }
-        } catch (e) {
-          logger.warn(`Trigger order sweep warning for ${cleanSym}: ${e.message}`);
         }
+      } catch (e) {
+        logger.warn(`Trigger order sweep warning for ${cleanSym}: ${e.message}`);
       }
 
       // 2. Call bulk cancel_all endpoint
@@ -858,11 +843,9 @@ class CoinSwitchExchange {
         exchange: 'EXCHANGE_2',
         symbol: cleanSym
       };
-      if (!this.isDemo) {
-        const res = await this._requestWithRetry('POST', path, body);
-        if (res && res.data && res.data.data) {
-          return { symbol, status: 'all_canceled', raw: res.data.data };
-        }
+      const res = await this._requestWithRetry('POST', path, body);
+      if (res && res.data && res.data.data) {
+        return { symbol, status: 'all_canceled', raw: res.data.data };
       }
     } catch (err) {
       logger.error(`CoinSwitch cancelAllOrders live error: ${err.message}`);
@@ -875,12 +858,9 @@ class CoinSwitchExchange {
     return [];
   }
 
-  // Private API: fetchOpenOrders (Simulated or Live)
+  // Private API: fetchOpenOrders (Live Only)
   async fetchOpenOrders(symbol, since, limit, params = {}) {
     try {
-      if (this.isDemo) {
-        return [];
-      }
 
       const cleanSym = symbol ? symbol.replace('/', '').replace(':USDT', '').replace(':USDT', '').toUpperCase() : undefined;
       const path = '/futures/orders/open';
@@ -900,7 +880,7 @@ class CoinSwitchExchange {
           const orders = res.data.data.orders;
           return orders.map(o => {
             let status = 'open';
-            if (o.status === 'EXECUTED' || o.status === 'PARTIALLY_EXECUTED') {
+            if (o.status === 'EXECUTED') {
               status = 'closed';
             } else if (o.status === 'CANCELLED') {
               status = 'canceled';
@@ -927,12 +907,9 @@ class CoinSwitchExchange {
     return [];
   }
 
-  // Private API: fetchClosedOrders (Simulated or Live)
+  // Private API: fetchClosedOrders (Live Only)
   async fetchClosedOrders(symbol, since, limit, params = {}) {
     try {
-      if (this.isDemo) {
-        return [];
-      }
 
       const cleanSym = symbol ? symbol.replace('/', '').replace(':USDT', '').replace(':USDT', '').toUpperCase() : undefined;
       const path = '/futures/orders/closed';
@@ -955,7 +932,7 @@ class CoinSwitchExchange {
           const orders = res.data.data.orders;
           return orders.map(o => {
             let status = 'open';
-            if (o.status === 'EXECUTED' || o.status === 'PARTIALLY_EXECUTED') {
+            if (o.status === 'EXECUTED') {
               status = 'closed';
             } else if (o.status === 'CANCELLED') {
               status = 'canceled';
@@ -995,17 +972,14 @@ class CoinSwitchExchange {
     };
 
     const path = '/futures/leverage';
-    if (!this.isDemo) {
-      try {
-        const res = await this._requestWithRetry('POST', path, body);
-        logger.info(`✅ Leverage set to ${leverage}x for ${cleanSym}`);
-        return res.data;
-      } catch (err) {
-        logger.warn(`CoinSwitch setLeverage warning for ${cleanSym}: ${err.response?.data?.message || err.message}`);
-        throw err;
-      }
+    try {
+      const res = await this._requestWithRetry('POST', path, body);
+      logger.info(`✅ Leverage set to ${leverage}x for ${cleanSym}`);
+      return res.data;
+    } catch (err) {
+      logger.warn(`CoinSwitch setLeverage warning for ${cleanSym}: ${err.response?.data?.message || err.message}`);
+      throw err;
     }
-    return { simulated: true, leverage };
   }
 
   // Idempotent leverage setter — only calls the API if leverage hasn't been set for this symbol yet
@@ -1029,8 +1003,6 @@ let exchangeInstance = null;
 export const getExchange = () => {
   if (!exchangeInstance) {
     exchangeInstance = new CoinSwitchExchange();
-    const isDemo = process.env.TRADING_MODE !== 'live';
-    exchangeInstance.enableDemoTrading(isDemo);
   }
   return exchangeInstance;
 };
@@ -1039,6 +1011,18 @@ export const fetchCandles = async (symbol, timeframe = '5m', limit = 100) => {
   try {
     const exchange = getExchange();
     const ohlcv = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+
+    // Dynamic timeframe parser for exact chronology
+    let durationMs = 5 * 60 * 1000; // Default 5m
+    const match = timeframe.match(/^(\d+)([mhd])$/);
+    if (match) {
+      const val = parseInt(match[1], 10);
+      const unit = match[2];
+      if (unit === 'm') durationMs = val * 60 * 1000;
+      else if (unit === 'h') durationMs = val * 60 * 60 * 1000;
+      else if (unit === 'd') durationMs = val * 24 * 60 * 60 * 1000;
+    }
+
     return ohlcv.map(([timestamp, open, high, low, close, volume]) => ({
       open,
       high,
@@ -1046,7 +1030,7 @@ export const fetchCandles = async (symbol, timeframe = '5m', limit = 100) => {
       close,
       volume,
       openTime: new Date(timestamp),
-      closeTime: new Date(timestamp + 5 * 60 * 1000 - 1),
+      closeTime: new Date(timestamp + durationMs - 1),
       isClosed: true,
     }));
   } catch (err) {
@@ -1075,12 +1059,13 @@ export const fetchOrderBook = async (symbol, limit = 20) => {
   }
 };
 
-export const placeMarketOrder = async (symbol, side, amount, isReduceOnly = false) => {
+export const placeMarketOrder = async (symbol, side, amount, isReduceOnly = false, leverage = null) => {
   try {
     const exchange = getExchange();
     await exchange.loadMarkets();
-    const order = await exchange.createMarketOrder(symbol, side, amount, isReduceOnly);
-    logger.info(`CoinSwitch market order placed (${isReduceOnly ? 'reduceOnly' : 'entry'}): ${side} ${amount} ${symbol} → ID ${order.id}`);
+    const formattedAmount = Number(exchange.amountToPrecision(symbol, amount));
+    const order = await exchange.createMarketOrder(symbol, side, formattedAmount, { reduceOnly: isReduceOnly, leverage });
+    logger.info(`CoinSwitch market order placed (${isReduceOnly ? 'reduceOnly' : 'entry'}): ${side} ${formattedAmount} ${symbol} → ID ${order.id}`);
     return order;
   } catch (err) {
     logger.error(`placeMarketOrder(${symbol}, ${side}) error: ${err.message}`);
@@ -1088,15 +1073,41 @@ export const placeMarketOrder = async (symbol, side, amount, isReduceOnly = fals
   }
 };
 
-export const placeLimitOrder = async (symbol, side, amount, price) => {
+export const placeLimitOrder = async (symbol, side, amount, price, isReduceOnly = false, leverage = null) => {
   try {
     const exchange = getExchange();
     await exchange.loadMarkets();
-    const order = await exchange.createLimitOrder(symbol, side, amount, price);
-    logger.info(`CoinSwitch limit order placed: ${side} ${amount} ${symbol} @ ${price} → ID ${order.id}`);
+    const params = { reduceOnly: isReduceOnly, leverage };
+    const formattedAmount = Number(exchange.amountToPrecision(symbol, amount));
+    const formattedPrice = Number(exchange.priceToPrecision(symbol, price));
+    const order = await exchange.createLimitOrder(symbol, side, formattedAmount, formattedPrice, params);
+    logger.info(`CoinSwitch limit order placed: ${side} ${formattedAmount} ${symbol} @ ${formattedPrice} (reduce: ${isReduceOnly}) → ID ${order.id}`);
     return order;
   } catch (err) {
     logger.error(`placeLimitOrder(${symbol}, ${side}) error: ${err.message}`);
+    throw err;
+  }
+};
+
+export const placeTriggerOrder = async (symbol, side, amount, triggerPrice, type = 'stop_market') => {
+  try {
+    const exchange = getExchange();
+    await exchange.loadMarkets();
+    
+    const formattedAmount = Number(exchange.amountToPrecision(symbol, amount));
+    const formattedPrice = Number(exchange.priceToPrecision(symbol, triggerPrice));
+
+    // CCXT normalization - pass the params to internal createOrder
+    const params = {
+      stopPrice: formattedPrice,
+      reduceOnly: true
+    };
+
+    const order = await exchange.createOrder(symbol, type, side, formattedAmount, undefined, params);
+    logger.info(`CoinSwitch Trigger Order placed: ${type} ${side} ${formattedAmount} ${symbol} @ ${formattedPrice} → ID ${order.id}`);
+    return order;
+  } catch (err) {
+    logger.error(`placeTriggerOrder(${symbol}, ${type}) error: ${err.message}`);
     throw err;
   }
 };
@@ -1131,10 +1142,10 @@ export const cancelAllOrders = async (symbol) => {
   }
 };
 
-export const fetchBalance = async () => {
+export const fetchBalance = async (forceRefresh = false) => {
   try {
     const exchange = getExchange();
-    return await exchange.fetchBalance();
+    return await exchange.fetchBalance(forceRefresh);
   } catch (err) {
     logger.error(`fetchBalance error: ${err.message}`);
     throw err;
@@ -1226,6 +1237,7 @@ export default {
   fetchOrderBook,
   placeMarketOrder,
   placeLimitOrder,
+  placeTriggerOrder,
   fetchOrder,
   cancelOrder,
   cancelAllOrders,

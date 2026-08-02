@@ -47,7 +47,7 @@ export default class FusionAgent extends BaseAgent {
           continue;
         }
 
-        const cacheKey = `${currentPrice}_${technical.timestamp || 0}`;
+        const cacheKey = `${currentPrice}_${technical.action}_${sentiment?.label || 'N'}_${prediction?.direction || 'N'}`;
         if (this._calcCache[asset] === cacheKey && this.lastSignals[asset]) {
           continue;
         }
@@ -99,22 +99,16 @@ export default class FusionAgent extends BaseAgent {
     // Compute confidence (average of individual confidences, weighted)
     const confidence = Math.abs(composite);
 
-    // Determine action with Pure Micro-Trend Execution (Zero Confidence Filter Barrier)
+    // Determine action strictly based on the weighted ensemble intelligence (composite score)
     let action = ACTIONS.HOLD;
-    const ema9 = technical.indicators?.ema?.ema9;
-    const rsi = technical.indicators?.rsi || 50;
 
-    // Direct micro-trend directional signals
-    const isMicroBuy = (ema9 && currentPrice > ema9) || (rsi < 35) || (technical.action === 'BUY');
-    const isMicroSell = (ema9 && currentPrice < ema9) || (rsi > 65) || (technical.action === 'SELL');
-
-    if (isMicroBuy) {
+    if (composite >= 0.25) {
       action = ACTIONS.BUY;
-    } else if (isMicroSell) {
+    } else if (composite <= -0.25) {
       action = ACTIONS.SELL;
     }
 
-    const finalConfidence = (isMicroBuy || isMicroSell) ? 1.0 : confidence;
+    const finalConfidence = confidence;
     let limitEntryPrice = currentPrice;
     let stopLoss = currentPrice;
     let takeProfit = currentPrice;
@@ -160,8 +154,8 @@ export default class FusionAgent extends BaseAgent {
 
           const minSlDistance = limitEntryPrice * 0.02; // 2.0% minimum Stop Loss distance
           const slDistance = Math.max(minSlDistance, 1.5 * atr);
-          stopLoss = limitEntryPrice - slDistance;
-          takeProfit = limitEntryPrice + (slDistance * 2.0); // 2:1 Reward-to-Risk Ratio (minimum +4.0% TP)
+          stopLoss = Math.max(0.00000001, limitEntryPrice - slDistance);
+          takeProfit = Math.max(0.00000001, limitEntryPrice + (slDistance * 2.0)); // 2:1 Reward-to-Risk Ratio (minimum +4.0% TP)
         }
       } else if (action === ACTIONS.SELL) {
         // Validate and use AI-defined levels if direction-aligned and structurally correct
@@ -192,8 +186,8 @@ export default class FusionAgent extends BaseAgent {
 
           const minSlDistance = limitEntryPrice * 0.02; // 2.0% minimum Stop Loss distance
           const slDistance = Math.max(minSlDistance, 1.5 * atr);
-          stopLoss = limitEntryPrice + slDistance;
-          takeProfit = limitEntryPrice - (slDistance * 2.0); // 2:1 Reward-to-Risk Ratio (minimum -4.0% TP)
+          stopLoss = Math.max(0.00000001, limitEntryPrice + slDistance);
+          takeProfit = Math.max(0.00000001, limitEntryPrice - (slDistance * 2.0)); // 2:1 Reward-to-Risk Ratio (minimum -4.0% TP)
         }
       }
     }
@@ -208,10 +202,24 @@ export default class FusionAgent extends BaseAgent {
 
       // Kelly Formula: f* = (p * b - q) / b
       const kellyFraction = b > 0 ? ((p * b - (1 - p)) / b) : 0;
-      const targetPercent = 0.50 * kellyFraction * 100; // Half-Kelly in % (aggressive sizing)
       
-      // Cap the trade allocation between 0.5% and 15% of portfolio capital (aggressive risk management)
-      positionPercent = Math.min(15, Math.max(0.5, targetPercent));
+      if (kellyFraction <= 0) {
+        action = ACTIONS.HOLD; // VETO the trade! Negative Expected Value!
+        positionPercent = 0;
+      } else {
+        const targetPercent = 0.50 * kellyFraction * 100; // Half-Kelly in % (aggressive sizing)
+        
+        // Phase 4c: Strategy-Aware Capital Allocation
+        const activeStrategy = prediction?.metadata?.activeStrategy || 'trend_sniper';
+        
+        if (activeStrategy === 'hft_scalping') {
+          // SCALPING: Strict restriction to protect against rapid fire fee bleed
+          positionPercent = Math.min(2.0, Math.max(1.0, targetPercent));
+        } else {
+          // TREND SNIPER: Heavy swing for massive macro trends
+          positionPercent = Math.min(15.0, Math.max(3.0, targetPercent));
+        }
+      }
     }
 
     // Compute risk score (lower = safer)
@@ -251,7 +259,8 @@ export default class FusionAgent extends BaseAgent {
       },
       metadata: {
         sourceModel: prediction?.model || 'none',
-        usedAiTargets
+        usedAiTargets,
+        atrSource: technical.indicators?.atrSource || 'dynamic'
       }
     };
   }

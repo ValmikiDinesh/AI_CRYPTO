@@ -32,6 +32,34 @@ export const logger = winston.createLogger({
   ],
 });
 
+// Custom Transport for Redis Broadcasting
+class RedisTransport extends winston.Transport {
+  constructor(opts) {
+    super(opts);
+  }
+
+  log(info, callback) {
+    setImmediate(() => this.emit('logged', info));
+    
+    // Only broadcast agent logs
+    if (info.agent) {
+      // Lazily import to avoid circular dependency
+      import('../config/redis.js').then(({ publishEvent, CHANNELS }) => {
+        publishEvent(CHANNELS.AGENT_LOGS, {
+          agent: info.agent,
+          level: info.level,
+          message: info.message,
+          timestamp: info.timestamp || new Date().toISOString()
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+
+    callback();
+  }
+}
+
+logger.add(new RedisTransport({ level: 'info' }));
+
 // Create agent-specific child logger
 export const createAgentLogger = (agentName) => {
   return logger.child({ agent: agentName });

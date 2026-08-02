@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const positionSchema = new mongoose.Schema({
+  tradeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trade' },
   asset: { type: String, required: true },
   side: { type: String, enum: ['long', 'short'], required: true },
   entryPrice: { type: Number, required: true },
@@ -27,12 +28,15 @@ const positionSchema = new mongoose.Schema({
   lockedMinProfit: { type: Number },                     // price level where SL was moved to guarantee profit
   dynamicTrailingPct: { type: Number },                  // ATR-based trailing distance for this position
   category: { type: String, enum: ['core', 'meme', 'recommended', 'other'], default: 'other' },
+  activeStrategy: { type: String },                      // 'trend_sniper' or 'hft_scalping'
+  hasVirtualStop: { type: Boolean, default: false },
+  hasVirtualTakeProfit: { type: Boolean, default: false },
 }, { _id: true });
 
 const portfolioSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String,
+    default: 'system',
     index: true,
     unique: true,
   },
@@ -59,6 +63,9 @@ const portfolioSchema = new mongoose.Schema({
   isSquaringOff: { type: Boolean, default: false },
   targetProfitThreshold: { type: Number, default: 110 },
   baseTradingCapital: { type: Number, default: 100 },
+  maxDailyLossPct: { type: Number, default: 20 },
+  maxDailyTrades: { type: Number, default: 1000 },
+  defaultLeverage: { type: Number, default: 1 },
   basketProfitTargetPct: { type: Number, default: 10 },
   sweepTargetProfitPct: { type: Number, default: 10 },
   manuallyDisabledAssets: { type: [String], default: [] },
@@ -67,11 +74,37 @@ const portfolioSchema = new mongoose.Schema({
   coinSwitchApiSecret: { type: String, default: "" },
   entryOrderType: { type: String, enum: ['market', 'limit'], default: 'market' },
   exitOrderType: { type: String, enum: ['market', 'limit'], default: 'market' },
-  minNetProfitTarget: { type: Number },    // null = OFF, positive number = ON with that value
+  enableDynamicScalp: { type: Boolean, default: false },
+  enableTrailingStop: { type: Boolean, default: true },
+  enableTrailingFloor: { type: Boolean, default: true },
+  minMarginFloor: { type: Number, default: 5.0 }, // Dynamic minimum margin floor
   trailingStopUsd: { type: Number },        // null = OFF, positive number = ON with that value
+  trailingStopMinFloorUsd: { type: Number, default: 0.10 }, // Configurable minimum locked-in profit floor for trailing stop
   usdToInrRate: { type: Number, default: 96.54 },
   lastRebalancedAt: { type: Date },
   lastDailyDigestDate: { type: String },
+  enableAILlmPredictions: { type: Boolean, default: false },
+  aiLlmSequence: { type: [String], default: ['gemini', 'groq', 'openai'] },
+  aiApiKeys: {
+    gemini: { type: [String], default: [] },
+    groq: { type: [String], default: [] },
+    openai: { type: [String], default: [] }
+  },
+  activeStrategy: { type: String, enum: ['trend_sniper', 'hft_scalping'], default: 'trend_sniper' },
+  strategySettings: {
+    trend_sniper: {
+      confidenceThreshold: { type: Number },
+      stopLossAtr: { type: Number },
+      takeProfitAtr: { type: Number }
+    },
+    hft_scalping: {
+      confidenceThreshold: { type: Number },
+      stopLossAtr: { type: Number },
+      takeProfitAtr: { type: Number }
+    }
+  },
+  telegramBotToken: { type: String, default: "" },
+  telegramChatId: { type: String, default: "" }
 }, {
   timestamps: true,
   versionKey: false,

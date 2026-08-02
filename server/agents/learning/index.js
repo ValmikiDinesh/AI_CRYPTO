@@ -27,7 +27,18 @@ export default class LearningAgent extends BaseAgent {
       const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
       if (this.lastDailyUpdateDate !== todayStr && this.cycleCount > 1) {
         this.lastDailyUpdateDate = todayStr;
-        this.updateDailyVolatilityHistory().catch(e => this.logger.error(`Daily volatility error: ${e.message}`));
+        
+        // 🛡️ FIX: DB-Level Idempotency check to prevent 14-minute API spam on node reboot
+        const yesterdayStart = new Date();
+        yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+        yesterdayStart.setHours(0, 0, 0, 0);
+        
+        const existingRecord = await VolatilityHistory.findOne({ date: yesterdayStart });
+        if (!existingRecord) {
+          this.updateDailyVolatilityHistory().catch(e => this.logger.error(`Daily volatility error: ${e.message}`));
+        } else {
+          this.logger.info('📊 Volatility history already updated for today. Skipping API spam.');
+        }
       }
 
       // Analyze last 50 closed trades using lightweight lean query
@@ -67,9 +78,12 @@ export default class LearningAgent extends BaseAgent {
    */
   async updateDailyVolatilityHistory() {
     this.logger.info('📊 Starting daily Day-of-Week Volatility tracking cycle...');
-    const dayOfWeek = new Date().getDay(); // 0 = Sunday, 6 = Saturday
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    
+    // 🛡️ FIX: We are extracting yesterday's completed candle, so save it to yesterday's date
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0);
+    const dayOfWeek = yesterday.getDay(); // 0 = Sunday, 6 = Saturday
 
     for (const asset of SUPPORTED_ASSETS) {
       try {
@@ -80,7 +94,8 @@ export default class LearningAgent extends BaseAgent {
         const candles = await fetchCandles(asset, '1d', 2);
         if (!candles || candles.length === 0) continue;
 
-        const lastCandle = candles[candles.length - 1];
+        // FIX: Extract the fully completed previous day's candle (candles[0]), falling back to the current candle only if array is length 1
+        const lastCandle = candles.length > 1 ? candles[0] : candles[candles.length - 1];
         
         // Also fetch 5m candles to calculate current ATR
         const raw5mCandles = await fetchCandles(asset, '5m', 50);
@@ -98,10 +113,10 @@ export default class LearningAgent extends BaseAgent {
         const rangePct = close > 0 ? (range / close) * 100 : 0;
 
         await VolatilityHistory.findOneAndUpdate(
-          { asset, date: todayStart },
+          { asset, date: yesterday },
           {
             asset,
-            date: todayStart,
+            date: yesterday,
             dayOfWeek,
             highPrice: high,
             lowPrice: low,

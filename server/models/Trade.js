@@ -2,8 +2,8 @@ import mongoose from 'mongoose';
 
 const tradeSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String,
+    default: 'system',
     index: true,
   },
   asset: { type: String, required: true, index: true },
@@ -24,7 +24,7 @@ const tradeSchema = new mongoose.Schema({
   fees: { type: Number, default: 0 },
   status: {
     type: String,
-    enum: ['pending', 'open', 'closed', 'cancelled', 'failed'],
+    enum: ['pending', 'oms_approved', 'open', 'closed', 'cancelled', 'failed'],
     default: 'pending',
   },
   reasoning: { type: String },
@@ -39,6 +39,8 @@ const tradeSchema = new mongoose.Schema({
   maxDrawdownReached: { type: Number, default: 0 },     // MAE: deepest unrealized loss during trade lifetime
   lockedMinProfit: { type: Number },                     // price level where SL was moved to guarantee profit
   dynamicTrailingPct: { type: Number },                  // ATR-based trailing % active on this trade
+  hasVirtualStop: { type: Boolean, default: false },     // true if native stop-loss failed and requires internal memory watch
+  hasVirtualTakeProfit: { type: Boolean, default: false }, // true if native take-profit failed and requires internal memory watch
 }, {
   timestamps: true,
 });

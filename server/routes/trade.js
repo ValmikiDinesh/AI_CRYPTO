@@ -15,7 +15,7 @@ const TRADE_CACHE_TTL_MS = 1000;
 router.get('/', async (req, res, next) => {
   try {
     const { status, asset, limit = 50, page = 1 } = req.query;
-    const cacheKey = `${status || ''}_${asset || ''}_${limit}_${page}_${process.env.TRADING_MODE}`;
+    const cacheKey = `${status || ''}_${asset || ''}_${limit}_${page}`;
     const cached = tradeListCache.get(cacheKey);
     if (cached && (Date.now() - cached.time < TRADE_CACHE_TTL_MS)) {
       return res.json(cached.payload);
@@ -25,9 +25,7 @@ router.get('/', async (req, res, next) => {
     if (status) filter.status = status;
     if (asset) filter.asset = asset;
 
-    if (process.env.TRADING_MODE === 'live') {
-      filter.exchangeOrderId = { $exists: true, $ne: null };
-    }
+    filter.exchangeOrderId = { $exists: true, $ne: null };
 
     const [trades, total] = await Promise.all([
       Trade.find(filter)
@@ -189,21 +187,6 @@ router.post('/manual', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Insufficient available balance to cover margin and commission fees' });
     }
 
-    // Deduct from available balance (margin + entry fee)
-    if (process.env.TRADING_MODE === 'live') {
-      try {
-        const { fetchBalance } = await import('../services/exchangeService.js');
-        const liveBal = await fetchBalance();
-        if (liveBal && liveBal.USDT) {
-          portfolio.availableBalance = liveBal.USDT.free;
-          portfolio.totalBalance = liveBal.USDT.total;
-        }
-      } catch (bErr) {}
-    } else {
-      portfolio.availableBalance -= (marginRequired + entryFee);
-    }
-    portfolio.totalTrades += 1;
-
     // Create open position in portfolio
     const newPosition = {
       asset,
@@ -218,19 +201,54 @@ router.post('/manual', async (req, res, next) => {
       fees: entryFee,
       leverage,
     };
-    portfolio.positions.push(newPosition);
 
-    // Recalculate total balance using leverage-adjusted universal equity formula
-    const marginValue = portfolio.positions
-      .filter((p) => p.status === 'open')
-      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
-    portfolio.totalBalance = portfolio.availableBalance + marginValue;
+    const updateQuery = {
+      $push: { positions: newPosition },
+      $inc: { totalTrades: 1 },
+      $set: {}
+    };
 
-    if (portfolio.totalBalance > portfolio.peakBalance) {
-      portfolio.peakBalance = portfolio.totalBalance;
+    try {
+      const { fetchBalance } = await import('../services/exchangeService.js');
+      const liveBal = await fetchBalance();
+      if (liveBal && liveBal.USDT) {
+        updateQuery.$set.availableBalance = liveBal.USDT.free;
+        updateQuery.$set.totalBalance = liveBal.USDT.total;
+      }
+    } catch (bErr) {}
+
+    if (Object.keys(updateQuery.$set).length === 0) {
+      delete updateQuery.$set;
     }
 
-    await portfolio.save();
+    portfolio = await Portfolio.findOneAndUpdate(
+      { userId: SYSTEM_USER_ID },
+      updateQuery,
+      { new: true }
+    );
+
+    // Recalculate total balance using leverage-adjusted universal equity formula
+    if (portfolio) {
+      const marginValue = portfolio.positions
+        .filter((p) => p.status === 'open')
+        .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+      
+      const newTotal = portfolio.availableBalance + marginValue;
+      const setQuery = {};
+      
+
+      if (newTotal > portfolio.peakBalance) {
+        setQuery.peakBalance = newTotal;
+      }
+
+      if (Object.keys(setQuery).length > 0) {
+        portfolio = await Portfolio.findOneAndUpdate(
+          { userId: SYSTEM_USER_ID },
+          { $set: setQuery },
+          { new: true }
+        );
+      }
+    }
 
     // Create trade record in DB
     const trade = await Trade.create({
@@ -255,14 +273,21 @@ router.post('/manual', async (req, res, next) => {
     });
 
     // Compute metrics
-    const openPositions = portfolio.positions.filter((p) => p.status === 'open');
-    const totalValue = openPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
-    portfolio.allocationBreakdown = openPositions.map((p) => ({
-      asset: p.asset,
-      percentage: totalValue > 0 ? ((p.currentPrice * p.quantity) / totalValue) * 100 : 0,
-      value: p.currentPrice * p.quantity,
-    }));
-    await portfolio.save();
+    let openPositions = [];
+    if (portfolio) {
+      openPositions = portfolio.positions.filter((p) => p.status === 'open');
+      const totalValue = openPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
+      const allocationBreakdown = openPositions.map((p) => ({
+        asset: p.asset,
+        percentage: totalValue > 0 ? ((p.currentPrice * p.quantity) / totalValue) * 100 : 0,
+        value: p.currentPrice * p.quantity,
+      }));
+      portfolio = await Portfolio.findOneAndUpdate(
+        { userId: SYSTEM_USER_ID },
+        { $set: { allocationBreakdown } },
+        { new: true }
+      );
+    }
 
     // Publish WebSocket notifications
     await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
@@ -333,10 +358,9 @@ router.post('/manual-close', async (req, res, next) => {
     
     try {
       const activeTrade = await Trade.findOne({ asset, status: 'open' });
-      const isLiveMode = process.env.TRADING_MODE === 'live' || !!process.env.COINSWITCH_API_KEY;
       const isMockOrder = activeTrade && activeTrade.exchangeOrderId && activeTrade.exchangeOrderId.startsWith('mock_');
 
-      if (isLiveMode && !isMockOrder) {
+      if (!isMockOrder) {
         const { placeMarketOrder, cancelOrder, cancelAllOrders, getExchange } = await import('../services/exchangeService.js');
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         
@@ -375,7 +399,7 @@ router.post('/manual-close', async (req, res, next) => {
 
         if (positionExistsOnExchange) {
           console.log(`Executing offsetting market order on exchange to close ${closeQty} contracts for ${asset}`);
-          const closeOrder = await placeMarketOrder(asset, exitSide, closeQty);
+          const closeOrder = await placeMarketOrder(asset, exitSide, closeQty, true);
           
           finalExitPrice = closeOrder.average || closeOrder.price || 0;
           if (finalExitPrice === 0) {
@@ -402,7 +426,7 @@ router.post('/manual-close', async (req, res, next) => {
           try {
             if (activeTrade && activeTrade.exchangeOrderId) {
               try {
-                await cancelOrder(asset, activeTrade.exchangeOrderId);
+                await cancelOrder(activeTrade.exchangeOrderId, asset);
               } catch (orderErr) {
                 console.log(`Entry limit order was already fully filled or cancelled: ${orderErr.message}`);
               }
@@ -422,9 +446,6 @@ router.post('/manual-close', async (req, res, next) => {
       });
     }
 
-    pos.status = 'closed';
-    pos.closedAt = new Date();
-
     let pnl = 0;
     if (pos.side === 'long') {
       pnl = (finalExitPrice - pos.entryPrice) * pos.quantity;
@@ -432,51 +453,67 @@ router.post('/manual-close', async (req, res, next) => {
       pnl = (pos.entryPrice - finalExitPrice) * pos.quantity;
     }
 
-    pos.realizedPnl = pnl;
-    pos.unrealizedPnl = 0;
-
     const totalPositionFees = (pos.fees || 0) + finalExitFee;
-    pos.fees = totalPositionFees;
-
-    // Refund capital and PnL (minus exit fee) to availableBalance
     const capitalCost = (pos.entryPrice * pos.quantity) / (pos.leverage || 1);
-    if (process.env.TRADING_MODE === 'live') {
-      try {
-        const { fetchBalance } = await import('../services/exchangeService.js');
-        const liveBal = await fetchBalance();
-        if (liveBal && liveBal.USDT) {
-          portfolio.availableBalance = liveBal.USDT.free;
-          portfolio.totalBalance = liveBal.USDT.total;
-        }
-      } catch (bErr) {}
+    
+    const netPnl = pnl - totalPositionFees;
+
+    const updateQuery = {
+      $pull: { positions: { asset: asset, status: 'open' } },
+      $inc: { 
+        totalPnl: netPnl,
+        dailyLossToday: netPnl
+      },
+      $set: {}
+    };
+
+    if (netPnl >= 0) {
+      updateQuery.$inc.winningTrades = 1;
     } else {
-      portfolio.availableBalance += (capitalCost + pnl - finalExitFee);
-    }
-    portfolio.totalPnl += (pnl - totalPositionFees);
-    portfolio.dailyLossToday = (portfolio.dailyLossToday || 0) + pnl; // update daily loss with net PnL
-
-    if (pnl >= 0) {
-      portfolio.winningTrades += 1;
-    } else {
-      portfolio.losingTrades += 1;
+      updateQuery.$inc.losingTrades = 1;
     }
 
-    const totalClosed = (portfolio.winningTrades || 0) + (portfolio.losingTrades || 0);
-    portfolio.winRate = totalClosed > 0 ? portfolio.winningTrades / totalClosed : 0;
+    try {
+      const { fetchBalance } = await import('../services/exchangeService.js');
+      const liveBal = await fetchBalance();
+      if (liveBal && liveBal.USDT) {
+        updateQuery.$set.availableBalance = liveBal.USDT.free;
+        updateQuery.$set.totalBalance = liveBal.USDT.total;
+      }
+    } catch (bErr) {}
 
-    portfolio.markModified('positions');
-
-    // Recalculate total balance using leverage-adjusted universal equity formula
-    const marginValue = portfolio.positions
-      .filter((p) => p.status === 'open')
-      .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
-    portfolio.totalBalance = portfolio.availableBalance + marginValue;
-
-    if (portfolio.totalBalance > portfolio.peakBalance) {
-      portfolio.peakBalance = portfolio.totalBalance;
+    if (Object.keys(updateQuery.$set).length === 0) {
+      delete updateQuery.$set;
     }
 
-    await portfolio.save();
+    portfolio = await Portfolio.findOneAndUpdate(
+      { userId: 'system' },
+      updateQuery,
+      { new: true }
+    );
+
+    // Recalculate total balance for paper trading or if live balance failed
+    if (portfolio) {
+      const marginValue = portfolio.positions
+        .filter((p) => p.status === 'open')
+        .reduce((sum, p) => sum + ((p.entryPrice * p.quantity) / (p.leverage || 1) + p.unrealizedPnl), 0);
+      
+      const newTotal = portfolio.availableBalance + marginValue;
+      const setQuery = {};
+      
+
+      if (newTotal > portfolio.peakBalance) {
+        setQuery.peakBalance = newTotal;
+      }
+      
+      if (Object.keys(setQuery).length > 0) {
+        portfolio = await Portfolio.findOneAndUpdate(
+          { userId: 'system' },
+          { $set: setQuery },
+          { new: true }
+        );
+      }
+    }
 
     // Calculate trade performance percentage (ROE)
     const initialMargin = (pos.entryPrice * pos.quantity) / (pos.leverage || 1);
@@ -509,6 +546,7 @@ router.post('/manual-close', async (req, res, next) => {
 
     // Publish WebSocket notifications
     await publishEvent(CHANNELS.TRADE_EXECUTIONS, {
+      type: 'EXIT',
       asset,
       action: 'CLOSE',
       price: exitPrice,

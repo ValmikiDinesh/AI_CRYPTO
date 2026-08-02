@@ -12,6 +12,9 @@ import { logger } from './utils/logger.js';
 import errorHandler from './middleware/errorHandler.js';
 import { initializeSocketServer } from './websocket/socketManager.js';
 import { sendTelegramMessage } from './services/telegramService.js';
+import { initializeTelegramBot } from './services/telegramBot.js';
+import { scheduleDailyDigest } from './jobs/dailyDigest.js';
+import { initReportingCron } from './services/reportingService.js';
 import { setSystemWarmingUp, getSystemWarmingUp } from './config/bootState.js';
 
 // Routes
@@ -29,9 +32,18 @@ import SentimentAgent from './agents/sentiment/index.js';
 import PredictionAgent from './agents/prediction/index.js';
 import FusionAgent from './agents/fusion/index.js';
 import RiskAgent from './agents/risk/index.js';
-import ExecutionAgent from './agents/execution/index.js';
-import PortfolioAgent from './agents/portfolio/index.js';
 import LearningAgent from './agents/learning/index.js';
+
+// New Microservices (Replacing Execution & Portfolio monoliths)
+import OmsAgent from './agents/oms/index.js';
+import EmsAgent from './agents/ems/index.js';
+import StopLossAgent from './agents/stoploss/index.js';
+import TakeProfitAgent from './agents/takeprofit/index.js';
+import ScalpProfitAgent from './agents/scalp/index.js';
+import TrailingSlAgent from './agents/trailing/index.js';
+import ReconciliationAgent from './agents/reconciliation/index.js';
+import SweepProfitAgent from './agents/sweep/index.js';
+import BasketProfitAgent from './agents/basket/index.js';
 
 // ─── Express App ─────────────────────────────────────────────────
 const app = express();
@@ -73,6 +85,7 @@ async function boot() {
     logger.info('✅ MongoDB connected');
 
     // 3. Socket.io
+    await initializeTelegramBot();
     initializeSocketServer(server);
     logger.info('✅ Socket.io initialized');
 
@@ -84,6 +97,10 @@ async function boot() {
     // 5. Initialize all AI agents (non-blocking — agents start their cycles in background)
     const marketAgent = await bootAgents();
     logger.info('✅ All agents initialized and running');
+    
+    // 5b. Schedule background jobs
+    scheduleDailyDigest();
+    logger.info('✅ Daily Telegram Digest scheduled for 00:00 IST');
 
     // 6. Wait for ALL asset data to be fully loaded (live prices + 5min candles for 566+ assets).
     //    This is the ONLY readiness gate — no fake delays, no guessing.
@@ -101,6 +118,9 @@ async function boot() {
       `🚀 <b>New trade execution has RESUMED! System working normally.</b>`
     );
 
+    // 8. Removed old reporting CRON in favor of dailyDigest
+    // initReportingCron();
+
   } catch (err) {
     logger.error(`Boot failed: ${err.message}`);
     process.exit(1);
@@ -108,17 +128,26 @@ async function boot() {
 }
 
 async function bootAgents() {
-  // Create agent instances (wiring dependencies)
+  // Create core agent instances
   const marketAgent = new MarketAgent();
   const technicalAgent = new TechnicalAgent(marketAgent);
   const sentimentAgent = new SentimentAgent();
   const predictionAgent = new PredictionAgent(marketAgent, sentimentAgent, technicalAgent);
   const fusionAgent = new FusionAgent(technicalAgent, sentimentAgent, predictionAgent, marketAgent);
   const riskAgent = new RiskAgent(marketAgent);
-  const executionAgent = new ExecutionAgent(fusionAgent, riskAgent, marketAgent);
-  const portfolioAgent = new PortfolioAgent(marketAgent, riskAgent);
   const learningAgent = new LearningAgent(fusionAgent);
   const supervisorAgent = new SupervisorAgent();
+
+  // Create Microservices
+  const omsAgent = new OmsAgent(riskAgent);
+  const emsAgent = new EmsAgent();
+  const stopLossAgent = new StopLossAgent();
+  const takeProfitAgent = new TakeProfitAgent();
+  const scalpAgent = new ScalpProfitAgent();
+  const trailingSlAgent = new TrailingSlAgent();
+  const reconciliationAgent = new ReconciliationAgent();
+  const sweepAgent = new SweepProfitAgent();
+  const basketAgent = new BasketProfitAgent();
 
   // Register all agents with supervisor
   supervisorAgent.registerAgent('market', marketAgent);
@@ -127,29 +156,51 @@ async function bootAgents() {
   supervisorAgent.registerAgent('prediction', predictionAgent);
   supervisorAgent.registerAgent('fusion', fusionAgent);
   supervisorAgent.registerAgent('risk', riskAgent);
-  supervisorAgent.registerAgent('execution', executionAgent);
-  supervisorAgent.registerAgent('portfolio', portfolioAgent);
   supervisorAgent.registerAgent('learning', learningAgent);
+  
+  supervisorAgent.registerAgent('oms', omsAgent);
+  supervisorAgent.registerAgent('ems', emsAgent);
+  supervisorAgent.registerAgent('stoploss', stopLossAgent);
+  supervisorAgent.registerAgent('takeprofit', takeProfitAgent);
+  supervisorAgent.registerAgent('scalp', scalpAgent);
+  supervisorAgent.registerAgent('trailing', trailingSlAgent);
+  supervisorAgent.registerAgent('reconciliation', reconciliationAgent);
+  supervisorAgent.registerAgent('sweep', sweepAgent);
+  supervisorAgent.registerAgent('basket', basketAgent);
 
   // Inject references into routes
   setAgentReferences(supervisorAgent);
   setMarketAgentRef(marketAgent);
-  setPortfolioAgentRef(portfolioAgent);
+  // NOTE: Portfolio API routes might need refactoring later to get balances directly, 
+  // but we provide a dummy ref for now to prevent crashes.
+  setPortfolioAgentRef({ 
+    _cachedPortfolio: null,
+    marketAgent: marketAgent,
+    syncClosedTradesFromExchange: async () => {} 
+  }); 
 
-  // Start all agents (non-blocking — each agent's first cycle runs in background).
-  // boot() will separately await marketAgent.dataReadyPromise for the real readiness signal.
+  // Start Core Agents
   await marketAgent.start(5_000);                                // 5s — price refresh
   await technicalAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // technical indicator calculations
   await sentimentAgent.start(600_000);                           // 10m — news sentiment refresh
   await predictionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);      // AI predictions cycle
   await fusionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);          // decision fusion
   await riskAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);            // risk verification
-  await executionAgent.start(INTERVALS.ANALYSIS_CYCLE_MS);       // trade execution
-  await portfolioAgent.start(2_000);                             // WebSocket target checks
   await learningAgent.start(INTERVALS.REBALANCE_INTERVAL_MS);   // 60s
   await supervisorAgent.start(INTERVALS.HEALTH_CHECK_MS);       // 15s
 
-  logger.info('Agent pipeline: Market → Technical → Sentiment → Prediction → Fusion → Risk → Execution → Portfolio → Learning');
+  // Initialize Microservices (Event-driven, no polling loops passed to start)
+  await omsAgent.start();
+  await emsAgent.start();
+  await stopLossAgent.start();
+  await takeProfitAgent.start();
+  await scalpAgent.start();
+  await trailingSlAgent.start();
+  await reconciliationAgent.start();
+  await sweepAgent.start();
+  await basketAgent.start();
+
+  logger.info('Agent pipeline: Market → Technical → Sentiment → Prediction → Fusion → Risk → OMS → EMS');
 
   // Return marketAgent so boot() can await its dataReadyPromise
   global.supervisorRef = supervisorAgent;

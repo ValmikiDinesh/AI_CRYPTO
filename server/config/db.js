@@ -2,8 +2,8 @@ import mongoose from 'mongoose';
 import dns from 'dns';
 import { logger } from '../utils/logger.js';
 
-// Resolve MongoDB Atlas SRV DNS lookup issues on some Windows local environments
-// dns.setServers(['8.8.8.8', '1.1.1.1']);
+// Resolve MongoDB Atlas SRV DNS lookup issues on some Windows/Mac local environments
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 const connectDB = async () => {
   try {

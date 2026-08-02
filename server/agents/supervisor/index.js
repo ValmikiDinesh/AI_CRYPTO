@@ -40,7 +40,7 @@ export default class SupervisorAgent extends BaseAgent {
         this.logger.warn(`Agent ${name} in error state — attempting restart`);
         try {
           agent.stop();
-          await agent.start(INTERVALS.ANALYSIS_CYCLE_MS);
+          await agent.start(agent.intervalMs);
           this.logger.info(`Agent ${name} restarted successfully`);
         } catch (err) {
           this.logger.error(`Failed to restart ${name}: ${err.message}`);
@@ -119,7 +119,7 @@ export default class SupervisorAgent extends BaseAgent {
 
     for (const [name, agent] of this.agents) {
       if (name !== AGENT_NAMES.SUPERVISOR) {
-        await agent.start(INTERVALS.ANALYSIS_CYCLE_MS);
+        await agent.start(agent.intervalMs);
       }
     }
   }

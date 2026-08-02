@@ -37,7 +37,10 @@ export default class MarketAgent extends BaseAgent {
         if (SUPPORTED_ASSETS.includes(asset)) {
           this.prices[asset] = price;
           if (this.candles[asset] && this.candles[asset].length > 0) {
-            this.candles[asset][this.candles[asset].length - 1].close = price;
+            const lastCandle = this.candles[asset][this.candles[asset].length - 1];
+            lastCandle.close = price;
+            if (price > lastCandle.high) lastCandle.high = price;
+            if (price < lastCandle.low) lastCandle.low = price;
           }
           const now = Date.now();
           if (!this.lastEmitted[asset] || (now - this.lastEmitted[asset]) >= 100) {
@@ -141,9 +144,12 @@ export default class MarketAgent extends BaseAgent {
         this._lastKlineFetchTime = now;
       }
 
-      const currentAssetIndex = (this.rotationIndex || 0) % SUPPORTED_ASSETS.length;
-      this.rotationIndex = currentAssetIndex + 1;
-      const syncAsset = allowKlineFetch ? SUPPORTED_ASSETS[currentAssetIndex] : null;
+      let syncAsset = null;
+      if (allowKlineFetch) {
+        const currentAssetIndex = (this.rotationIndex || 0) % SUPPORTED_ASSETS.length;
+        syncAsset = SUPPORTED_ASSETS[currentAssetIndex];
+        this.rotationIndex = currentAssetIndex + 1;
+      }
 
       for (const asset of SUPPORTED_ASSETS) {
         try {
@@ -157,58 +163,81 @@ export default class MarketAgent extends BaseAgent {
           this.prices[asset] = price;
 
           let candleData = null;
+          const history = this.candles[asset] || [];
+          let lastHistoryCandle = history[history.length - 1];
+
+          // 🛡️ FIX: Autonomous Local Rollover (Prevents 41-Minute Stretched Candle Delusion)
+          if (lastHistoryCandle) {
+            const nowMs = Date.now();
+            const openTimeMs = new Date(lastHistoryCandle.openTime).getTime();
+            const fiveMinMs = 5 * 60 * 1000;
+            
+            if (nowMs >= openTimeMs + fiveMinMs) {
+              const newOpenTime = new Date(openTimeMs + fiveMinMs);
+              const newCandle = {
+                asset,
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+                volume: 0,
+                openTime: newOpenTime,
+                closeTime: new Date(newOpenTime.getTime() + fiveMinMs - 1),
+                isClosed: false
+              };
+              
+              lastHistoryCandle.isClosed = true;
+              
+              try {
+                await MarketData.findOneAndUpdate(
+                  { asset, interval: '5m', openTime: lastHistoryCandle.openTime },
+                  lastHistoryCandle,
+                  { upsert: true, new: true }
+                );
+                await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: lastHistoryCandle });
+              } catch (dbErr) {
+                this.logger.error(`Failed to persist local rollover candle for ${asset}: ${dbErr.message}`);
+              }
+
+              history.push(newCandle);
+              if (history.length > 60) history.shift();
+              lastHistoryCandle = newCandle;
+            }
+          }
 
           if (asset === syncAsset) {
-            const candles = await fetchCandles(asset, '5m', 1);
+            // 🛡️ FIX: Deep History Reconciliation (Fetch 10 candles instead of 2 to backfill missing gaps)
+            const candles = await fetchCandles(asset, '5m', 10);
             if (candles && candles.length > 0) {
-              const latestCandle = candles[0];
-              latestCandle.close = price;
-
-              const history = this.candles[asset] || [];
-              const lastHistoryCandle = history[history.length - 1];
-
-              let isNewCandle = false;
-              if (!lastHistoryCandle || new Date(latestCandle.openTime).getTime() > new Date(lastHistoryCandle.openTime).getTime()) {
-                isNewCandle = true;
-              }
-
-              candleData = {
-                asset,
-                open: latestCandle.open,
-                high: latestCandle.high,
-                low: latestCandle.low,
-                close: price,
-                volume: latestCandle.volume,
-                openTime: new Date(latestCandle.openTime),
-                closeTime: new Date(latestCandle.closeTime),
-                isClosed: isNewCandle
-              };
-
-              if (isNewCandle) {
-                try {
-                  if (lastHistoryCandle) {
-                    lastHistoryCandle.isClosed = true;
-                    await MarketData.findOneAndUpdate(
-                      { asset, interval: '5m', openTime: lastHistoryCandle.openTime },
-                      lastHistoryCandle,
-                      { upsert: true, new: true }
-                    );
-                    await publishEvent(CHANNELS.MARKET_CANDLES, { asset, candle: lastHistoryCandle });
-                  }
-
-                  history.push(candleData);
-                  if (history.length > 60) history.shift(); // RAM Optimization: Cap at 60 candles (5h history)
-                } catch (dbErr) {
-                  this.logger.error(`Failed to persist candle for ${asset}: ${dbErr.message}`);
-                }
-              } else {
-                if (history.length > 0) {
-                  history[history.length - 1] = candleData;
+              for (const fetchedCandle of candles) {
+                const fetchedTime = new Date(fetchedCandle.openTime).getTime();
+                const existingIdx = history.findIndex(c => new Date(c.openTime).getTime() === fetchedTime);
+                if (existingIdx !== -1) {
+                  // Merge definitively closed exchange data into our locally simulated candle
+                  history[existingIdx] = { ...history[existingIdx], ...fetchedCandle, isClosed: true };
                 } else {
-                  history.push(candleData);
+                  // Backfill totally missing candles if they are newer
+                  const lastHist = history[history.length - 1];
+                  if (!lastHist || fetchedTime > new Date(lastHist.openTime).getTime()) {
+                    history.push(fetchedCandle);
+                  }
                 }
+              }
+              
+              history.sort((a, b) => new Date(a.openTime).getTime() - new Date(b.openTime).getTime());
+              while (history.length > 60) history.shift();
+              
+              // Ensure the latest in-progress candle stays open and tracks live price
+              lastHistoryCandle = history[history.length - 1];
+              if (lastHistoryCandle) {
+                lastHistoryCandle.isClosed = false;
+                lastHistoryCandle.close = price;
               }
             }
+          }
+
+          if (lastHistoryCandle) {
+             candleData = lastHistoryCandle;
           }
 
           updatedTicks.push({ asset, price, candle: candleData });

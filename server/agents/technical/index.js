@@ -55,6 +55,12 @@ export default class TechnicalAgent extends BaseAgent {
         // Generate signal
         const signal = generateTechnicalSignal(indicators);
 
+        const isShort = signal.action === 'SELL';
+        const isFallbackAtr = !indicators.atr || indicators.atr <= 0;
+        const validAtr = !isFallbackAtr ? indicators.atr : (indicators.currentPrice * 0.015);
+        const stopLossOffset = (validAtr / indicators.currentPrice) * 2;
+        const takeProfitOffset = (validAtr / indicators.currentPrice) * 3;
+
         const signalData = {
           asset,
           action: signal.action,
@@ -70,9 +76,14 @@ export default class TechnicalAgent extends BaseAgent {
             volume: indicators.volume,
             momentum: indicators.momentum,
             regime: indicators.regime,
+            atrSource: isFallbackAtr ? 'fallback_1.5pct' : 'dynamic'
           },
-          stopLoss: indicators.currentPrice * (1 - (indicators.atr / indicators.currentPrice) * 2),
-          takeProfit: indicators.currentPrice * (1 + (indicators.atr / indicators.currentPrice) * 3),
+          stopLoss: isShort 
+            ? indicators.currentPrice * (1 + stopLossOffset)
+            : Math.max(0.00000001, indicators.currentPrice * (1 - stopLossOffset)),
+          takeProfit: isShort
+            ? Math.max(0.00000001, indicators.currentPrice * (1 - takeProfitOffset))
+            : indicators.currentPrice * (1 + takeProfitOffset),
         };
 
         this.lastSignals[asset] = signalData;
@@ -81,7 +92,7 @@ export default class TechnicalAgent extends BaseAgent {
         if (signal.action !== 'HOLD' && signal.confidence >= 0.50) {
           await publishEvent(CHANNELS.TECHNICAL_SIGNALS, signalData);
           this.logger.info(
-            `⚡ [TECHNICAL SIGNAL] ${asset}: ${signal.action} (confidence=${signal.confidence.toFixed(2)}, regime=${indicators.regime})`
+            `⚡ [TECHNICAL SIGNAL] ${asset}: ${signal.action} (confidence=${signal.confidence.toFixed(2)}, regime=${indicators.regime}, atr=${isFallbackAtr ? 'FALLBACK' : 'DYNAMIC'})`
           );
         }
       } catch (err) {

@@ -1,6 +1,6 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, RISK, ACTIONS, CORE_ASSETS, MEME_ASSETS, RECOMMENDED_ASSETS } from '../../config/constants.js';
-import { publishEvent, CHANNELS } from '../../config/redis.js';
+import { publishEvent, subscribeToChannel, CHANNELS } from '../../config/redis.js';
 import { sendTelegramMessage, escapeHtml } from '../../services/telegramService.js';
 import RiskEvent from '../../models/RiskEvent.js';
 import Portfolio from '../../models/Portfolio.js';
@@ -48,16 +48,40 @@ export default class RiskAgent extends BaseAgent {
         createdAt: { $gte: startOfToday, $lt: endOfToday },
         status: { $in: ['open', 'closed'] }
       };
-      if (process.env.TRADING_MODE === 'live') {
-        filter.exchangeOrderId = { $exists: true, $ne: null };
-        filter.type = 'live';
-      }
+      filter.exchangeOrderId = { $exists: true, $ne: null };
+      filter.type = 'live';
 
       const count = await Trade.countDocuments(filter);
       this.dailyTradeCount = count;
       this.logger.info(`Recovered daily trade count from database: ${count} confirmed live trades executed today (IST).`);
+      
+
+      const portfolio = await Portfolio.findOne({ userId: 'system' }).lean();
+      if (portfolio && portfolio.maxDailyTrades !== undefined) {
+        this.maxDailyTrades = portfolio.maxDailyTrades;
+      }
+
+      await subscribeToChannel(CHANNELS.TRADE_EXECUTIONS, async (payload) => {
+        if (payload.type === 'ENTRY') {
+          const trade = await Trade.findById(payload.tradeId);
+          if (trade && trade.exchangeOrderId && !trade.exchangeOrderId.startsWith('mock_')) {
+            this.dailyTradeCount++;
+            this.logger.info(`Incremented daily trade count via Event Bus: ${this.dailyTradeCount}/${this.maxDailyTrades}`);
+          }
+        }
+      });
+
+      await subscribeToChannel(CHANNELS.PORTFOLIO_UPDATES, this.handlePortfolioUpdate.bind(this));
+
     } catch (err) {
       this.logger.error(`Failed to recover daily trade count on startup: ${err.message}`);
+    }
+  }
+
+  handlePortfolioUpdate(portfolio) {
+    if (portfolio.maxDailyTrades !== undefined) {
+      this.maxDailyTrades = portfolio.maxDailyTrades;
+      this.logger.info(`🔄 RiskAgent dynamically updated Max Daily Trades to: ${this.maxDailyTrades}`);
     }
   }
 
@@ -70,8 +94,8 @@ export default class RiskAgent extends BaseAgent {
       this.lastResetDate = today;
       this.logger.info('Daily trade counter reset (IST)');
 
-      // Also reset daily loss on portfolios
-      await Portfolio.updateMany({}, { $set: { dailyLossToday: 0 } });
+      // Also reset daily loss on portfolios, and unlock the isSquaringOff state
+      await Portfolio.updateMany({}, { $set: { dailyLossToday: 0, isSquaringOff: false } });
     }
 
     // Check all portfolios for risk breaches every 10 seconds (prevents DB query spamming)
@@ -164,9 +188,12 @@ export default class RiskAgent extends BaseAgent {
     }
 
     // 2. Confidence threshold
-    if (signal.confidence < RISK.MIN_CONFIDENCE_THRESHOLD) {
+    const activeStrategy = portfolio?.activeStrategy || 'trend_sniper';
+    const dynamicConfidenceThreshold = portfolio?.strategySettings?.[activeStrategy]?.confidenceThreshold || RISK.MIN_CONFIDENCE_THRESHOLD;
+
+    if (signal.confidence < dynamicConfidenceThreshold) {
       return this.reject(
-        `Confidence ${signal.confidence.toFixed(2)} below threshold ${RISK.MIN_CONFIDENCE_THRESHOLD}`,
+        `Confidence ${signal.confidence.toFixed(2)} below threshold ${dynamicConfidenceThreshold}`,
         'low_confidence',
         signal
       );
@@ -215,9 +242,11 @@ export default class RiskAgent extends BaseAgent {
         const startingCapital = portfolio.totalBalance - portfolio.dailyLossToday;
         if (startingCapital > 0) {
           const dailyLossPct = Math.abs(portfolio.dailyLossToday) / startingCapital;
-          if (dailyLossPct >= RISK.MAX_DAILY_LOSS) {
+          const maxLossLimitDecimal = portfolio.maxDailyLossPct !== undefined ? (portfolio.maxDailyLossPct / 100) : RISK.MAX_DAILY_LOSS;
+          
+          if (dailyLossPct >= maxLossLimitDecimal) {
             return this.reject(
-              `Daily loss ${(dailyLossPct * 100).toFixed(1)}% exceeds limit ${(RISK.MAX_DAILY_LOSS * 100).toFixed(1)}% of start-of-day capital ($${startingCapital.toFixed(2)})`,
+              `Daily loss ${(dailyLossPct * 100).toFixed(1)}% exceeds limit ${(maxLossLimitDecimal * 100).toFixed(1)}% of start-of-day capital ($${startingCapital.toFixed(2)})`,
               'daily_loss_limit',
               signal
             );
@@ -226,11 +255,15 @@ export default class RiskAgent extends BaseAgent {
       }
 
       // 5.5. Duplicate position check
-      const existingOpenTrade = await Trade.findOne({ asset: signal.asset, status: 'open' });
+      // 🛡️ FIX: Prevent Limit Order Pyramiding by factoring in pending 'oms_approved' orders
+      const existingOpenTrade = await Trade.findOne({ 
+        asset: signal.asset, 
+        status: { $in: ['open', 'oms_approved'] } 
+      });
       const hasOpenPosition = portfolio.positions?.some((p) => p && p.asset === signal.asset && p.status === 'open');
       if (hasOpenPosition || existingOpenTrade) {
         return this.reject(
-          `Position already open for ${signal.asset}`,
+          `Position or Limit Order already active for ${signal.asset}`,
           'duplicate_position',
           signal
         );
@@ -238,11 +271,14 @@ export default class RiskAgent extends BaseAgent {
 
       // 6. Max open positions checks
       const openPositionsList = portfolio.positions?.filter((p) => p.status === 'open') || [];
-      const totalOpen = openPositionsList.length;
+      
+      // 🛡️ FIX: Ensure pending Limit Orders count toward the MAX_OPEN_POSITIONS ceiling!
+      const pendingOrdersCount = await Trade.countDocuments({ status: 'oms_approved' });
+      const totalOpen = openPositionsList.length + pendingOrdersCount;
 
       if (totalOpen >= RISK.MAX_OPEN_POSITIONS) {
         return this.reject(
-          `${totalOpen} open positions — max is ${RISK.MAX_OPEN_POSITIONS}`,
+          `${totalOpen} active trades/orders — max is ${RISK.MAX_OPEN_POSITIONS}`,
           'position_limit',
           signal
         );
@@ -318,11 +354,9 @@ export default class RiskAgent extends BaseAgent {
   }
 
   incrementDailyTradeCount(trade) {
-    if (process.env.TRADING_MODE === 'live') {
-      const orderId = trade?.exchangeOrderId || (typeof trade === 'string' ? trade : null);
-      if (!orderId || orderId.startsWith('mock_')) {
-        return;
-      }
+    const orderId = trade?.exchangeOrderId || (typeof trade === 'string' ? trade : null);
+    if (!orderId || orderId.startsWith('mock_')) {
+      return;
     }
     this.dailyTradeCount++;
     this.logger.info(`Incremented daily trade count for confirmed trade: ${this.dailyTradeCount}/${this.maxDailyTrades}`);
@@ -373,14 +407,158 @@ export default class RiskAgent extends BaseAgent {
       const startingCapital = portfolio.totalBalance - portfolio.dailyLossToday;
       if (startingCapital > 0) {
         const dailyLossPct = Math.abs(portfolio.dailyLossToday) / startingCapital;
-        if (dailyLossPct >= RISK.MAX_DAILY_LOSS * 0.8) {
+        const maxLossLimitDecimal = portfolio.maxDailyLossPct !== undefined ? (portfolio.maxDailyLossPct / 100) : RISK.MAX_DAILY_LOSS;
+        
+        const hasOpenPositions = portfolio.positions && portfolio.positions.some(p => p.status === 'open');
+
+        if (dailyLossPct >= maxLossLimitDecimal) {
+          if (hasOpenPositions && !portfolio.isSquaringOff) {
+            this.logger.error(`🚨 DAILY LOSS LIMIT BREACHED: ${(dailyLossPct * 100).toFixed(1)}% >= ${(maxLossLimitDecimal * 100).toFixed(1)}%. Initiating hard shutdown!`);
+          
+          await Portfolio.updateOne(
+            { userId: portfolio.userId },
+            { $set: { isSquaringOff: true, tradingPaused: true } }
+          );
+
           await RiskEvent.create({
             type: 'daily_loss_limit',
-            severity: dailyLossPct >= RISK.MAX_DAILY_LOSS ? 'critical' : 'warning',
-            message: `Daily loss at ${(dailyLossPct * 100).toFixed(1)}% of start-of-day capital ($${startingCapital.toFixed(2)})`,
+            severity: 'critical',
+            message: `HARD SHUTDOWN: Daily loss at ${(dailyLossPct * 100).toFixed(1)}% of start-of-day capital ($${startingCapital.toFixed(2)})`,
             currentValue: dailyLossPct,
-            threshold: RISK.MAX_DAILY_LOSS,
+            threshold: maxLossLimitDecimal,
           });
+          
+          if (portfolio.positions) {
+            for (const pos of portfolio.positions) {
+              if (pos.status === 'open') {
+                await publishEvent(CHANNELS.EXIT_REQUESTS, {
+                  asset: pos.asset,
+                  side: pos.side,
+                  quantity: pos.quantity,
+                  currentPrice: pos.currentPrice,
+                  forceMarket: true,
+                  reason: `Daily Loss Limit Breached (${(dailyLossPct * 100).toFixed(1)}%) - Hard Shutdown`
+                });
+              }
+            }
+          }
+          } else if (hasOpenPositions && portfolio.isSquaringOff) {
+            // 🛡️ Round 92: Retry Loop to prevent Naked Orphan positions during EMS concurrency locks
+            if (!this.lastEmergencySweep || (Date.now() - this.lastEmergencySweep > 15000)) {
+              this.lastEmergencySweep = Date.now();
+              this.logger.warn(`🚨 DAILY LOSS LIMIT BREACHED: Retrying Emergency Hard Shutdown for remaining open positions...`);
+              if (portfolio.positions) {
+                for (const pos of portfolio.positions) {
+                  if (pos.status === 'open') {
+                    await publishEvent(CHANNELS.EXIT_REQUESTS, {
+                      asset: pos.asset,
+                      side: pos.side,
+                      quantity: pos.quantity,
+                      currentPrice: pos.currentPrice,
+                      forceMarket: true,
+                      reason: `Emergency Hard Shutdown Retry (Daily Loss Limit Breached)`
+                    });
+                  }
+                }
+              }
+            }
+          } else if (!hasOpenPositions && !portfolio.tradingPaused) {
+            // Edge case: Portfolio is flat, but daily loss limit is breached. Just ensure system remains paused.
+            this.logger.error(`🚨 DAILY LOSS LIMIT BREACHED: System paused to prevent further trading.`);
+            await Portfolio.updateOne(
+              { userId: portfolio.userId },
+              { $set: { tradingPaused: true } }
+            );
+          }
+          
+          // 🧟 Destroy all pending Zombie Limit Orders to prevent re-entry during Hard Shutdown
+          try {
+            const pendingTrades = await Trade.find({ status: { $in: ['oms_approved', 'pending'] } });
+            if (pendingTrades.length > 0) {
+              const { cancelOrder, fetchOpenOrders } = await import('../../services/exchangeService.js');
+              for (const trade of pendingTrades) {
+                if (trade.exchangeOrderId) {
+                  let partiallyFilledQty = 0;
+                  try {
+                    const liveOrders = await fetchOpenOrders(trade.asset).catch(() => []);
+                    const order = liveOrders.find(o => o.id === trade.exchangeOrderId);
+                    if (order && order.filled > 0) {
+                      partiallyFilledQty = order.filled;
+                    }
+                  } catch (e) {
+                    this.logger.warn(`Failed to verify partial fill for zombie order ${trade.exchangeOrderId}: ${e.message}`);
+                  }
+
+                  await cancelOrder(trade.exchangeOrderId, trade.asset).catch(() => {});
+                  
+                  if (partiallyFilledQty > 0) {
+                    this.logger.warn(`🚨 [RISK] Zombie Limit Order for ${trade.asset} was PARTIALLY FILLED (${partiallyFilledQty}). Promoting to OPEN and triggering Emergency Exit!`);
+                    trade.status = 'open';
+                    trade.quantity = partiallyFilledQty;
+                    trade.executedAt = new Date();
+                    trade.reasoning = 'Partial Fill rescued during Daily Loss Hard Shutdown';
+                    await trade.save();
+                    
+                    const futuresMakerFeeRate = 0.0005;
+                    const feeUsdt = (trade.entryPrice * partiallyFilledQty) * futuresMakerFeeRate;
+                    const marginUsed = (trade.entryPrice * partiallyFilledQty) / (trade.leverage || 1);
+                    await Portfolio.updateOne(
+                      { userId: 'system' },
+                      { 
+                        $push: { positions: {
+                          tradeId: trade._id.toString(),
+                          asset: trade.asset,
+                          side: trade.side,
+                          entryPrice: trade.entryPrice,
+                          quantity: partiallyFilledQty,
+                          leverage: trade.leverage || 1,
+                          status: 'open',
+                          openedAt: trade.executedAt,
+                          fees: feeUsdt,
+                          category: trade.category || 'other'
+                        } },
+                        $inc: { 
+                          availableBalance: -marginUsed - feeUsdt,
+                          totalBalance: -feeUsdt,
+                          dailyLossToday: -feeUsdt,
+                          totalPnl: -feeUsdt
+                        }
+                      }
+                    );
+                    
+                    await publishEvent(CHANNELS.EXIT_REQUESTS, {
+                      asset: trade.asset,
+                      side: trade.side,
+                      quantity: partiallyFilledQty,
+                      currentPrice: trade.entryPrice,
+                      forceMarket: true,
+                      reason: `Daily Loss Hard Shutdown (Rescued Partial Fill)`
+                    });
+                  } else {
+                    trade.status = 'failed';
+                    trade.reasoning = 'Zombie Limit Order explicitly canceled due to Daily Loss Hard Shutdown';
+                    await trade.save();
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            this.logger.error(`Failed to sweep zombie orders during Hard Shutdown: ${err.message}`);
+          }
+        } else if (dailyLossPct >= maxLossLimitDecimal * 0.8 && !portfolio.isSquaringOff) {
+          // Warning threshold
+          const now = Date.now();
+          if (!this.lastAlertTimes['daily_loss_warning'] || now - this.lastAlertTimes['daily_loss_warning'] >= 15 * 60 * 1000) {
+            this.lastAlertTimes['daily_loss_warning'] = now;
+            await RiskEvent.create({
+              type: 'daily_loss_limit',
+              severity: 'warning',
+              message: `WARNING: Daily loss at ${(dailyLossPct * 100).toFixed(1)}% (Limit: ${(maxLossLimitDecimal * 100).toFixed(1)}%)`,
+              currentValue: dailyLossPct,
+              threshold: maxLossLimitDecimal,
+            });
+            await sendTelegramMessage(`⚠️ <b>Risk Alert</b>\nDaily Loss reaching dangerous levels: ${(dailyLossPct * 100).toFixed(1)}% / ${(maxLossLimitDecimal * 100).toFixed(1)}%`);
+          }
         }
       }
     }

@@ -33,8 +33,20 @@ export const escapeHtml = (text) => {
  * Sends a HTML message to the configured Telegram chat/group.
  */
 export const sendTelegramMessage = async (htmlText, options = {}) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatIdsEnv = process.env.TELEGRAM_CHAT_ID;
+  let token = process.env.TELEGRAM_BOT_TOKEN;
+  let chatIdsEnv = process.env.TELEGRAM_CHAT_ID;
+
+  try {
+    const { SYSTEM_USER_ID } = await import('../config/constants.js');
+    const Portfolio = (await import('../models/Portfolio.js')).default;
+    const portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID }) || await Portfolio.findOne({});
+    if (portfolio && portfolio.telegramBotToken && portfolio.telegramChatId) {
+      token = portfolio.telegramBotToken;
+      chatIdsEnv = portfolio.telegramChatId;
+    }
+  } catch (err) {
+    logger.warn('Failed to fetch Telegram credentials from DB, falling back to ENV');
+  }
 
   if (!token || !chatIdsEnv) {
     logger.debug('Telegram bot credentials not configured — skipping notification');

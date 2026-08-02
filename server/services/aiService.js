@@ -4,25 +4,28 @@ import { logger } from '../utils/logger.js';
 /**
  * AI Service to handle external LLM calls (Gemini/OpenAI) with structured batch predictions.
  */
-export async function generateBatchPredictions(assetsData) {
-  const groqKey = process.env.GROQ_API_KEY;
+export async function generateBatchPredictions(assetsData, portfolioConfig = null) {
+  // Determine API Keys from portfolio config OR fallback to env
+  const keys = {
+    gemini: portfolioConfig?.aiApiKeys?.gemini?.length > 0 ? portfolioConfig.aiApiKeys.gemini : (process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || '').split(',').map(k => k.trim()).filter(Boolean),
+    groq: portfolioConfig?.aiApiKeys?.groq?.length > 0 ? portfolioConfig.aiApiKeys.groq : [process.env.GROQ_API_KEY].filter(Boolean),
+    openai: portfolioConfig?.aiApiKeys?.openai?.length > 0 ? portfolioConfig.aiApiKeys.openai : [process.env.OPENAI_API_KEY].filter(Boolean),
+  };
+
   const groqModel = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  
+  // Determine sequence from portfolio config OR fallback to default
+  const sequence = portfolioConfig?.aiLlmSequence?.length > 0 ? portfolioConfig.aiLlmSequence : ['groq', 'gemini', 'openai'];
 
-  // Support single or multiple comma-separated keys
-  const geminiKeysRaw = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || '';
-  const geminiKeys = geminiKeysRaw.split(',').map(k => k.trim()).filter(Boolean);
-  const openaiKey = process.env.OPENAI_API_KEY;
+  logger.info(`AI Service Gateway: Sequence [${sequence.join(' -> ')}]. Keys: Gemini(${keys.gemini.length}), Groq(${keys.groq.length}), OpenAI(${keys.openai.length})`);
 
-  logger.info(`AI Service: Loaded Groq API key: ${groqKey ? 'present' : 'absent'}, ${geminiKeys.length} Gemini key(s), OpenAI key: ${openaiKey ? 'present' : 'absent'}`);
-
-  if (!groqKey && geminiKeys.length === 0 && !openaiKey) {
+  if (keys.groq.length === 0 && keys.gemini.length === 0 && keys.openai.length === 0) {
     logger.debug('AI Service: No LLM keys found. Falling back to local model.');
     return null;
   }
 
-  // Chunk the assets into exactly 3 batches to spread load across the 3 Gemini API keys
-  const totalChunks = 3;
-  const CHUNK_SIZE = Math.ceil(assetsData.length / totalChunks);
+  // Chunk the assets into batches
+  const CHUNK_SIZE = Math.ceil(assetsData.length / 3);
   const chunks = [];
   for (let i = 0; i < assetsData.length; i += CHUNK_SIZE) {
     chunks.push(assetsData.slice(i, i + CHUNK_SIZE));
@@ -30,9 +33,8 @@ export async function generateBatchPredictions(assetsData) {
 
   let allPredictions = [];
 
-  // Process chunks sequentially to respect API rate limits
+  // Process chunks sequentially
   for (const [index, chunk] of chunks.entries()) {
-    // Add a 2-second delay between chunks to prevent burst rate limits (429)
     if (index > 0) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
@@ -40,59 +42,45 @@ export async function generateBatchPredictions(assetsData) {
     const promptText = buildPrompt(chunk);
     let chunkSuccess = false;
 
-    // 1. Try Groq if key is present (Primary AI)
-    if (groqKey) {
-      try {
-        logger.info(`AI Service: Querying Groq (${groqModel}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
-        const response = await axios.post(
-          'https://api.groq.com/openai/v1/chat/completions',
-          {
-            model: groqModel,
-            messages: [
-              {
-                role: 'system',
-                content: 'You are an advanced quantitative cryptocurrency trading assistant. Analyze the provided market data and return predictions in the requested JSON structure.'
-              },
-              { role: 'user', content: promptText }
-            ],
-            response_format: { type: 'json_object' }
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${groqKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 30_000
-          }
-        );
+    // Execute the Fallback Sequence defined by the user
+    for (const provider of sequence) {
+      if (chunkSuccess) break;
 
-        const resultText = response.data?.choices?.[0]?.message?.content;
-        if (!resultText) throw new Error('Empty content returned from Groq API');
-
-        const parsed = JSON.parse(resultText);
-        if (parsed && Array.isArray(parsed.predictions)) {
-          parsed.predictions.forEach(p => p.sourceModel = 'ai_groq');
-          allPredictions = allPredictions.concat(parsed.predictions);
-          chunkSuccess = true;
-        } else {
-          throw new Error('Response did not contain the "predictions" array matching schema');
-        }
-      } catch (err) {
-        const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-        logger.warn(`AI Service: Groq API call failed for chunk ${index + 1}: ${errorDetail}`);
-      }
-    }
-
-    // 2. Try Gemini if Groq failed or key was absent (Secondary AI / Fallback)
-    if (!chunkSuccess && geminiKeys.length > 0) {
-      const currentGeminiKey = geminiKeys[index % geminiKeys.length];
-      const geminiModels = ['gemini-3.1-flash-lite'];
+      const providerKeys = keys[provider] || [];
+      if (providerKeys.length === 0) continue; // Skip if no keys for this provider
       
-      for (const modelName of geminiModels) {
-        try {
-          logger.info(`AI Service: Querying Google Gemini (${modelName}) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
+      // Load balance: Rotate key based on chunk index
+      const activeKey = providerKeys[index % providerKeys.length];
+
+      try {
+        if (provider === 'groq') {
+          logger.info(`AI Gateway: Querying Groq (${groqModel}) for chunk ${index + 1}/${chunks.length}`);
           const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentGeminiKey}`,
+            'https://api.groq.com/openai/v1/chat/completions',
+            {
+              model: groqModel,
+              messages: [
+                { role: 'system', content: 'You are an advanced quantitative cryptocurrency trading assistant. Analyze the provided market data and return predictions in the requested JSON structure.' },
+                { role: 'user', content: promptText }
+              ],
+              response_format: { type: 'json_object' }
+            },
+            { headers: { 'Authorization': `Bearer ${activeKey}`, 'Content-Type': 'application/json' }, timeout: 30_000 }
+          );
+
+          const resultText = response.data?.choices?.[0]?.message?.content;
+          const parsed = JSON.parse(resultText);
+          if (parsed && Array.isArray(parsed.predictions)) {
+            parsed.predictions.forEach(p => p.sourceModel = 'ai_groq');
+            allPredictions = allPredictions.concat(parsed.predictions);
+            chunkSuccess = true;
+          }
+
+        } else if (provider === 'gemini') {
+          const modelName = 'gemini-3.1-flash-lite';
+          logger.info(`AI Gateway: Querying Google Gemini (${modelName}) for chunk ${index + 1}/${chunks.length}`);
+          const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${activeKey}`,
             {
               contents: [{ parts: [{ text: promptText }] }],
               generationConfig: { responseMimeType: 'application/json' }
@@ -101,68 +89,44 @@ export async function generateBatchPredictions(assetsData) {
           );
 
           const resultText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!resultText) throw new Error('Empty content returned from Gemini API');
-
           const parsed = JSON.parse(resultText);
           if (parsed && Array.isArray(parsed.predictions)) {
             parsed.predictions.forEach(p => p.sourceModel = 'ai_gemini');
             allPredictions = allPredictions.concat(parsed.predictions);
             chunkSuccess = true;
-            break; // Success! Break out of the models loop
-          } else {
-            throw new Error('Response did not contain the "predictions" array matching schema');
           }
-        } catch (err) {
-          const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-          logger.warn(`AI Service: Gemini API call failed for model ${modelName} on chunk ${index + 1}: ${errorDetail}`);
-        }
-      }
-    }
 
-    // 3. Try OpenAI if Groq & Gemini failed or were absent (Tertiary AI / Fallback)
-    if (!chunkSuccess && openaiKey) {
-      try {
-        logger.info(`AI Service: Querying OpenAI (gpt-4o-mini) for chunk ${index + 1}/${chunks.length} (${chunk.length} assets)`);
-        const response = await axios.post(
-          'https://api.openai.com/v1/chat/completions',
-          {
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content: 'You are an advanced quantitative cryptocurrency trading assistant. Analyze the provided market data and return predictions in the requested JSON structure.'
-              },
-              { role: 'user', content: promptText }
-            ],
-            response_format: { type: 'json_object' }
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${openaiKey}`,
-              'Content-Type': 'application/json'
+        } else if (provider === 'openai') {
+          logger.info(`AI Gateway: Querying OpenAI (gpt-4o-mini) for chunk ${index + 1}/${chunks.length}`);
+          const response = await axios.post(
+            'https://api.openai.com/v1/chat/completions',
+            {
+              model: 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: 'You are an advanced quantitative cryptocurrency trading assistant. Analyze the provided market data and return predictions in the requested JSON structure.' },
+                { role: 'user', content: promptText }
+              ],
+              response_format: { type: 'json_object' }
             },
-            timeout: 30_000
+            { headers: { 'Authorization': `Bearer ${activeKey}`, 'Content-Type': 'application/json' }, timeout: 30_000 }
+          );
+
+          const resultText = response.data?.choices?.[0]?.message?.content;
+          const parsed = JSON.parse(resultText);
+          if (parsed && Array.isArray(parsed.predictions)) {
+            parsed.predictions.forEach(p => p.sourceModel = 'ai_openai');
+            allPredictions = allPredictions.concat(parsed.predictions);
+            chunkSuccess = true;
           }
-        );
-
-        const resultText = response.data?.choices?.[0]?.message?.content;
-        if (!resultText) throw new Error('Empty content returned from OpenAI API');
-
-        const parsed = JSON.parse(resultText);
-        if (parsed && Array.isArray(parsed.predictions)) {
-          parsed.predictions.forEach(p => p.sourceModel = 'ai_openai');
-          allPredictions = allPredictions.concat(parsed.predictions);
-          chunkSuccess = true;
-        } else {
-          throw new Error('Response did not contain the "predictions" array matching schema');
         }
       } catch (err) {
-        logger.warn(`AI Service: OpenAI API call failed for chunk ${index + 1}: ${err.message}`);
+        const errorDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+        logger.warn(`AI Gateway: ${provider.toUpperCase()} API call failed for chunk ${index + 1}: ${errorDetail}. Falling back to next provider.`);
       }
     }
 
     if (!chunkSuccess) {
-      logger.warn(`AI Service: All AI prediction models failed for chunk ${index + 1}. Falling back to local model for this chunk.`);
+      logger.warn(`AI Gateway: ALL configured LLMs failed for chunk ${index + 1}. Safely delegating chunk to Local Math Model.`);
     }
   }
 

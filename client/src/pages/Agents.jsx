@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAgentStore } from '../store.js';
+import { useAgentStore, socket } from '../store.js';
 import { Bot, AlertTriangle, Clock, RefreshCw, Activity, Heart, ShieldAlert, Cpu, Terminal } from 'lucide-react';
 import axios from 'axios';
 
@@ -58,11 +58,23 @@ export default function Agents() {
   const [restartingNodes, setRestartingNodes] = useState({});
 
   useEffect(() => {
-    fetchLogs();
     fetchHealth();
-    const interval = setInterval(fetchLogs, 5000);
-    return () => clearInterval(interval);
-  }, [activeTab]);
+    
+    const handleAgentLog = (logData) => {
+      setLogs((prev) => {
+        // Prepend new log
+        const updated = [logData, ...prev];
+        // Keep max 500 logs
+        return updated.slice(0, 500);
+      });
+    };
+
+    socket.on('agent:log', handleAgentLog);
+
+    return () => {
+      socket.off('agent:log', handleAgentLog);
+    };
+  }, []);
 
   const fetchHealth = async () => {
     try {
@@ -73,6 +85,7 @@ export default function Agents() {
     } catch {}
   };
 
+  // Kept for backward compatibility if needed, but not polled.
   const fetchLogs = async () => {
     try {
       const levelQuery = activeTab !== 'all' ? `&level=${activeTab}` : '';
@@ -290,26 +303,36 @@ export default function Agents() {
             <div className="text-xs text-center py-12 uppercase text-zinc-500 font-extrabold tracking-widest font-mono animate-pulse">
               SYNCING LOG BUFFER...
             </div>
-          ) : (
-            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 font-mono text-[9px] bg-black border border-[#2c2c2e]/60 rounded-xl p-3 leading-relaxed">
-              {logs.map((log, i) => (
-                <div key={i} className="flex items-start gap-2 p-1 rounded hover:bg-zinc-800/10 transition-colors">
-                  <span 
-                    className="font-bold uppercase tracking-widest flex-shrink-0"
-                    style={{
-                      color: log.level === 'error' ? '#ff453a' : log.level === 'warn' ? '#ff9f0a' : '#86868b',
-                    }}
-                  >
-                    [{log.level}]
-                  </span>
-                  <span className="font-bold text-purple-400 flex-shrink-0">
-                    [{log.agent}]
-                  </span>
-                  <span className="text-zinc-400 break-all font-medium">{log.message}</span>
+          ) : (() => {
+            const filteredLogs = activeTab === 'all' ? logs : logs.filter(l => l.level?.toLowerCase() === activeTab);
+            if (filteredLogs.length === 0) {
+              return (
+                <div className="text-xs text-center py-12 uppercase text-zinc-500 font-extrabold tracking-widest font-mono">
+                  NO LOGS MATCHING LEVEL
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            }
+            return (
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 font-mono text-[9px] bg-black border border-[#2c2c2e]/60 rounded-xl p-3 leading-relaxed">
+                {filteredLogs.map((log, i) => (
+                  <div key={i} className="flex items-start gap-2 p-1 rounded hover:bg-zinc-800/10 transition-colors">
+                    <span 
+                      className="font-bold uppercase tracking-widest flex-shrink-0"
+                      style={{
+                        color: log.level === 'error' ? '#ff453a' : log.level === 'warn' ? '#ff9f0a' : '#86868b',
+                      }}
+                    >
+                      [{log.level}]
+                    </span>
+                    <span className="font-bold text-purple-400 flex-shrink-0">
+                      [{log.agent}]
+                    </span>
+                    <span className="text-zinc-400 break-all font-medium">{log.message}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

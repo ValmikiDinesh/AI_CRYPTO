@@ -16,6 +16,25 @@ const socket = io(SOCKET_URL, {
 
 export { socket };
 
+// ─── Auth Store ────────────────────────────────────────────────
+export const useAuthStore = create((set) => ({
+  token: localStorage.getItem('token') || null,
+  user: null,
+  isAuthenticated: !!localStorage.getItem('token'),
+  
+  login: (token, user) => {
+    localStorage.setItem('token', token);
+    set({ token, user, isAuthenticated: true });
+  },
+  
+  logout: () => {
+    localStorage.removeItem('token');
+    set({ token: null, user: null, isAuthenticated: false });
+  },
+
+  setUser: (user) => set({ user }),
+}));
+
 // ─── Market Store ────────────────────────────────────────────────
 export const useMarketStore = create((set, get) => ({
   prices: {},

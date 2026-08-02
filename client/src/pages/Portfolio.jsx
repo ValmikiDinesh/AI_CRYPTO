@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, memo } from 'react';
 import { usePortfolioStore, useMarketStore, useCurrencyStore, socket } from '../store.js';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
-import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity, Search, Medal, Skull, AlertCircle, ArrowUpDown } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Target, PieChart as PieIcon, BarChart3, ChevronRight, Activity, Search, Medal, Skull, AlertCircle, ArrowUpDown, Download } from 'lucide-react';
 import axios from 'axios';
 
 const COLORS = ['#0071e3', '#ff9f0a', '#30d158', '#ff453a', '#bf5af2'];
@@ -22,25 +22,191 @@ const formatCoinSwitchOrderId = (orderId) => {
   return '#' + (orderId.length > 6 ? orderId.slice(0, 6) : orderId);
 };
 
-function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openOrders }) {
+// ─── Fine-Grained Live Price Components (Phase 5 Optimization) ────────
+// Each component subscribes to ONLY its specific asset's price, so when
+// BTC's price changes, only the BTC row's cells re-render — not the
+// entire 2100-line Portfolio component tree.
+
+const LivePriceCell = memo(function LivePriceCell({ asset, fallbackPrice }) {
+  const livePrice = useMarketStore((s) => s.prices[asset]);
+  const price = (livePrice && livePrice > 0) ? livePrice : (fallbackPrice || 0);
+  return (
+    <td className="px-4 py-3 text-right text-sky-400 font-mono font-bold">
+      {price ? `$${price.toFixed(6)}` : '—'}
+    </td>
+  );
+});
+
+const LivePnlCell = memo(function LivePnlCell({ asset, entryPrice, quantity, side, action, fees: tradeFees }) {
+  const livePrice = useMarketStore((s) => s.prices[asset]);
+  const currentPrice = (livePrice && livePrice > 0) ? livePrice : entryPrice;
+  const fees = (tradeFees && tradeFees > 0) ? tradeFees : (entryPrice * quantity * 0.0005);
+  const isLong = side === 'long' || action === 'BUY';
+  const grossPnl = currentPrice ? (isLong ? (currentPrice - entryPrice) * quantity : (entryPrice - currentPrice) * quantity) : 0;
+  const netPnl = currentPrice ? grossPnl - fees : 0;
+  return (
+    <td
+      className="px-4 py-3 text-right font-bold font-mono"
+      style={{ color: currentPrice ? (netPnl >= 0 ? '#30d158' : '#ff453a') : '#86868b' }}
+    >
+      {currentPrice ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : 'WAITING'}
+    </td>
+  );
+});
+
+const LiveOpenTotalFooter = memo(function LiveOpenTotalFooter({ trades }) {
+  // Subscribe to ALL prices here but this is a single small component,
+  // not the entire Portfolio tree.
   const prices = useMarketStore((s) => s.prices);
+  const totalCommission = trades.reduce((sum, t) => {
+    const fees = (t.fees && t.fees > 0) ? t.fees : (t.entryPrice * t.quantity * 0.0005);
+    return sum + fees;
+  }, 0);
+  const totalNetPnl = trades.reduce((sum, t) => {
+    const cp = (prices && prices[t.asset] !== undefined) ? prices[t.asset] : (t.currentPrice || t.entryPrice || 0);
+    const fees = (t.fees && t.fees > 0) ? t.fees : (t.entryPrice * t.quantity * 0.0005);
+    const isLong = t.side === 'long' || t.action === 'BUY';
+    const grossPnl = isLong ? (cp - t.entryPrice) * t.quantity : (t.entryPrice - cp) * t.quantity;
+    return sum + (grossPnl - fees);
+  }, 0);
+  return (
+    <tfoot className="border-t border-[#2c2c2e] bg-black/45">
+      <tr className="align-middle whitespace-nowrap">
+        <td colSpan={9} className="px-4 py-3 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest whitespace-nowrap">
+          Totals ({trades.length} Open Positions)
+        </td>
+        <td className="px-4 py-3 text-right whitespace-nowrap">
+          <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
+          <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
+            -${totalCommission.toFixed(4)}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60 whitespace-nowrap">
+          <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Combined Net PnL</span>
+          <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalNetPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
+            {totalNetPnl >= 0 ? '+' : ''}${totalNetPnl.toFixed(2)}
+          </span>
+        </td>
+      </tr>
+    </tfoot>
+  );
+});
+
+// Isolated row component for the Detailed Transaction Ledger that handles
+// open trades with live price subscriptions per-asset.
+const LiveLedgerRow = memo(function LiveLedgerRow({ trade, i }) {
+  const livePrice = useMarketStore((s) => s.prices[trade.asset]);
+  const price = trade.entryPrice;
+  const exit = trade.exitPrice;
+  const curPrice = (livePrice && livePrice > 0)
+    ? livePrice
+    : (trade.currentPrice && trade.currentPrice > 0)
+      ? trade.currentPrice
+      : (trade.entryPrice || 0);
+  const isLong = trade.side === 'long' || trade.action === 'BUY';
+  const fees = (trade.fees !== undefined && trade.fees !== null && trade.fees > 0)
+    ? trade.fees
+    : (trade.entryPrice * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005));
+  const grossPnl = trade.status === 'open'
+    ? (isLong ? (curPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - curPrice) * trade.quantity)
+    : (trade.pnl || 0);
+  const netPnl = trade.status === 'open'
+    ? (grossPnl - fees)
+    : ((trade.pnl || 0) - fees);
+
+  return (
+    <tr className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
+      <td className="px-6 py-4 text-zinc-500 font-mono text-[10px] leading-relaxed">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Open</span>
+          <span>{new Date(trade.createdAt).toLocaleString()}</span>
+        </div>
+        {trade.status === 'closed' && (
+          <div className="flex items-center gap-1.5 mt-1 text-[#ff9f0a]">
+            <span className="text-[8px] bg-amber-950/40 text-amber-500 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Exit</span>
+            <span>{trade.closedAt ? new Date(trade.closedAt).toLocaleString() : new Date(trade.updatedAt).toLocaleString()}</span>
+          </div>
+        )}
+      </td>
+      <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
+        {trade.asset?.replace('1000', '').replace('USDT', '')}
+      </td>
+      <td className="px-6 py-4">
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+          trade.action === 'BUY' || trade.side === 'long'
+            ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
+            : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
+        }`}>
+          {trade.action || (trade.side === 'long' ? 'BUY' : 'SELL')}
+        </span>
+      </td>
+      <td className="px-6 py-4">
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
+          trade.status === 'open'
+            ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+            : 'bg-zinc-900 border-zinc-700/60 text-zinc-400'
+        }`}>
+          {trade.status}
+        </span>
+      </td>
+      <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
+        {price ? `$${price.toFixed(6)}` : '—'}
+      </td>
+      <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
+        {trade.stopLoss ? `$${trade.stopLoss.toFixed(6)}` : '—'}
+      </td>
+      <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
+        {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
+      </td>
+      <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
+        {trade.status === 'open'
+          ? `$${curPrice.toFixed(6)}`
+          : exit ? `$${exit.toFixed(6)}` : '—'}
+      </td>
+      <td className="px-6 py-4 text-right text-[#86868b] font-mono">
+        {trade.quantity?.toFixed(5) || '—'}
+      </td>
+      <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
+        ${fees.toFixed(4)}
+      </td>
+      <td
+        className="px-6 py-4 text-right font-bold font-mono"
+        style={{
+          color: trade.status === 'failed'
+            ? '#ff453a'
+            : (grossPnl >= 0 ? '#30d158' : '#ff453a')
+        }}
+      >
+        {trade.status === 'failed'
+          ? 'FAILED'
+          : `${grossPnl >= 0 ? '+' : ''}$${grossPnl.toFixed(2)}`}
+      </td>
+      <td
+        className="px-6 py-4 text-right font-bold font-mono"
+        style={{
+          color: trade.status === 'failed'
+            ? '#ff453a'
+            : (netPnl >= 0 ? '#30d158' : '#ff453a')
+        }}
+      >
+        {trade.status === 'failed'
+          ? 'FAILED'
+          : `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}`}
+      </td>
+    </tr>
+  );
+});
+
+function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openOrders }) {
   const [openSubTab, setOpenSubTab] = useState('positions'); // 'positions' | 'stopLoss' | 'takeProfit'
   const [openLedgerTab, setOpenLedgerTab] = useState('all');
-  const [, setTick] = useState(0);
   const persistentOpenTradesRef = useRef([]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTick((t) => t + 1);
-    }, 250);
-    return () => clearInterval(timer);
-  }, []);
-
-  if (onlyOpenTrades && onlyOpenTrades.length > 0) {
+  if (onlyOpenTrades !== undefined && onlyOpenTrades !== null) {
     persistentOpenTradesRef.current = onlyOpenTrades;
   }
 
-  const activeTradesList = (onlyOpenTrades && onlyOpenTrades.length > 0)
+  const activeTradesList = (onlyOpenTrades !== undefined && onlyOpenTrades !== null)
     ? onlyOpenTrades
     : persistentOpenTradesRef.current;
 
@@ -89,20 +255,8 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openO
     );
   }
 
-  const totalOpenCommission = filteredOpenTrades.reduce((sum, t) => {
-    const fees = (t.fees && t.fees > 0) ? t.fees : (t.entryPrice * t.quantity * 0.0005);
-    return sum + fees;
-  }, 0);
-
-  const totalOpenNetPnl = filteredOpenTrades.reduce((sum, t) => {
-    const currentPrice = (prices && prices[t.asset] !== undefined)
-      ? prices[t.asset]
-      : (t.currentPrice || t.entryPrice || 0);
-    const fees = (t.fees && t.fees > 0) ? t.fees : (t.entryPrice * t.quantity * 0.0005);
-    const isLong = t.side === 'long' || t.action === 'BUY';
-    const grossPnl = isLong ? (currentPrice - t.entryPrice) * t.quantity : (t.entryPrice - currentPrice) * t.quantity;
-    return sum + (grossPnl - fees);
-  }, 0);
+  // Commission and PnL totals are now computed inside LiveOpenTotalFooter
+  // to avoid re-rendering the entire OpenTradesLedger on every price tick.
 
   return (
     <div className="glass-panel overflow-hidden bg-[#1c1c1e] !p-0">
@@ -177,17 +331,9 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openO
             <tbody className="divide-y divide-[#2c2c2e]/40 whitespace-nowrap">
               {filteredOpenTrades.map((trade, i) => {
                 const price = trade.entryPrice;
-                const currentPrice = (prices && prices[trade.asset] !== undefined && prices[trade.asset] > 0)
-                  ? prices[trade.asset]
-                  : (trade.currentPrice && trade.currentPrice > 0)
-                    ? trade.currentPrice
-                    : (trade.entryPrice || 0);
                 const fees = (trade.fees && trade.fees > 0)
                   ? trade.fees 
                   : (trade.entryPrice * trade.quantity * 0.0005);
-                const isLong = trade.side === 'long' || trade.action === 'BUY';
-                const grossPnl = currentPrice ? (isLong ? (currentPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - currentPrice) * trade.quantity) : 0;
-                const netPnl = currentPrice ? grossPnl - fees : 0;
 
                 const rawOrderId = trade.exchangeOrderId || trade.orderId;
                 const cleanOrderId = (rawOrderId && rawOrderId !== '—') ? rawOrderId : null;
@@ -221,9 +367,7 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openO
                     <td className="px-4 py-3 text-right text-[#f5f5f7] font-mono font-bold">
                       {price ? `$${price.toFixed(6)}` : '—'}
                     </td>
-                    <td className="px-4 py-3 text-right text-sky-400 font-mono font-bold">
-                      {currentPrice ? `$${currentPrice.toFixed(6)}` : '—'}
-                    </td>
+                    <LivePriceCell asset={trade.asset} fallbackPrice={trade.currentPrice || trade.entryPrice} />
                     <td className="px-4 py-3 text-right text-[#ff453a] font-mono font-bold">
                       {(() => {
                         const sl = trade.stopLoss;
@@ -242,35 +386,12 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openO
                     <td className="px-4 py-3 text-right text-[#ff9f0a] font-mono font-bold">
                       ${fees.toFixed(4)}
                     </td>
-                    <td 
-                      className="px-4 py-3 text-right font-bold font-mono"
-                      style={{ color: currentPrice ? (netPnl >= 0 ? '#30d158' : '#ff453a') : '#86868b' }}
-                    >
-                      {currentPrice ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : 'WAITING'}
-                    </td>
+                    <LivePnlCell asset={trade.asset} entryPrice={trade.entryPrice} quantity={trade.quantity} side={trade.side} action={trade.action} fees={trade.fees} />
                   </tr>
                 );
               })}
             </tbody>
-            <tfoot className="border-t border-[#2c2c2e] bg-black/45">
-              <tr className="align-middle whitespace-nowrap">
-                <td colSpan={9} className="px-4 py-3 text-[#86868b] font-mono text-[10px] font-extrabold uppercase tracking-widest whitespace-nowrap">
-                  Totals ({filteredOpenTrades.length} Open Positions)
-                </td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Commission</span>
-                  <span className="text-[#ff9f0a] font-bold font-mono text-[11px] mt-0.5 block">
-                    -${totalOpenCommission.toFixed(4)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right bg-[#0071e3]/5 border-l border-[#2c2c2e]/60 whitespace-nowrap">
-                  <span className="block text-[8px] text-[#86868b] uppercase tracking-wider font-mono">Combined Net PnL</span>
-                  <span className={`font-bold font-mono text-[11px] mt-0.5 block ${totalOpenNetPnl >= 0 ? 'text-[#30d158]' : 'text-[#ff453a]'}`}>
-                    {totalOpenNetPnl >= 0 ? '+' : ''}${totalOpenNetPnl.toFixed(2)}
-                  </span>
-                </td>
-              </tr>
-            </tfoot>
+            <LiveOpenTotalFooter trades={filteredOpenTrades} />
           </table>
         </div>
       )}
@@ -436,7 +557,9 @@ function OpenTradesLedger({ onlyOpenTrades, formatVal, openPositionsCount, openO
 
 export default function Portfolio() {
   const portfolio = usePortfolioStore((s) => s.portfolio);
-  const prices = useMarketStore((s) => s.prices);
+  // Removed broad `useMarketStore(s => s.prices)` subscription (Phase 5).
+  // Live prices are now consumed only inside fine-grained LivePriceCell,
+  // LivePnlCell, LiveOpenTotalFooter, and LiveLedgerRow components.
 
   const currency = useCurrencyStore((s) => s.currency);
   const rate = useCurrencyStore((s) => s.rate);
@@ -457,10 +580,15 @@ export default function Portfolio() {
   const setStoreAllTrades = usePortfolioStore((s) => s.setAllTrades);
   const setStoreStats = usePortfolioStore((s) => s.setStats);
 
-  const [trades, setTrades] = useState([]);
+  const [trades, setTrades] = useState([]); // Kept for legacy/overview uses if any
   const [allTrades, setAllTrades] = useState(storedAllTrades || []);
   const [openOrders, setOpenOrders] = useState([]);
   const [stats, setStats] = useState(storedStats || null);
+  
+  const [paginatedClosedTrades, setPaginatedClosedTrades] = useState([]);
+  const [closedPage, setClosedPage] = useState(1);
+  const [closedTotalPages, setClosedTotalPages] = useState(1);
+  const closedLimit = 50;
   const [loading, setLoading] = useState(
     (!storedAllTrades || storedAllTrades.length === 0) && (!portfolio || !portfolio.totalBalance)
   );
@@ -584,12 +712,10 @@ export default function Portfolio() {
     return !isStandaloneSlTpTrigger;
   });
 
-  const filteredClosedTrades = onlyClosedTrades.filter((trade) => {
+  // Use the paginated trades from the backend instead of filtering allTrades
+  const filteredClosedTrades = paginatedClosedTrades.filter((trade) => {
     if (!filterByDate(trade.closedAt || trade.updatedAt || trade.createdAt)) return false;
-    if (closedLedgerTab === 'all') return true;
-    if (closedLedgerTab === 'core') return CORE_ASSETS.includes(trade.asset);
-    if (closedLedgerTab === 'meme') return MEME_ASSETS.includes(trade.asset);
-    if (closedLedgerTab === 'recommended') return !CORE_ASSETS.includes(trade.asset) && !MEME_ASSETS.includes(trade.asset);
+    // Category filtering is already handled by the backend
     return true;
   });
 
@@ -612,9 +738,30 @@ export default function Portfolio() {
     try {
       await axios.get('/api/portfolio/sync-closed-trades');
       await fetchPortfolioAllData();
+      await fetchPaginatedClosedTrades();
     } catch {}
     setIsSyncingExchange(false);
   };
+
+  const fetchPaginatedClosedTrades = async () => {
+    try {
+      const res = await axios.get(`/api/portfolio/closed-trades?page=${closedPage}&limit=${closedLimit}&category=${closedLedgerTab}`);
+      if (res.data?.success && res.data?.data) {
+        setPaginatedClosedTrades(res.data.data.trades || []);
+        setClosedTotalPages(res.data.data.pagination.totalPages || 1);
+      }
+    } catch (err) {
+      console.error("Failed to load paginated closed trades:", err);
+    }
+  };
+
+  useEffect(() => {
+    setClosedPage(1);
+  }, [closedLedgerTab]);
+
+  useEffect(() => {
+    fetchPaginatedClosedTrades();
+  }, [closedPage, closedLedgerTab]);
 
   const fetchPortfolioAllData = async () => {
     try {
@@ -976,6 +1123,7 @@ export default function Portfolio() {
             innerRadius={55}
             paddingAngle={4}
             strokeWidth={0}
+            isAnimationActive={false}
           >
             {allocation.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} className="outline-none" />
@@ -1017,7 +1165,7 @@ export default function Portfolio() {
             contentStyle={{ background: '#000000', border: '1px solid #2c2c2e', borderRadius: '12px', color: '#f5f5f7' }}
             itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
           />
-          <Bar dataKey="pnl" radius={[2, 2, 0, 0]}>
+          <Bar dataKey="pnl" radius={[2, 2, 0, 0]} isAnimationActive={false}>
             {dateFilteredClosed.map((t, i) => (
               <Cell key={i} fill={(t.pnl || 0) >= 0 ? '#30d158' : '#ff453a'} />
             ))}
@@ -1028,6 +1176,15 @@ export default function Portfolio() {
   }, [dateFilteredClosed]);
 
   const categoryChartMemo = useMemo(() => {
+    if (dateFilteredClosed.length === 0) {
+      return (
+        <div className="lg:col-span-2 flex justify-center h-[260px]">
+          <div className="flex items-center justify-center text-xs text-zinc-500 font-extrabold uppercase tracking-widest font-mono animate-pulse h-full w-full border border-dashed border-zinc-800 rounded-2xl">
+            NO CATEGORY DATA AVAILABLE
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="lg:col-span-2 flex justify-center">
         <div className="h-[260px]">
@@ -1040,10 +1197,10 @@ export default function Portfolio() {
               itemStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#f5f5f7', fontFamily: 'monospace' }}
               formatter={(value) => typeof value === 'number' ? `$${value.toFixed(2)}` : `$${value}`}
             />
-            <Bar dataKey="maxProfit" name="High Profit" fill="#30d158" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="minProfit" name="Low Profit" fill="rgba(48, 209, 88, 0.45)" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="maxLoss" name="High Loss" fill="#ff453a" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="minLoss" name="Low Loss" fill="rgba(255, 69, 58, 0.45)" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="maxProfit" name="High Profit" fill="#30d158" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="minProfit" name="Low Profit" fill="rgba(48, 209, 88, 0.45)" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="maxLoss" name="High Loss" fill="#ff453a" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="minLoss" name="Low Loss" fill="rgba(255, 69, 58, 0.45)" radius={[2, 2, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </div>
       </div>
@@ -1130,12 +1287,18 @@ export default function Portfolio() {
       )}
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-5">
         {[
           { 
             label: 'Net Balances', 
             value: formatVal(portfolio.totalBalance), 
             icon: Wallet, 
+            color: '#86868b' 
+          },
+          { 
+            label: 'Target Anchor', 
+            value: formatVal(portfolio.baseTradingCapital), 
+            icon: Target, 
             color: '#86868b' 
           },
           { 
@@ -1460,6 +1623,36 @@ export default function Portfolio() {
               </div>
             </div>
           )}
+
+          {/* Advanced Risk Metrics */}
+          {stats && (
+            <div className="glass-panel bg-[#1c1c1e] mt-6 !p-0">
+              <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest flex items-center gap-2 border-b border-[#2c2c2e]/60 p-6 pb-3 font-mono mb-4">
+                <AlertCircle size={14} className="text-[#ff9f0a]" />
+                Advanced Quantitative Risk Metrics
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 pt-0 text-xs">
+                {[
+                  { label: 'Max Drawdown', value: `-$${stats.maxDrawdown ? stats.maxDrawdown.toFixed(2) : 0}`, color: '#ff453a' },
+                  { label: 'Profit Factor', value: `${stats.profitFactor ? stats.profitFactor.toFixed(2) : 0}`, color: (stats.profitFactor || 0) > 1.5 ? '#30d158' : '#ff9f0a' },
+                  { label: 'Sharpe Ratio', value: `${stats.sharpeRatio ? stats.sharpeRatio.toFixed(2) : 0}`, color: (stats.sharpeRatio || 0) > 1 ? '#30d158' : '#ff9f0a' },
+                  { label: 'Sortino Ratio', value: `${stats.sortinoRatio ? stats.sortinoRatio.toFixed(2) : 0}`, color: (stats.sortinoRatio || 0) > 1.5 ? '#30d158' : '#ff9f0a' },
+                  { label: 'Max Win Streak', value: `${stats.maxWinStreak || 0}`, color: '#30d158' },
+                  { label: 'Max Loss Streak', value: `${stats.maxLossStreak || 0}`, color: '#ff453a' },
+                  { label: 'Avg Win PnL', value: `+$${stats.avgWin ? stats.avgWin.toFixed(2) : 0}`, color: '#30d158' },
+                  { label: 'Avg Loss PnL', value: `-$${stats.avgLoss ? stats.avgLoss.toFixed(2) : 0}`, color: '#ff453a' }
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-black/40 p-4 rounded-2xl border border-[#2c2c2e]/55 relative overflow-hidden pl-5 group hover:bg-[#2c2c2e]/20 transition-all">
+                    <div className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: color || '#86868b' }} />
+                    <div className="text-[9px] font-bold text-[#86868b] uppercase tracking-widest font-mono mb-1">{label}</div>
+                    <div className="text-lg font-bold font-mono" style={{ color: color || '#f5f5f7' }}>
+                      {value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       ) : activeTab === 'history' ? (
         /* Detailed Transaction Ledger */
@@ -1468,25 +1661,36 @@ export default function Portfolio() {
             <h3 className="text-xs font-bold text-[#f5f5f7] uppercase tracking-widest font-mono">
               Autonomous Transaction Ledger
             </h3>
-            <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'core', label: 'Core Crypto' },
-                { id: 'meme', label: 'Meme Coins' },
-                { id: 'recommended', label: 'Recommended' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setLedgerTab(tab.id)}
-                  className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
-                    ledgerTab === tab.id
-                      ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
-                      : 'text-[#86868b] hover:text-[#f5f5f7]'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-4">
+              <div className="flex bg-black/40 p-0.5 rounded-lg border border-[#2c2c2e]/60 text-[9px] font-bold font-mono self-start md:self-auto">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'core', label: 'Core Crypto' },
+                  { id: 'meme', label: 'Meme Coins' },
+                  { id: 'recommended', label: 'Recommended' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setLedgerTab(tab.id)}
+                    className={`px-3 py-1.5 rounded-md transition-all duration-300 cursor-pointer ${
+                      ledgerTab === tab.id
+                        ? 'bg-[#0071e3] text-[#f5f5f7] shadow-md'
+                        : 'text-[#86868b] hover:text-[#f5f5f7]'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              
+              <a
+                href={`/api/portfolio/export?tzOffset=${new Date().getTimezoneOffset()}`}
+                download
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-[#2c2c2e]/60 rounded-lg text-[9px] font-bold text-sky-400 font-mono transition-all hover:border-sky-500/50 cursor-pointer"
+              >
+                <Download size={12} />
+                EXPORT CSV
+              </a>
             </div>
           </div>
           {allTrades.length === 0 ? (
@@ -1523,109 +1727,9 @@ export default function Portfolio() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2c2c2e]/40">
-                  {filteredTrades.map((trade, i) => {
-                    const price = trade.entryPrice;
-                    const exit = trade.exitPrice;
-                    const curPrice = (trade.currentPrice && trade.currentPrice > 0)
-                      ? trade.currentPrice
-                      : (prices && prices[trade.asset] !== undefined && prices[trade.asset] > 0)
-                        ? prices[trade.asset]
-                        : (trade.entryPrice || 0);
-                    const isLong = trade.side === 'long' || trade.action === 'BUY';
-                    const fees = (trade.fees !== undefined && trade.fees !== null && trade.fees > 0)
-                      ? trade.fees
-                      : (trade.entryPrice * trade.quantity * (trade.status === 'closed' ? 0.0010 : 0.0005));
-                    
-                    const grossPnl = trade.status === 'open'
-                      ? (isLong ? (curPrice - trade.entryPrice) * trade.quantity : (trade.entryPrice - curPrice) * trade.quantity)
-                      : (trade.pnl || 0);
-                    
-                    const netPnl = trade.status === 'open'
-                      ? (grossPnl - fees)
-                      : ((trade.pnl || 0) - fees);
-
-                    return (
-                      <tr key={i} className="hover:bg-zinc-800/10 transition-all duration-150 font-semibold text-zinc-300">
-                        <td className="px-6 py-4 text-zinc-500 font-mono text-[10px] leading-relaxed">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Open</span>
-                            <span>{new Date(trade.createdAt).toLocaleString()}</span>
-                          </div>
-                          {trade.status === 'closed' && (
-                            <div className="flex items-center gap-1.5 mt-1 text-[#ff9f0a]">
-                              <span className="text-[8px] bg-amber-950/40 text-amber-500 px-1 py-0.2 rounded font-mono font-extrabold uppercase">Exit</span>
-                              <span>{trade.closedAt ? new Date(trade.closedAt).toLocaleString() : new Date(trade.updatedAt).toLocaleString()}</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 font-bold text-[#f5f5f7] font-mono">
-                          {trade.asset?.replace('1000', '').replace('USDT', '')}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
-                            trade.action === 'BUY' || trade.side === 'long'
-                              ? 'bg-[#30d158]/10 border-[#30d158]/20 text-[#30d158]'
-                              : 'bg-[#ff453a]/10 border-[#ff453a]/20 text-[#ff453a]'
-                          }`}>
-                            {trade.action || (trade.side === 'long' ? 'BUY' : 'SELL')}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border font-mono ${
-                            trade.status === 'open'
-                              ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
-                              : 'bg-zinc-900 border-zinc-700/60 text-zinc-400'
-                          }`}>
-                            {trade.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
-                          {price ? `$${price.toFixed(6)}` : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#ff453a] font-mono font-bold">
-                          {trade.stopLoss ? `$${trade.stopLoss.toFixed(6)}` : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#30d158] font-mono font-bold">
-                          {trade.takeProfit ? (trade.takeProfit >= 1 ? `$${trade.takeProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${trade.takeProfit.toFixed(6)}`) : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#f5f5f7] font-mono font-bold">
-                          {trade.status === 'open'
-                            ? `$${curPrice.toFixed(6)}`
-                            : exit ? `$${exit.toFixed(6)}` : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#86868b] font-mono">
-                          {trade.quantity?.toFixed(5) || '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right text-[#ff9f0a] font-mono font-bold">
-                          ${fees.toFixed(4)}
-                        </td>
-                        <td 
-                          className="px-6 py-4 text-right font-bold font-mono"
-                          style={{ 
-                            color: trade.status === 'failed'
-                              ? '#ff453a'
-                              : (grossPnl >= 0 ? '#30d158' : '#ff453a') 
-                          }}
-                        >
-                          {trade.status === 'failed' 
-                            ? 'FAILED' 
-                            : `${grossPnl >= 0 ? '+' : ''}$${grossPnl.toFixed(2)}`}
-                        </td>
-                        <td 
-                          className="px-6 py-4 text-right font-bold font-mono"
-                          style={{ 
-                            color: trade.status === 'failed'
-                              ? '#ff453a'
-                              : (netPnl >= 0 ? '#30d158' : '#ff453a') 
-                          }}
-                        >
-                          {trade.status === 'failed' 
-                            ? 'FAILED' 
-                            : `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}`}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {filteredTrades.map((trade, i) => (
+                    <LiveLedgerRow key={i} trade={trade} i={i} />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1821,6 +1925,27 @@ export default function Portfolio() {
               </div>
             );
           })()}
+          
+          {/* Pagination Controls */}
+          <div className="flex items-center justify-between border-t border-[#2c2c2e]/60 p-4 bg-black/20">
+            <button 
+              disabled={closedPage <= 1}
+              onClick={() => setClosedPage(p => p - 1)}
+              className={`px-4 py-1.5 text-xs font-mono font-bold rounded border transition-colors ${closedPage <= 1 ? 'border-zinc-800 text-zinc-600 cursor-not-allowed' : 'border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white'}`}
+            >
+              PREVIOUS
+            </button>
+            <span className="text-[10px] font-mono font-bold text-zinc-500 tracking-widest">
+              PAGE {closedPage} OF {closedTotalPages}
+            </span>
+            <button 
+              disabled={closedPage >= closedTotalPages}
+              onClick={() => setClosedPage(p => p + 1)}
+              className={`px-4 py-1.5 text-xs font-mono font-bold rounded border transition-colors ${closedPage >= closedTotalPages ? 'border-zinc-800 text-zinc-600 cursor-not-allowed' : 'border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white'}`}
+            >
+              NEXT
+            </button>
+          </div>
         </div>
       ) : activeTab === 'analytics' ? (
         <div className="space-y-6">
@@ -1947,7 +2072,7 @@ export default function Portfolio() {
                       formatter={(v, name) => [`$${parseFloat(v).toFixed(2)}`, name]}
                     />
                     <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 'bold' }} />
-                    <Area type="monotone" dataKey="Net" stroke="#0071e3" strokeWidth={2} fillOpacity={1} fill="url(#colorNet)" />
+                    <Area type="monotone" dataKey="Net" stroke="#0071e3" strokeWidth={2} fillOpacity={1} fill="url(#colorNet)" isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>

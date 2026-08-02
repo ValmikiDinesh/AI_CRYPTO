@@ -101,6 +101,11 @@ async function bridgeRedisToSocket() {
       io.emit('agents:health', data);
     });
 
+    // Agent logs → all clients
+    await subscribeToChannel(CHANNELS.AGENT_LOGS, (data) => {
+      io.emit('agent:log', data);
+    });
+
     // Emergency stop → all clients
     await subscribeToChannel(CHANNELS.EMERGENCY_STOP, (data) => {
       io.emit('system:emergency', data);

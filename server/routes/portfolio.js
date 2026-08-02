@@ -1,7 +1,7 @@
 import express from 'express';
 import Portfolio from '../models/Portfolio.js';
 import Trade from '../models/Trade.js';
-import { SYSTEM_USER_ID } from '../config/constants.js';
+import { SYSTEM_USER_ID, CORE_ASSETS, MEME_ASSETS } from '../config/constants.js';
 import { sendTelegramMessage } from '../services/telegramService.js';
 import { fetchOpenOrders } from '../services/exchangeService.js';
 
@@ -36,16 +36,14 @@ async function refreshAllDataCache() {
   isRefreshingAllData = true;
   try {
     const tradeFilter = {};
-    if (process.env.TRADING_MODE === 'live') {
-      tradeFilter.exchangeOrderId = { $exists: true, $ne: null };
-    }
+    tradeFilter.exchangeOrderId = { $exists: true, $ne: null };
 
     const matchStage = { status: 'closed' };
     if (process.env.DASHBOARD_RESET_TIMESTAMP) {
       matchStage.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
     }
 
-    const [portfolioDoc, rawClosedTrades, openTrades, statsAggregation] = await Promise.all([
+    const [portfolioDoc, rawClosedTrades, openTrades, statsAggregation, allRiskTrades] = await Promise.all([
       Portfolio.findOne({ userId: SYSTEM_USER_ID }).lean().then(p => p || Portfolio.findOne({}).lean()),
       Trade.find({ ...tradeFilter, status: 'closed' }).sort({ createdAt: -1 }).limit(150).lean(),
       Trade.find({ ...tradeFilter, status: 'open' }).sort({ createdAt: -1 }).limit(200).lean(),
@@ -59,12 +57,15 @@ async function refreshAllDataCache() {
             avgPnl: { $avg: '$pnl' },
             winners: { $sum: { $cond: [{ $gt: ['$pnl', 0] }, 1, 0] } },
             losers: { $sum: { $cond: [{ $lt: ['$pnl', 0] }, 1, 0] } },
+            grossProfit: { $sum: { $cond: [{ $gt: ['$pnl', 0] }, '$pnl', 0] } },
+            grossLoss: { $sum: { $cond: [{ $lt: ['$pnl', 0] }, '$pnl', 0] } },
             avgConfidence: { $avg: '$confidence' },
             bestTrade: { $max: '$pnl' },
             worstTrade: { $min: '$pnl' },
           },
         },
-      ])
+      ]),
+      Trade.find(matchStage).sort({ closedAt: 1, createdAt: 1 }).limit(10000).select('pnl').lean()
     ]);
 
     // Filter out standalone SL/TP trigger safeguard orders (SL/TP trigger orders are safeguard orders, not closed position trades)
@@ -116,17 +117,85 @@ async function refreshAllDataCache() {
     }
 
     let liveOpenOrders = [];
-    if (process.env.TRADING_MODE === 'live') {
-      try {
-        liveOpenOrders = await fetchOpenOrders();
-      } catch (e) {}
-    }
+    try {
+      liveOpenOrders = await fetchOpenOrders();
+    } catch (e) {}
 
     const combinedTrades = [...closedTrades, ...openTrades];
-    const stats = statsAggregation[0] || {
+    let stats = statsAggregation[0] || {
       totalTrades: 0, totalPnl: 0, avgPnl: 0,
-      winners: 0, losers: 0, avgConfidence: 0,
-      bestTrade: 0, worstTrade: 0,
+      winners: 0, losers: 0, grossProfit: 0, grossLoss: 0,
+      avgConfidence: 0, bestTrade: 0, worstTrade: 0,
+    };
+
+    // Calculate Advanced Risk Metrics
+    let maxDrawdown = 0;
+    let peakEquity = 0;
+    let currentEquity = 0;
+    
+    let currentWinStreak = 0;
+    let currentLossStreak = 0;
+    let maxWinStreak = 0;
+    let maxLossStreak = 0;
+    
+    const returns = [];
+    const downsideReturns = [];
+    
+    allRiskTrades.forEach(t => {
+      const pnl = t.pnl || 0;
+      currentEquity += pnl;
+      
+      // Drawdown Math
+      if (currentEquity > peakEquity) peakEquity = currentEquity;
+      const drawdown = peakEquity - currentEquity;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+      
+      // Streaks Math
+      if (pnl > 0) {
+        currentWinStreak++;
+        currentLossStreak = 0;
+        if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
+      } else if (pnl < 0) {
+        currentLossStreak++;
+        currentWinStreak = 0;
+        if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
+      }
+      
+      // Return Math (for Sharpe/Sortino) - using simple nominal PnL as return proxy
+      returns.push(pnl);
+      if (pnl < 0) downsideReturns.push(pnl);
+    });
+
+    const meanReturn = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+    const returnVariance = returns.length ? returns.reduce((a, b) => a + Math.pow(b - meanReturn, 2), 0) / returns.length : 0;
+    const returnStdDev = Math.sqrt(returnVariance);
+    
+    const downsideVariance = downsideReturns.length ? downsideReturns.reduce((a, b) => a + Math.pow(b - meanReturn, 2), 0) / returns.length : 0;
+    const downsideStdDev = Math.sqrt(downsideVariance);
+
+    // Assuming Risk Free Rate = 0 for crypto short-term trades
+    let sharpeRatio = returnStdDev > 0 ? (meanReturn / returnStdDev) * Math.sqrt(allRiskTrades.length > 252 ? 252 : allRiskTrades.length) : 0;
+    let sortinoRatio = downsideStdDev > 0 ? (meanReturn / downsideStdDev) * Math.sqrt(allRiskTrades.length > 252 ? 252 : allRiskTrades.length) : 0;
+    
+    let profitFactor = Math.abs(stats.grossLoss) > 0 ? (stats.grossProfit / Math.abs(stats.grossLoss)) : (stats.grossProfit > 0 ? 99.99 : 0);
+    const avgWin = stats.winners > 0 ? (stats.grossProfit / stats.winners) : 0;
+    const avgLoss = stats.losers > 0 ? (Math.abs(stats.grossLoss) / stats.losers) : 0;
+
+    // Defensive NaN/Infinity fallback checks
+    if (Number.isNaN(sharpeRatio) || !Number.isFinite(sharpeRatio)) sharpeRatio = 0;
+    if (Number.isNaN(sortinoRatio) || !Number.isFinite(sortinoRatio)) sortinoRatio = 0;
+    if (Number.isNaN(profitFactor) || !Number.isFinite(profitFactor)) profitFactor = 0;
+
+    stats = {
+      ...stats,
+      maxDrawdown,
+      maxWinStreak,
+      maxLossStreak,
+      sharpeRatio,
+      sortinoRatio,
+      profitFactor,
+      avgWin,
+      avgLoss
     };
 
     cachedAllDataResponse = {
@@ -298,11 +367,9 @@ router.get('/performance', async (req, res, next) => {
     let liveTotalBalance = portfolio.totalBalance;
     let liveAvailableBalance = portfolio.availableBalance;
 
-    if (process.env.TRADING_MODE === 'live') {
-      if (portfolioAgentRef && portfolioAgentRef._cachedLiveBalance) {
-        liveTotalBalance = portfolioAgentRef._cachedLiveBalance.total || liveTotalBalance;
-        liveAvailableBalance = portfolioAgentRef._cachedLiveBalance.free || liveAvailableBalance;
-      }
+    if (portfolioAgentRef && portfolioAgentRef._cachedLiveBalance) {
+      liveTotalBalance = portfolioAgentRef._cachedLiveBalance.total || liveTotalBalance;
+      liveAvailableBalance = portfolioAgentRef._cachedLiveBalance.free || liveAvailableBalance;
     }
 
     if (process.env.DASHBOARD_RESET_TIMESTAMP) {
@@ -381,6 +448,7 @@ router.get('/performance', async (req, res, next) => {
         tradingPaused: portfolio.tradingPaused,
         targetProfitThreshold: portfolio.targetProfitThreshold,
         baseTradingCapital: portfolio.baseTradingCapital,
+        maxDailyTrades: portfolio.maxDailyTrades !== undefined ? portfolio.maxDailyTrades : 1000,
         basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
         sweepTargetProfitPct: portfolio.sweepTargetProfitPct || 10,
         usdToInrRate: portfolio.usdToInrRate || 96.54,
@@ -408,6 +476,7 @@ router.post('/resume', async (req, res, next) => {
     }
 
     portfolio.tradingPaused = false;
+    portfolio.isSquaringOff = false; // 🛡️ FIX: Unlock the squaring off state so the bot can actually trade again!
     portfolio.peakBalance = portfolio.totalBalance; // Reset drawdown peak tracker to current balance ($1,000)
     await portfolio.save();
 
@@ -429,6 +498,7 @@ router.post('/resume', async (req, res, next) => {
       tradingPaused: portfolio.tradingPaused || false,
       targetProfitThreshold: portfolio.targetProfitThreshold || 110,
       baseTradingCapital: portfolio.baseTradingCapital || 100,
+      maxDailyTrades: portfolio.maxDailyTrades !== undefined ? portfolio.maxDailyTrades : 1000,
       basketProfitTargetPct: portfolio.basketProfitTargetPct || 10,
       manuallyDisabledAssets: portfolio.manuallyDisabledAssets || [],
       autoIgnoredAssets: portfolio.autoIgnoredAssets || [],
@@ -583,7 +653,11 @@ const handleUpdateConfig = async (req, res, next) => {
   const { logger } = await import('../utils/logger.js');
   logger.info(`[CONFIG] HTTP POST /config hit with body: ${JSON.stringify(req.body)}`);
   try {
-    const { baseTradingCapital, basketProfitTargetPct, sweepTargetProfitPct, usdToInrRate, coinSwitchApiKey, coinSwitchApiSecret } = req.body;
+    const { 
+      baseTradingCapital, maxDailyLossPct, maxDailyTrades, basketProfitTargetPct, 
+      sweepTargetProfitPct, usdToInrRate, coinSwitchApiKey, coinSwitchApiSecret, 
+      minMarginFloor, telegramBotToken, telegramChatId, defaultLeverage
+    } = req.body;
 
     let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
     if (!portfolio) {
@@ -595,18 +669,29 @@ const handleUpdateConfig = async (req, res, next) => {
 
     if (baseTradingCapital !== undefined) {
       portfolio.baseTradingCapital = parseFloat(baseTradingCapital);
-      if (process.env.TRADING_MODE !== 'live') {
-        portfolio.totalBalance = parseFloat(baseTradingCapital);
-        portfolio.availableBalance = parseFloat(baseTradingCapital);
-        portfolio.peakBalance = parseFloat(baseTradingCapital);
-      }
     }
 
-    if (basketProfitTargetPct !== undefined) {
+    if (maxDailyLossPct !== undefined) {
+      portfolio.maxDailyLossPct = parseFloat(maxDailyLossPct);
+    }
+
+    if (maxDailyTrades !== undefined) {
+      portfolio.maxDailyTrades = parseInt(maxDailyTrades);
+    }
+
+    if (defaultLeverage !== undefined) {
+      portfolio.defaultLeverage = parseFloat(defaultLeverage);
+    }
+
+    if (minMarginFloor !== undefined) {
+      portfolio.minMarginFloor = parseFloat(minMarginFloor);
+    }
+
+    if (basketProfitTargetPct !== undefined && !isNaN(parseFloat(basketProfitTargetPct))) {
       portfolio.basketProfitTargetPct = parseFloat(basketProfitTargetPct);
     }
 
-    if (sweepTargetProfitPct !== undefined) {
+    if (sweepTargetProfitPct !== undefined && !isNaN(parseFloat(sweepTargetProfitPct))) {
       portfolio.sweepTargetProfitPct = parseFloat(sweepTargetProfitPct);
     }
 
@@ -630,19 +715,58 @@ const handleUpdateConfig = async (req, res, next) => {
       portfolio.exitOrderType = req.body.exitOrderType;
     }
 
-    if (req.body.minNetProfitTarget !== undefined) {
-      if (req.body.minNetProfitTarget === null || req.body.minNetProfitTarget === 0 || req.body.minNetProfitTarget === '0' || req.body.minNetProfitTarget === 'off' || req.body.minNetProfitTarget === '') {
-        portfolio.minNetProfitTarget = null;
-      } else if (!isNaN(parseFloat(req.body.minNetProfitTarget)) && parseFloat(req.body.minNetProfitTarget) > 0) {
-        portfolio.minNetProfitTarget = parseFloat(req.body.minNetProfitTarget);
-      }
+    if (req.body.enableDynamicScalp !== undefined) {
+      portfolio.enableDynamicScalp = !!req.body.enableDynamicScalp;
     }
 
-    if (req.body.trailingStopUsd !== undefined) {
-      if (req.body.trailingStopUsd === null || req.body.trailingStopUsd === 0 || req.body.trailingStopUsd === '0' || req.body.trailingStopUsd === 'off' || req.body.trailingStopUsd === '') {
-        portfolio.trailingStopUsd = null;
-      } else if (!isNaN(parseFloat(req.body.trailingStopUsd)) && parseFloat(req.body.trailingStopUsd) > 0) {
-        portfolio.trailingStopUsd = parseFloat(req.body.trailingStopUsd);
+    if (req.body.enableTrailingStop !== undefined) {
+      portfolio.enableTrailingStop = !!req.body.enableTrailingStop;
+    }
+
+    if (req.body.enableTrailingFloor !== undefined) {
+      portfolio.enableTrailingFloor = !!req.body.enableTrailingFloor;
+    }
+
+    if (telegramBotToken !== undefined) {
+      portfolio.telegramBotToken = telegramBotToken;
+    }
+
+    if (telegramChatId !== undefined) {
+      portfolio.telegramChatId = telegramChatId;
+    }
+
+    if (req.body.enableAILlmPredictions !== undefined) {
+      portfolio.enableAILlmPredictions = !!req.body.enableAILlmPredictions;
+    }
+
+    if (req.body.aiLlmSequence && Array.isArray(req.body.aiLlmSequence)) {
+      portfolio.aiLlmSequence = req.body.aiLlmSequence.map(s => s.toLowerCase().trim()).filter(Boolean);
+    }
+
+    if (req.body.aiApiKeys && typeof req.body.aiApiKeys === 'object') {
+      const keys = req.body.aiApiKeys;
+      portfolio.aiApiKeys = {
+        gemini: Array.isArray(keys.gemini) ? keys.gemini.map(k => k.trim()).filter(Boolean) : portfolio.aiApiKeys.gemini,
+        groq: Array.isArray(keys.groq) ? keys.groq.map(k => k.trim()).filter(Boolean) : portfolio.aiApiKeys.groq,
+        openai: Array.isArray(keys.openai) ? keys.openai.map(k => k.trim()).filter(Boolean) : portfolio.aiApiKeys.openai,
+      };
+    }
+
+    if (req.body.activeStrategy && ['trend_sniper', 'hft_scalping'].includes(req.body.activeStrategy)) {
+      portfolio.activeStrategy = req.body.activeStrategy;
+    }
+
+    if (req.body.strategySettings && typeof req.body.strategySettings === 'object') {
+      const s = req.body.strategySettings;
+      if (s.trend_sniper) {
+        let conf = s.trend_sniper.confidenceThreshold !== undefined ? parseFloat(s.trend_sniper.confidenceThreshold) : portfolio.strategySettings.trend_sniper.confidenceThreshold;
+        if (isNaN(conf)) conf = portfolio.strategySettings.trend_sniper.confidenceThreshold;
+        portfolio.strategySettings.trend_sniper = { confidenceThreshold: conf };
+      }
+      if (s.hft_scalping) {
+        let conf = s.hft_scalping.confidenceThreshold !== undefined ? parseFloat(s.hft_scalping.confidenceThreshold) : portfolio.strategySettings.hft_scalping.confidenceThreshold;
+        if (isNaN(conf)) conf = portfolio.strategySettings.hft_scalping.confidenceThreshold;
+        portfolio.strategySettings.hft_scalping = { confidenceThreshold: conf };
       }
     }
 
@@ -656,20 +780,26 @@ const handleUpdateConfig = async (req, res, next) => {
 
     // Send Telegram notification
     try {
-      const scalpStatus = (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0)
-        ? `$${portfolio.minNetProfitTarget.toFixed(2)} USDT ✅ ON`
+      const scalpStatus = portfolio.enableDynamicScalp
+        ? `✅ ON (Dynamic ATR)`
         : `OFF ❌ DISABLED`;
 
-      const trailingSlStatus = (portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0)
-        ? `$${portfolio.trailingStopUsd.toFixed(2)} USDT ✅ ON`
+      const trailingSlStatus = portfolio.enableTrailingStop
+        ? `✅ ON (Autonomous ATR)`
         : `OFF ❌ DISABLED`;
+
+      const wakeUpFloorStatus = portfolio.enableTrailingFloor
+        ? `✅ ON (Wait for 1.0x ATR)`
+        : `OFF (Start at 0 profit)`;
 
       const telegramMsg = `
 <b>⚙️ System Settings Updated</b>
 
 📊 <b>Dynamic Scalp Target:</b> ${scalpStatus}
-📊 <b>Dynamic Trailing Stop Loss:</b> ${trailingSlStatus}
+📊 <b>Autonomous Trailing Stop:</b> ${trailingSlStatus}
+📊 <b>Minimum Wake-up Floor:</b> ${wakeUpFloorStatus}
 💰 <b>Total Base Capital:</b> $${portfolio.baseTradingCapital?.toFixed(4)} USD
+📉 <b>Max Daily Loss Limit:</b> ${portfolio.maxDailyLossPct || 20}%
 📈 <b>Sweep Target Profit:</b> ${portfolio.sweepTargetProfitPct}%
 📈 <b>Basket Profit Target:</b> ${portfolio.basketProfitTargetPct}%
 💱 <b>USD to INR Rate:</b> ₹${portfolio.usdToInrRate || 96.54}
@@ -703,6 +833,7 @@ const handleUpdateConfig = async (req, res, next) => {
       tradingPaused: portfolio.tradingPaused || false,
       targetProfitThreshold: portfolio.targetProfitThreshold,
       baseTradingCapital: portfolio.baseTradingCapital,
+      maxDailyTrades: portfolio.maxDailyTrades,
       basketProfitTargetPct: portfolio.basketProfitTargetPct,
       sweepTargetProfitPct: portfolio.sweepTargetProfitPct,
       usdToInrRate: portfolio.usdToInrRate,
@@ -712,8 +843,16 @@ const handleUpdateConfig = async (req, res, next) => {
       coinSwitchApiSecret: portfolio.coinSwitchApiSecret || "",
       entryOrderType: portfolio.entryOrderType || "market",
       exitOrderType: portfolio.exitOrderType || "market",
-      minNetProfitTarget: (portfolio.minNetProfitTarget && portfolio.minNetProfitTarget > 0) ? portfolio.minNetProfitTarget : null,
+      enableDynamicScalp: portfolio.enableDynamicScalp || false,
+      enableTrailingStop: portfolio.enableTrailingStop !== undefined ? portfolio.enableTrailingStop : true,
+      enableTrailingFloor: portfolio.enableTrailingFloor !== undefined ? portfolio.enableTrailingFloor : true,
       trailingStopUsd: (portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0) ? portfolio.trailingStopUsd : null,
+      trailingStopMinFloorUsd: portfolio.trailingStopMinFloorUsd || 0.10,
+      enableAILlmPredictions: portfolio.enableAILlmPredictions || false,
+      aiLlmSequence: portfolio.aiLlmSequence || [],
+      aiApiKeys: portfolio.aiApiKeys || { gemini: [], groq: [], openai: [] },
+      defaultLeverage: portfolio.defaultLeverage || 1,
+      strategySettings: portfolio.strategySettings || {}
     });
 
     res.json({ success: true, message: 'Portfolio configuration updated successfully', data: portfolio });
@@ -724,6 +863,136 @@ const handleUpdateConfig = async (req, res, next) => {
 
 router.post('/config', handleUpdateConfig);
 router.put('/config', handleUpdateConfig);
+
+// GET /api/portfolio/closed-trades - Paginated closed trades with category filter
+router.get('/closed-trades', async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 25;
+    const category = req.query.category || 'all';
+
+    const filter = { status: 'closed' };
+    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+      filter.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+    }
+    filter.exchangeOrderId = { $exists: true, $ne: null };
+
+    if (category === 'core') {
+      filter.asset = { $in: CORE_ASSETS };
+    } else if (category === 'meme') {
+      filter.asset = { $in: MEME_ASSETS };
+    } else if (category === 'recommended') {
+      filter.asset = { $nin: [...CORE_ASSETS, ...MEME_ASSETS] };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [rawTrades, total] = await Promise.all([
+      Trade.find(filter).sort({ closedAt: -1, createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Trade.countDocuments(filter)
+    ]);
+
+    // Filter out standalone SL/TP trigger safeguard orders
+    const trades = (rawTrades || []).filter(t => {
+      if (!t || t.status !== 'closed') return false;
+      const isStandaloneSlTpTrigger = 
+        (t.reasoning && (
+          t.reasoning.includes('Native Stop-Loss') ||
+          t.reasoning.includes('Native Take-Profit') ||
+          t.reasoning.includes('Stop-Loss Triggered') ||
+          t.reasoning.includes('Take-Profit Triggered') ||
+          t.reasoning.includes('Safeguard')
+        )) ||
+        (t.metadata && t.metadata.isSlTpOrder === true) ||
+        (t.entryPrice && t.exitPrice && Math.abs(t.entryPrice - t.exitPrice) < 0.000001 && (t.reasoning?.includes('Trigger') || t.reasoning?.includes('Stop')));
+      return !isStandaloneSlTpTrigger;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        trades,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/portfolio/export - Export all closed trades as CSV
+router.get('/export', async (req, res, next) => {
+  try {
+    const tzOffset = parseInt(req.query.tzOffset) || 0; // offset in minutes
+
+    const filter = { status: 'closed' };
+    if (process.env.DASHBOARD_RESET_TIMESTAMP) {
+      filter.createdAt = { $gte: new Date(process.env.DASHBOARD_RESET_TIMESTAMP) };
+    }
+    filter.exchangeOrderId = { $exists: true, $ne: null };
+
+    const rawTrades = await Trade.find(filter).sort({ closedAt: -1 }).lean();
+
+    // Filter out standalone SL/TP safeguard orders
+    const trades = (rawTrades || []).filter(t => {
+      if (!t || t.status !== 'closed') return false;
+      const isStandaloneSlTpTrigger = 
+        (t.reasoning && (
+          t.reasoning.includes('Native Stop-Loss') ||
+          t.reasoning.includes('Native Take-Profit') ||
+          t.reasoning.includes('Stop-Loss Triggered') ||
+          t.reasoning.includes('Take-Profit Triggered') ||
+          t.reasoning.includes('Safeguard')
+        )) ||
+        (t.metadata && t.metadata.isSlTpOrder === true) ||
+        (t.entryPrice && t.exitPrice && Math.abs(t.entryPrice - t.exitPrice) < 0.000001 && (t.reasoning?.includes('Trigger') || t.reasoning?.includes('Stop')));
+      return !isStandaloneSlTpTrigger;
+    });
+
+    const csvRows = [
+      ['Trade ID', 'Asset', 'Side', 'Opened At', 'Closed At', 'Entry Price', 'Exit Price', 'Quantity', 'Leverage', 'PnL (USD)', 'Fees (USD)', 'Strategy', 'Reasoning']
+    ];
+
+    const formatLocalTime = (dateObj) => {
+      if (!dateObj) return '';
+      // Create a date shifted by the client's tzOffset (which is in minutes, e.g., -330 for IST)
+      // JS getTimezoneOffset() is UTC - LocalTime in minutes.
+      const localTime = new Date(dateObj.getTime() - tzOffset * 60000);
+      return localTime.toISOString().replace('Z', '');
+    };
+
+    trades.forEach(t => {
+      csvRows.push([
+        t._id,
+        t.asset,
+        t.side.toUpperCase(),
+        formatLocalTime(new Date(t.createdAt)),
+        formatLocalTime(t.closedAt ? new Date(t.closedAt) : null),
+        t.entryPrice,
+        t.exitPrice || '',
+        t.quantity,
+        t.leverage || 1,
+        (t.pnl || 0).toFixed(4),
+        (t.fees || 0).toFixed(4),
+        t.activeStrategy || 'trend_sniper',
+        `"${(t.reasoning || '').replace(/"/g, '""')}"`
+      ]);
+    });
+
+    const csvString = csvRows.map(row => row.join(',')).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="crypto_ai_ledger_export.csv"');
+    res.status(200).send(csvString);
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;
 

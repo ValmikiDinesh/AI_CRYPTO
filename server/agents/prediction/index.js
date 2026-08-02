@@ -1,6 +1,6 @@
 import BaseAgent from '../base/BaseAgent.js';
 import { AGENT_NAMES, SUPPORTED_ASSETS } from '../../config/constants.js';
-import { publishEvent, CHANNELS } from '../../config/redis.js';
+import { publishEvent, subscribeToChannel, CHANNELS } from '../../config/redis.js';
 import Prediction from '../../models/Prediction.js';
 import { generateBatchPredictions } from '../../services/aiService.js';
 import { computeIndicators } from '../../services/indicatorService.js';
@@ -18,6 +18,23 @@ export default class PredictionAgent extends BaseAgent {
     this.sentimentAgent = sentimentAgent;
     this.technicalAgent = technicalAgent;
     this.predictions = {};        // asset → latest prediction
+    this.portfolioConfig = {};
+  }
+
+  async initialize() {
+    await super.initialize();
+    await subscribeToChannel(CHANNELS.PORTFOLIO_UPDATES, (config) => {
+      this.portfolioConfig = config;
+    });
+    
+    // Load initial config
+    try {
+      const Portfolio = (await import('../../models/Portfolio.js')).default;
+      const port = await Portfolio.findOne({ userId: 'system' }).lean();
+      if (port) this.portfolioConfig = port;
+    } catch (e) {
+      this.logger.warn(`Failed to load initial portfolio config in PredictionAgent`);
+    }
   }
 
   async execute() {
@@ -74,51 +91,35 @@ export default class PredictionAgent extends BaseAgent {
       return;
     }
 
-    // 2. Run local mathematical model as primary for all assets
-    const fallbackAssetsData = [];
-    const localPredictions = {};
-
-    for (const data of assetsData) {
-      const { asset } = data;
-      const candles = candleMap[asset];
-      const localPred = this.predictLocalFallback(asset, candles, data.indicators);
-      
-      localPredictions[asset] = localPred;
-
-      // If local model is forced to fall back to 'statistical_baseline' due to insufficient indicator data,
-      // we queue it for LLM fallback.
-      if (localPred.model === 'statistical_baseline') {
-        fallbackAssetsData.push(data);
-      }
-    }
-
-    // 3. Query external AI Services ONLY for assets needing fallback (insufficient indicator data)
+    // 2. Query primary external AI Services via Batching Strategy (If Enabled)
     let aiPredictions = null;
-    if (fallbackAssetsData.length > 0) {
+    if (this.portfolioConfig && this.portfolioConfig.enableAILlmPredictions) {
       try {
-        this.logger.info(`AI Service: Querying LLM fallback for ${fallbackAssetsData.length} assets with insufficient indicator data`);
-        aiPredictions = await generateBatchPredictions(fallbackAssetsData);
+        this.logger.info(`AI Gateway: Enabled. Routing ${assetsData.length} assets to AI Service using configured sequence.`);
+        aiPredictions = await generateBatchPredictions(assetsData, this.portfolioConfig);
       } catch (err) {
-        this.logger.warn(`AI Service fallback call failed: ${err.message}`);
+        this.logger.error(`AI Gateway Error: ${err.message}. Falling back to Local Math Model.`);
       }
+    } else {
+      this.logger.debug(`AI Gateway: Disabled. Routing 100% of assets to Local Math Model (Primary Default).`);
     }
 
-    // 4. Process results and override baseline predictions if AI prediction succeeded
+    // 3. Process results and apply Local Mathematical Model as Primary Default / AI Fallback
     for (const data of assetsData) {
       const { asset, currentPrice } = data;
-      let prediction = localPredictions[asset];
+      const candles = candleMap[asset];
+      
+      let prediction = null;
 
-      if (aiPredictions && prediction.model === 'statistical_baseline') {
+      // 🛡️ FIX: If AI is enabled and successfully returned a prediction, use it!
+      if (aiPredictions) {
         const aiPred = aiPredictions.find(p => p.asset === asset);
         if (aiPred && ['up', 'down', 'neutral', 'hold'].includes(aiPred.direction.toLowerCase())) {
-          const isGroq = !!process.env.GROQ_API_KEY;
-          const isGemini = !isGroq && (!!process.env.GEMINI_API_KEY || !!process.env.GEMINI_API_KEYS);
-          const defaultModel = isGroq ? 'ai_groq' : (isGemini ? 'ai_gemini' : 'ai_openai');
           const normalizedDirection = aiPred.direction.toLowerCase() === 'hold' ? 'neutral' : aiPred.direction.toLowerCase();
           
           prediction = {
             asset,
-            model: aiPred.sourceModel || defaultModel,
+            model: aiPred.sourceModel || 'ai_llm',
             horizon: '1h',
             direction: normalizedDirection,
             probability: aiPred.probability || 0.5,
@@ -133,10 +134,16 @@ export default class PredictionAgent extends BaseAgent {
               takeProfit: aiPred.takeProfit,
               stopLoss: aiPred.stopLoss,
               limitEntryPrice: aiPred.limitEntryPrice,
-              reasoning: aiPred.reasoning
+              reasoning: aiPred.reasoning,
+              activeStrategy: this.portfolioConfig?.activeStrategy || 'trend_sniper'
             }
           };
         }
+      }
+
+      // 🛡️ FIX: If AI is disabled OR AI failed to predict this asset, instantly use the fast robust Local Mathematical Fallback
+      if (!prediction) {
+        prediction = await this.predictLocalFallback(asset, candles, data.indicators);
       }
 
       this.predictions[asset] = prediction;
@@ -164,8 +171,25 @@ export default class PredictionAgent extends BaseAgent {
    * High-performing Adaptive local fallback model.
    * Uses EMA Crossovers, RSI Boundaries, Bollinger Band breakouts, and Volume Confirmation.
    */
-  predictLocalFallback(asset, candles, indicators) {
+  async predictLocalFallback(asset, candles, indicators) {
     const currentPrice = candles[candles.length - 1].close;
+
+    // Phase 4: Multi-Timeframe (MTF) Macro Fetch for Sniper Strategy
+    let macroRegime = null;
+    const activeStrategy = this.portfolioConfig?.activeStrategy || 'trend_sniper';
+    if (activeStrategy === 'trend_sniper') {
+      try {
+        const { fetchCandles } = await import('../../services/exchangeService.js');
+        const macroCandles = await fetchCandles(asset, '1d', 50);
+        if (macroCandles && macroCandles.length >= 30) {
+          const { computeIndicators } = await import('../../services/indicatorService.js');
+          const macroInd = computeIndicators(macroCandles);
+          macroRegime = macroInd.regime;
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to fetch MTF macro data for ${asset}: ${err.message}`);
+      }
+    }
 
     // If indicators are not pre-computed, compute them on the fly
     let ind = indicators;
@@ -197,61 +221,95 @@ export default class PredictionAgent extends BaseAgent {
     const ema21 = ind.ema?.ema21;
     const ema50 = ind.ema?.ema50;
     const macdHist = ind.macd?.histogram || 0;
+    const atr = ind.atr || (currentPrice * 0.02);
+    const bb = ind.bollingerBands || {};
 
     let score = 0.5; // Starts neutral
     let reasoning = '';
 
+    // Dynamic Multi-Strategy Engine
+    const settings = this.portfolioConfig?.strategySettings?.[activeStrategy] || {};
+    
+    // Dynamic Fee Fetcher (Taker + Taker assumed for safety if market, Maker if limit)
+    const { getExchange } = await import('../../services/exchangeService.js');
+    const exchange = getExchange();
+    const fees = await exchange.fetchAssetFeeRate(asset);
+    
+    const entryType = this.portfolioConfig?.entryOrderType === 'limit' ? fees.maker : fees.taker;
+    const exitType = this.portfolioConfig?.exitOrderType === 'limit' ? fees.maker : fees.taker;
+    const roundTripFeePct = (entryType + exitType) * 100; // e.g. (0.0002 + 0.0005) * 100 = 0.07%
+
+    const atrPct = (atr / currentPrice) * 100;
+
+    if (activeStrategy === 'hft_scalping') {
+      // SCALPER: Enforce Fee-Bleed Filter
+      if (atrPct < roundTripFeePct * 1.5) { // Needs 1.5x the fee to be worth it
+        return {
+          asset, model: 'hft_scalping', horizon: '1h', direction: 'neutral', probability: 0.5,
+          predictedPrice: currentPrice, currentPrice, priceChangePercent: 0, features: {},
+          metadata: { reasoning: `Fee-Bleed Protection: ATR (${atrPct.toFixed(3)}%) too low for fees (${roundTripFeePct.toFixed(3)}%).` }
+        };
+      }
+    }
+
     if (regime === 'trending_up') {
       score = 0.55;
       reasoning = 'Uptrend regime detected.';
-      if (ema9 > ema21) {
-        score += 0.08;
-        reasoning += ' EMA9 > EMA21 crossover.';
-      }
-      if (currentPrice > ema50) {
-        score += 0.05;
-        reasoning += ' Price above EMA50.';
-      }
-      if (rsi > 50 && rsi < 70) {
-        score += 0.05;
-        reasoning += ' RSI in healthy bullish zone.';
-      }
-      if (volRatio > 1.3) {
-        score += 0.05;
-        reasoning += ' Bullish volume confirmation.';
+      if (ema9 > ema21) { score += 0.08; reasoning += ' EMA9 > EMA21 cross.'; }
+      if (currentPrice > ema50) { score += 0.05; reasoning += ' Price above EMA50.'; }
+      if (rsi > 50 && rsi < 70) { score += 0.05; reasoning += ' RSI bullish zone.'; }
+      if (volRatio > 1.3) { score += 0.05; reasoning += ' Bullish volume.'; }
+      
+      if (activeStrategy === 'trend_sniper') {
+        // Phase 4: MTF Macro Filter
+        if (macroRegime === 'trending_down') {
+          score = 0.5;
+          reasoning = `SNIPER REJECT (MTF): Refusing to buy against Bearish Macro Trend (1D).`;
+        }
+        // SNIPER: Strict MACD Alignment Filter
+        else if (macdHist <= 0) {
+          score = 0.5;
+          reasoning += ' SNIPER REJECT: MACD Histogram not aligned.';
+        }
       }
     } else if (regime === 'trending_down') {
       score = 0.45;
       reasoning = 'Downtrend regime detected.';
-      if (ema9 < ema21) {
-        score -= 0.08;
-        reasoning += ' EMA9 < EMA21 cross.';
-      }
-      if (currentPrice < ema50) {
-        score -= 0.05;
-        reasoning += ' Price below EMA50.';
-      }
-      if (rsi < 50 && rsi > 30) {
-        score -= 0.05;
-        reasoning += ' RSI in healthy bearish zone.';
-      }
-      if (volRatio > 1.3) {
-        score -= 0.05;
-        reasoning += ' Bearish volume pressure.';
+      if (ema9 < ema21) { score -= 0.08; reasoning += ' EMA9 < EMA21 cross.'; }
+      if (currentPrice < ema50) { score -= 0.05; reasoning += ' Price below EMA50.'; }
+      if (rsi < 50 && rsi > 30) { score -= 0.05; reasoning += ' RSI bearish zone.'; }
+      if (volRatio > 1.3) { score -= 0.05; reasoning += ' Bearish volume.'; }
+      
+      if (activeStrategy === 'trend_sniper') {
+        // Phase 4: MTF Macro Filter
+        if (macroRegime === 'trending_up') {
+          score = 0.5;
+          reasoning = `SNIPER REJECT (MTF): Refusing to short against Bullish Macro Trend (1D).`;
+        }
+        // SNIPER: Strict MACD Alignment Filter
+        else if (macdHist >= 0) {
+          score = 0.5;
+          reasoning += ' SNIPER REJECT: MACD Histogram not aligned.';
+        }
       }
     } else if (regime === 'ranging') {
-      reasoning = 'Ranging regime (mean reversion):';
-      if (rsi < 35) {
-        const overshoot = 35 - rsi;
-        score = 0.55 + Math.min(0.15, overshoot * 0.015);
-        reasoning += ` Oversold RSI (${rsi.toFixed(1)}) triggers BUY rebound.`;
-      } else if (rsi > 65) {
-        const overshoot = rsi - 65;
-        score = 0.45 - Math.min(0.15, overshoot * 0.015);
-        reasoning += ` Overbought RSI (${rsi.toFixed(1)}) triggers SELL pullback.`;
-      } else {
+      if (activeStrategy === 'trend_sniper') {
+        // SNIPER: Ranging Filter
         score = 0.5;
-        reasoning += ' RSI neutral.';
+        reasoning = 'SNIPER REJECT: Market is ranging. Waiting for breakout.';
+      } else {
+        // SCALPER: Aggressive Mean Reversion
+        reasoning = 'SCALPER: Ranging mean-reversion.';
+        if (rsi < 35 && currentPrice < (bb.lower || currentPrice)) {
+          score = 0.75;
+          reasoning += ` Oversold bounce off BB lower (${rsi.toFixed(1)}).`;
+        } else if (rsi > 65 && currentPrice > (bb.upper || currentPrice)) {
+          score = 0.25;
+          reasoning += ` Overbought rejection off BB upper (${rsi.toFixed(1)}).`;
+        } else {
+          score = 0.5;
+          reasoning += ' RSI neutral in range.';
+        }
       }
     } else if (regime === 'volatile') {
       reasoning = 'Volatile regime (momentum):';
@@ -282,10 +340,33 @@ export default class PredictionAgent extends BaseAgent {
       probability = 0.5;
     }
 
-    // Calculate mathematical fallback targets based on current regime
-    const atr = ind.atr || (currentPrice * 0.02);
-    const bb = ind.bollingerBands || {};
-    
+    // Autonomous Asset-Specific ATR Scaling Engine
+    let slMult = activeStrategy === 'trend_sniper' ? 2.0 : 1.2;
+    let tpMult = activeStrategy === 'trend_sniper' ? 3.0 : 1.5;
+    let autonomousAlert = null;
+
+    if (activeStrategy === 'trend_sniper') {
+      if (volRatio > 1.5) {
+        slMult = 3.5;
+        tpMult = 4.0;
+        autonomousAlert = `Extreme Volatility Spike Detected (VolRatio: ${volRatio.toFixed(2)}x).\nAction: Autonomously widened Stop-Loss to 3.5x ATR to survive turbulence and prevent early liquidation.`;
+      } else if (volRatio < 0.8) {
+        slMult = 1.5;
+        tpMult = 2.0;
+      }
+    } else if (activeStrategy === 'hft_scalping') {
+      if (regime === 'volatile' || volRatio > 1.8) {
+        slMult = 0.8;
+        tpMult = 1.2;
+        autonomousAlert = `Flash Volatility Spike Detected (VolRatio: ${volRatio.toFixed(2)}x).\nAction: Autonomously tightened Stop-Loss to 0.8x ATR to abort quickly and prevent heavy drawdown.`;
+      } else if (regime === 'ranging') {
+        slMult = 1.2;
+        tpMult = 1.5;
+      }
+    }
+
+    // The alert will be passed via metadata to EMS, which fires it ONLY if the trade actually executes
+
     let fallbackLimitEntryPrice = currentPrice;
     let fallbackStopLoss = currentPrice;
     let fallbackTakeProfit = currentPrice;
@@ -302,8 +383,8 @@ export default class PredictionAgent extends BaseAgent {
       fallbackLimitEntryPrice = Math.min(fallbackLimitEntryPrice, currentPrice - 0.05 * atr);
       fallbackLimitEntryPrice = Math.max(0.00000001, fallbackLimitEntryPrice);
 
-      fallbackStopLoss = fallbackLimitEntryPrice - 1.5 * atr;
-      fallbackTakeProfit = fallbackLimitEntryPrice + 3.0 * atr;
+      fallbackStopLoss = Math.max(0.00000001, fallbackLimitEntryPrice - slMult * atr);
+      fallbackTakeProfit = fallbackLimitEntryPrice + tpMult * atr;
     } else if (direction === 'down') {
       if (regime === 'trending_down') {
         const rallyPrice = ema9 || (currentPrice + 0.25 * atr);
@@ -315,8 +396,8 @@ export default class PredictionAgent extends BaseAgent {
       }
       fallbackLimitEntryPrice = Math.max(fallbackLimitEntryPrice, currentPrice + 0.05 * atr);
 
-      fallbackStopLoss = fallbackLimitEntryPrice + 1.5 * atr;
-      fallbackTakeProfit = fallbackLimitEntryPrice - 3.0 * atr;
+      fallbackStopLoss = fallbackLimitEntryPrice + slMult * atr;
+      fallbackTakeProfit = Math.max(0.00000001, fallbackLimitEntryPrice - tpMult * atr);
     }
 
     return {
@@ -352,6 +433,10 @@ export default class PredictionAgent extends BaseAgent {
           : fallbackLimitEntryPrice < 10 
             ? Math.round(fallbackTakeProfit * 1000000) / 1000000 
             : Math.round(fallbackTakeProfit * 100) / 100,
+        trailingAtrMult: slMult,
+        entryAtr: atr,
+        activeStrategy: activeStrategy,
+        autonomousAlert: autonomousAlert
       }
     };
   }

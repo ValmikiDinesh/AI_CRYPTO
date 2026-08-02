@@ -241,6 +241,16 @@ export default function Layout() {
           </div>
         </header>
 
+        {/* WebSocket Connection Warning Banner */}
+        {!connected && (
+          <div className="bg-[#ff453a]/10 border-b border-[#ff453a]/20 px-6 py-2 flex items-center justify-center gap-2 relative z-10 backdrop-blur-md">
+            <ShieldAlert size={12} className="text-[#ff453a]" />
+            <span className="text-[10px] font-black tracking-widest text-[#ff453a] uppercase font-mono">
+              DISCONNECTED - RECONNECTING TO BACKEND...
+            </span>
+          </div>
+        )}
+
         {/* Dynamic Outlet */}
         <main className="main-content">
           <Outlet />

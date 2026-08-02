@@ -102,6 +102,9 @@ export const CHANNELS = {
   PORTFOLIO_UPDATES: 'agent:portfolio:updates',
   AGENT_HEALTH: 'agent:health',
   EMERGENCY_STOP: 'system:emergency_stop',
+  OMS_APPROVED_ORDERS: 'agent:oms:approved_orders',
+  EXIT_REQUESTS: 'agent:exit:requests',
+  AGENT_LOGS: 'agent:logs',
 };
 
 /**
