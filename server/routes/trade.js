@@ -161,14 +161,19 @@ router.post('/manual', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Missing required trade details' });
     }
 
-    let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
-    if (!portfolio) {
-      portfolio = await Portfolio.create({
-        userId: SYSTEM_USER_ID,
-        totalBalance: 1000,
-        availableBalance: 1000,
-      });
-    }
+    let portfolio = await Portfolio.findOneAndUpdate(
+      { userId: SYSTEM_USER_ID },
+      {
+        $setOnInsert: {
+          userId: SYSTEM_USER_ID,
+          totalBalance: 1000,
+          availableBalance: 1000,
+          peakBalance: 1000,
+          positions: []
+        }
+      },
+      { upsert: true, new: true }
+    );
 
     if (portfolio.tradingPaused) {
       return res.status(400).json({ success: false, message: 'Trading is currently paused because the profit target has been met. Please resume the bot from the portfolio page first.' });

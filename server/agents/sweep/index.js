@@ -142,8 +142,8 @@ export default class SweepProfitAgent extends BaseAgent {
     }
 
     if (this.openPositions.size === 0) {
-      if (this.isSquaringOff && !this.tradingPaused) {
-        // Reset square off since everything is closed, but ONLY if the system isn't globally paused by RiskAgent
+      if (this.isSquaringOff) {
+        // Reset square off since everything is closed
         this.isSquaringOff = false;
         
         // Auto-Compound: Fetch live exchange balance directly to bypass Reconciliation API lag
@@ -166,6 +166,7 @@ export default class SweepProfitAgent extends BaseAgent {
           { userId: 'system' }, 
           { $set: { 
               isSquaringOff: false,
+              tradingPaused: false,
               baseTradingCapital: newBaseCapital,
               targetProfitThreshold: newThreshold
           }}

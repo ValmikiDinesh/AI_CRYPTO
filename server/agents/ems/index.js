@@ -329,7 +329,35 @@ export default class EmsAgent extends BaseAgent {
         return; // EXIT EARLY! Let TrailingAgent retry or ReconciliationAgent sync later.
       }
 
-      const exitPrice = order?.average || order?.price || currentPrice;
+      let exitPrice = order?.average || order?.price || currentPrice;
+
+      // Absolute fallback: If exitPrice is still missing (e.g. market order response lacks average/price), aggressively fetch REST ticker
+      if (!exitPrice || isNaN(exitPrice) || exitPrice <= 0) {
+        let tickerSuccess = false;
+        let tickerAttempt = 0;
+        while (tickerAttempt < 3 && !tickerSuccess) {
+          try {
+            tickerAttempt++;
+            const { fetchTicker } = await import('../../services/exchangeService.js');
+            const ticker = await fetchTicker(asset);
+            if (ticker && ticker.last > 0) {
+               exitPrice = ticker.last;
+               this.logger.info(`EMS: Rescued missing exit price for ${asset} using REST ticker fallback: $${exitPrice}`);
+               tickerSuccess = true;
+            }
+          } catch (e) {
+             this.logger.warn(`EMS Ticker fallback attempt ${tickerAttempt} failed for ${asset}: ${e.message}`);
+             if (tickerAttempt < 3) await new Promise((r) => setTimeout(r, 1000 * tickerAttempt));
+          }
+        }
+        
+        // If we still can't find an exit price, fallback to entryPrice to prevent artificial 100% PNL spikes
+        if (!exitPrice || isNaN(exitPrice) || exitPrice <= 0) {
+          this.logger.error(`FATAL: Missing exit price and ticker fallback exhausted for ${asset}. Defaulting to entryPrice for zero PNL.`);
+          exitPrice = trade.entryPrice; 
+        }
+      }
+
       currentFillQty = (order?.filled && order.filled > 0) ? order.filled : quantity;
       
       // Calculate Realized PnL strictly for the filled portion

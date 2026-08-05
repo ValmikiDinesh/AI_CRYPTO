@@ -51,7 +51,11 @@ export default class OmsAgent extends BaseAgent {
       this.inFlightAssets.add(signal.asset);
       let portfolio = await Portfolio.findOne({ userId: 'system' }).lean();
       if (!portfolio) {
-        portfolio = await Portfolio.create({ userId: 'system' });
+        portfolio = await Portfolio.findOneAndUpdate(
+          { userId: 'system' },
+          { $setOnInsert: { userId: 'system' } },
+          { upsert: true, new: true, lean: true }
+        );
       }
 
       // Dynamic Multi-Strategy Engine: Read custom confidence threshold

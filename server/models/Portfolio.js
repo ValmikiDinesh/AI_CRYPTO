@@ -39,6 +39,12 @@ const portfolioSchema = new mongoose.Schema({
     default: 'system',
     index: true,
     unique: true,
+    validate: {
+      validator: function(v) {
+        return v !== "000000000000000000000000";
+      },
+      message: "GHOST PROFILE CREATION ATTEMPT BLOCKED!"
+    }
   },
   totalBalance: { type: Number, default: 100 },   // paper-trading start capital
   availableBalance: { type: Number, default: 100 },

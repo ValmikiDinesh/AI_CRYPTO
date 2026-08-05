@@ -248,24 +248,22 @@ router.get('/', async (req, res, next) => {
 
     let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID }).lean();
     if (!portfolio) {
-      portfolio = await Portfolio.findOne({});
-      if (portfolio) {
-        portfolio.userId = SYSTEM_USER_ID;
-        await portfolio.save();
-      }
-    }
-
-    if (!portfolio) {
       const targetPct = parseFloat(process.env.BASKET_PROFIT_TARGET) || 10;
-      portfolio = await Portfolio.create({
-        userId: SYSTEM_USER_ID,
-        totalBalance: 100,
-        availableBalance: 100,
-        baseTradingCapital: 100,
-        peakBalance: 100,
-        basketProfitTargetPct: targetPct,
-        targetProfitThreshold: 100 * (1 + targetPct / 100),
-      });
+      portfolio = await Portfolio.findOneAndUpdate(
+        { userId: SYSTEM_USER_ID },
+        { 
+          $setOnInsert: {
+            userId: SYSTEM_USER_ID,
+            totalBalance: 100,
+            availableBalance: 100,
+            baseTradingCapital: 100,
+            peakBalance: 100,
+            basketProfitTargetPct: targetPct,
+            targetProfitThreshold: 100 * (1 + targetPct / 100),
+          }
+        },
+        { upsert: true, new: true, lean: true }
+      );
     }
 
     // Return cached portfolio object instantly (portfolioAgent background loop handles positions updates)
@@ -478,6 +476,8 @@ router.post('/resume', async (req, res, next) => {
     portfolio.tradingPaused = false;
     portfolio.isSquaringOff = false; // 🛡️ FIX: Unlock the squaring off state so the bot can actually trade again!
     portfolio.peakBalance = portfolio.totalBalance; // Reset drawdown peak tracker to current balance ($1,000)
+    portfolio.dailyLossToday = 0; // 🛡️ FIX: Acknowledge manual override by resetting the daily loss limit
+    portfolio.currentDrawdown = 0;
     await portfolio.save();
 
     // Trigger update on WebSocket/Redis channel

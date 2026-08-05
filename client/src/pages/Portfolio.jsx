@@ -1270,9 +1270,17 @@ export default function Portfolio() {
               <AlertCircle size={20} />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-red-200">Trading Bot Paused</h4>
+              <h4 className="text-sm font-bold text-red-200">
+                {portfolio.dailyLossToday < 0 && Math.abs(portfolio.dailyLossToday) / (portfolio.totalBalance - portfolio.dailyLossToday) >= ((portfolio.maxDailyLossPct || 20) / 100)
+                  ? 'Daily Loss Limit Breached'
+                  : 'Trading Bot Paused'
+                }
+              </h4>
               <p className="text-xs text-red-300/80 mt-0.5">
-                The target profit threshold of {formatVal(portfolio.targetProfitThreshold || 1100)} was met. All open positions were automatically squared off, and excess profits were swept to the secure vault.
+                {portfolio.dailyLossToday < 0 && Math.abs(portfolio.dailyLossToday) / (portfolio.totalBalance - portfolio.dailyLossToday) >= ((portfolio.maxDailyLossPct || 20) / 100)
+                  ? `Your maximum daily loss limit of ${portfolio.maxDailyLossPct || 20}% was breached. All active trades were immediately exited via Market Order to protect your capital.`
+                  : `The target profit threshold of ${formatVal(portfolio.targetProfitThreshold || 1100)} was met. All open positions were automatically squared off, and excess profits were swept to the secure vault.`
+                }
               </p>
             </div>
           </div>

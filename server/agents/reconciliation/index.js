@@ -55,6 +55,7 @@ export default class ReconciliationAgent extends BaseAgent {
       await this.syncQuantityMismatches();
       await this.cleanupStalePositions();
       await this.sweepGhostPositionsFromDatabase();
+      await this.cleanupOrphanedExchangeOrders();
     } catch (err) {
       this.logger.error(`Reconciliation sync error: ${err.message}`);
     } finally {
@@ -526,6 +527,8 @@ export default class ReconciliationAgent extends BaseAgent {
           this.logger.info(`👽 [RECONCILIATION] Alien Position Detected! Adopting unmanaged manual trade for ${normalizedSymbol} into Risk Engine...`);
           
           const newTrade = await Trade.create({
+            userId: SYSTEM_USER_ID,
+            action: pos.side === 'long' ? 'BUY' : 'SELL',
             asset: normalizedSymbol,
             status: 'open',
             side: pos.side === 'long' ? 'long' : 'short',
@@ -704,8 +707,41 @@ export default class ReconciliationAgent extends BaseAgent {
       if (openPositions.length === 0) return;
 
       for (const pos of openPositions) {
-        if (!pos.stopLoss && !pos.takeProfit) continue;
-
+        if (!pos.stopLoss && !pos.takeProfit) {
+          try {
+            const openOrders = await exchange.fetchOpenOrders(pos.asset).catch(() => []);
+            const stopOrder = openOrders.find(o => o.type === 'stop_market' || o.raw?.order_type === 'STOP_MARKET');
+            const tpOrder = openOrders.find(o => o.type === 'take_profit_market' || o.raw?.order_type === 'TAKE_PROFIT_MARKET');
+            let updated = false;
+            
+            const openTrade = await Trade.findOne({ asset: pos.asset, status: 'open' });
+            if (openTrade) {
+              if (stopOrder && stopOrder.stopPrice > 0) {
+                openTrade.stopLoss = stopOrder.stopPrice;
+                pos.stopLoss = stopOrder.stopPrice;
+                updated = true;
+              }
+              if (tpOrder && tpOrder.stopPrice > 0) {
+                openTrade.takeProfit = tpOrder.stopPrice;
+                pos.takeProfit = tpOrder.stopPrice;
+                updated = true;
+              }
+              
+              if (updated) {
+                await openTrade.save();
+                await Portfolio.updateOne(
+                  { userId: SYSTEM_USER_ID, "positions.asset": pos.asset, "positions.status": "open" },
+                  { $set: { "positions.$.stopLoss": pos.stopLoss, "positions.$.takeProfit": pos.takeProfit } }
+                );
+                this.logger.info(`✅ [RECONCILIATION] Adopted Exchange SL/TP triggers for ${pos.asset}`);
+              }
+            }
+          } catch(e) {
+            this.logger.warn(`Failed to adopt external triggers for ${pos.asset}: ${e.message}`);
+          }
+          if (!pos.stopLoss && !pos.takeProfit) continue;
+        }
+        
         try {
           const openOrders = await exchange.fetchOpenOrders(pos.asset);
           const { cancelOrder, placeTriggerOrder } = await import('../../services/exchangeService.js');
@@ -715,7 +751,7 @@ export default class ReconciliationAgent extends BaseAgent {
           // Verify Stop Loss
           if (pos.stopLoss && pos.stopLoss > 0 && !pos.hasVirtualStop) {
             const stopMarketOrder = openOrders.find(o => o.type === 'stop_market' || o.raw?.order_type === 'STOP_MARKET');
-            if (!stopMarketOrder || Math.abs(stopMarketOrder.amount - pos.quantity) > 1e-8) {
+            if (!stopMarketOrder || (stopMarketOrder.amount !== 0 && Math.abs(stopMarketOrder.amount - pos.quantity) > 1e-8)) {
               if (stopMarketOrder) {
                 this.logger.warn(`🚨 [RECONCILIATION] Trigger Quantity Mismatch! Stop Loss for ${pos.asset} is ${stopMarketOrder.amount} but position is ${pos.quantity}. Canceling outdated trigger...`);
                 await cancelOrder(stopMarketOrder.id, pos.asset);
@@ -742,7 +778,7 @@ export default class ReconciliationAgent extends BaseAgent {
           // Verify Take Profit
           if (pos.takeProfit && pos.takeProfit > 0 && !pos.hasVirtualTakeProfit) {
             const tpMarketOrder = openOrders.find(o => o.type === 'take_profit_market' || o.raw?.order_type === 'TAKE_PROFIT_MARKET');
-            if (!tpMarketOrder || Math.abs(tpMarketOrder.amount - pos.quantity) > 1e-8) {
+            if (!tpMarketOrder || (tpMarketOrder.amount !== 0 && Math.abs(tpMarketOrder.amount - pos.quantity) > 1e-8)) {
               if (tpMarketOrder) {
                 this.logger.warn(`🚨 [RECONCILIATION] Trigger Quantity Mismatch! Take Profit for ${pos.asset} is ${tpMarketOrder.amount} but position is ${pos.quantity}. Canceling outdated trigger...`);
                 await cancelOrder(tpMarketOrder.id, pos.asset);
@@ -899,6 +935,33 @@ export default class ReconciliationAgent extends BaseAgent {
       }
     } catch (err) {
       this.logger.error(`Failed to sweep ghost positions from database: ${err.message}`);
+    }
+  }
+
+  async cleanupOrphanedExchangeOrders() {
+    try {
+      const exchange = getExchange();
+      if (exchange.isDemo) return;
+      const openOrders = await exchange.fetchOpenOrders();
+      if (!openOrders || !openOrders.length) return;
+
+      const livePositions = await exchange.fetchPositions();
+      const liveAssets = (livePositions || []).filter(p => p.contracts > 0).map(p => p.symbol.split(':')[0].replace('/', '').toUpperCase());
+
+      for (const order of openOrders) {
+        const normalizedSymbol = order.symbol.split(':')[0].replace('/', '').toUpperCase();
+        if (!liveAssets.includes(normalizedSymbol)) {
+          this.logger.warn(`🧹 [RECONCILIATION] Orphaned Exchange Order Detected! Cancelling order ${order.id} for ${normalizedSymbol}...`);
+          try {
+            await exchange.cancelOrder(order.id, order.symbol);
+            this.logger.info(`✅ Cancelled orphaned order ${order.id}`);
+          } catch (cancelErr) {
+            this.logger.error(`Failed to cancel orphaned order ${order.id}: ${cancelErr.message}`);
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Failed to cleanup orphaned exchange orders: ${err.message}`);
     }
   }
 
