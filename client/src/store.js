@@ -190,7 +190,21 @@ socket.on('disconnect', () => {
 });
 
 socket.on('market:data', (data) => {
-  if (data.asset && data.price) {
+  if (data.type === 'bulk_ticks' && Array.isArray(data.ticks)) {
+    data.ticks.forEach(tick => {
+      if (tick.asset && tick.price) {
+        useMarketStore.getState().setPrice(tick.asset, tick.price);
+      }
+    });
+  } else if (data.type === 'snapshot' && data.assets) {
+    Object.keys(data.assets).forEach(asset => {
+      const p = data.assets[asset].price;
+      if (p) {
+        useMarketStore.getState().setPrice(asset, p);
+      }
+    });
+  } else if (data.asset && data.price) {
+    // Legacy support just in case
     useMarketStore.getState().setPrice(data.asset, data.price);
   }
 });
