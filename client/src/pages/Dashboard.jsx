@@ -275,14 +275,14 @@ export default function Dashboard() {
         <StatCard
           icon={DollarSign}
           label="Live Total Balance"
-          value={formatVal(portfolio.liveTotalBalance || portfolio.totalBalance)}
-          subValue={`Margin Available: ${formatVal(portfolio.liveAvailableBalance || portfolio.availableBalance)}`}
+          value={formatVal(portfolio.coinSwitchApiKey ? (portfolio.liveTotalBalance || portfolio.totalBalance) : 0)}
+          subValue={`Margin Available: ${formatVal(portfolio.coinSwitchApiKey ? (portfolio.liveAvailableBalance || portfolio.availableBalance) : 0)}`}
           iconColor="#86868b"
         />
         <StatCard
           icon={Target}
           label="Target Anchor (Base Capital)"
-          value={formatVal(portfolio.baseTradingCapital)}
+          value={formatVal(portfolio.coinSwitchApiKey ? portfolio.baseTradingCapital : 0)}
           subValue="Frozen Goalpost Baseline"
           iconColor="#86868b"
         />
