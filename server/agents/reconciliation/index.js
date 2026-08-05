@@ -257,14 +257,24 @@ export default class ReconciliationAgent extends BaseAgent {
           const exitPrice = order.average || order.price || openTrade.entryPrice;
           
           const rawPnl = order.realisedPnl || order.raw?.realised_pnl || 0;
-          const feeUsdt = (order.executionFee || order.raw?.execution_fee || 0) || (exitPrice * order.filled * 0.0010);
+          let rawFeeVal = parseFloat(order.executionFee || order.raw?.execution_fee || 0);
+          
+          let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
+          const usdToInr = portfolio?.usdToInrRate || 96.54;
+          
+          // CRITICAL FIX: CoinSwitch PRO charges and reports fees in INR!
+          // We must convert the raw INR fee to USDT to prevent catastrophic artificial inflation of daily losses.
+          if (rawFeeVal > 0) {
+            rawFeeVal = rawFeeVal / usdToInr;
+          }
+
+          const feeUsdt = rawFeeVal || (exitPrice * order.filled * 0.0010);
           const finalPnl = (rawPnl !== 0) ? rawPnl : (
             openTrade.side === 'long'
               ? (exitPrice - openTrade.entryPrice) * order.filled
               : (openTrade.entryPrice - exitPrice) * order.filled
           );
 
-          let portfolio = await Portfolio.findOne({ userId: SYSTEM_USER_ID });
           let netPnl = finalPnl - feeUsdt;
 
           const epsilon = 1e-8;

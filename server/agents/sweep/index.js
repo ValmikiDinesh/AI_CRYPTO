@@ -24,6 +24,7 @@ export default class SweepProfitAgent extends BaseAgent {
       this.sweepTargetProfitPct = portfolio.sweepTargetProfitPct !== undefined ? portfolio.sweepTargetProfitPct : 10;
       this.baseTradingCapital = portfolio.baseTradingCapital || 100;
       this.availableBalance = portfolio.availableBalance !== undefined ? portfolio.availableBalance : this.baseTradingCapital;
+      this.totalBalance = portfolio.totalBalance !== undefined ? portfolio.totalBalance : this.baseTradingCapital;
       this.targetProfitThreshold = portfolio.targetProfitThreshold !== undefined ? portfolio.targetProfitThreshold : (this.baseTradingCapital * 1.10);
       this.isSquaringOff = portfolio.isSquaringOff || false;
       this.tradingPaused = portfolio.tradingPaused || false;
@@ -69,6 +70,9 @@ export default class SweepProfitAgent extends BaseAgent {
     }
     if (portfolio.availableBalance !== undefined) {
       this.availableBalance = portfolio.availableBalance;
+    }
+    if (portfolio.totalBalance !== undefined) {
+      this.totalBalance = portfolio.totalBalance;
     }
     if (portfolio.targetProfitThreshold !== undefined) {
       this.targetProfitThreshold = portfolio.targetProfitThreshold;
@@ -195,7 +199,7 @@ export default class SweepProfitAgent extends BaseAgent {
       totalNetUnrealizedPnl += (unrealizedPnl - openFee - closeFee);
     }
 
-    const currentTotalBalance = this.availableBalance + totalMarginUsed + totalNetUnrealizedPnl;
+    const currentTotalBalance = (this.totalBalance || this.availableBalance) + totalNetUnrealizedPnl;
 
     if (currentTotalBalance >= this.targetProfitThreshold && !this.isSquaringOff) {
       this.logger.info(`[SWEEP EXIT] Absolute Milestone Reached! Current Total Balance $${currentTotalBalance.toFixed(2)} >= Threshold $${this.targetProfitThreshold.toFixed(2)}. Triggering mass square-off and shutting down bot!`);
