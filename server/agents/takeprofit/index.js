@@ -160,6 +160,12 @@ export default class TakeProfitAgent extends BaseAgent {
           throw new Error('Order returned successfully but missing ID');
         }
       } catch (err) {
+        if (err.message && err.message.toLowerCase().includes('already exists')) {
+          this.logger.info(`✅ Native Take Profit already exists for ${asset}. Treating as success.`);
+          success = true;
+          break;
+        }
+
         this.logger.warn(`Failed to place native Take Profit order for ${asset} (Attempt ${attempt}): ${err.message}`);
         if (attempt >= maxRetries) {
           this.logger.error(`⚠️ CoinSwitch rejected native Take Profit for ${asset} 3 times. Activating internal Virtual Take Profit as fallback!`);

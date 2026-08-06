@@ -162,6 +162,12 @@ export default class StopLossAgent extends BaseAgent {
           throw new Error('Order returned successfully but missing ID');
         }
       } catch (err) {
+        if (err.message && err.message.toLowerCase().includes('already exists')) {
+          this.logger.info(`✅ Native Stop Loss already exists for ${asset}. Treating as success.`);
+          success = true;
+          break;
+        }
+
         this.logger.warn(`Failed to place native Stop Loss order for ${asset} (Attempt ${attempt}): ${err.message}`);
         if (attempt >= maxRetries) {
           this.logger.error(`⚠️ CoinSwitch rejected native Stop Loss for ${asset} 3 times. Activating internal Virtual Stop Loss as fallback!`);
