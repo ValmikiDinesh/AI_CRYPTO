@@ -151,33 +151,15 @@ export default class SweepProfitAgent extends BaseAgent {
       if (this.isSquaringOff) {
         // Reset square off since everything is closed
         this.isSquaringOff = false;
-        
-        // Auto-Compound: Fetch live exchange balance directly to bypass Reconciliation API lag
-        let newBaseCapital = this.availableBalance;
-        try {
-          const { fetchBalance } = await import('../../services/exchangeService.js');
-          const liveBal = await fetchBalance(true);
-          if (liveBal && liveBal.USDT) {
-             newBaseCapital = liveBal.USDT.total;
-          }
-        } catch (balErr) {
-           this.logger.warn(`SweepAgent failed to fetch live balance for auto-compounding, falling back to cache: ${balErr.message}`);
-        }
-        
-        const newThreshold = newBaseCapital * (1 + (this.sweepTargetProfitPct / 100));
-        this.baseTradingCapital = newBaseCapital;
-        this.targetProfitThreshold = newThreshold;
-
+        // Bot remains paused. The user must manually withdraw profits or manually reset their Target Anchor to resume.
         await Portfolio.updateOne(
           { userId: 'system' }, 
           { $set: { 
               isSquaringOff: false,
-              tradingPaused: false,
-              baseTradingCapital: newBaseCapital,
-              targetProfitThreshold: newThreshold
+              tradingPaused: true
           }}
         );
-        this.logger.info(`🔄 Sweep Profit Complete! Auto-Compounding activated. New Base Capital: $${newBaseCapital.toFixed(2)}. Next Frozen Milestone: $${newThreshold.toFixed(2)}`);
+        this.logger.info(`🔄 Sweep Profit Complete! Target Anchor is strictly static. Bot remains paused until manual intervention.`);
       }
       return;
     }
