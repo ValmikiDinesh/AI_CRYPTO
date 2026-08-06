@@ -14,6 +14,8 @@ export default class SweepProfitAgent extends BaseAgent {
     this.isSquaringOff = false;
     this.futuresMakerFeeRate = 0.0005; // 0.05% Taker fee on CoinSwitch
     this.lastSweepTime = 0;
+    this.consecutiveSweepTicks = 0;
+    this.requiredSweepTicks = 3;
   }
 
   async initialize() {
@@ -202,13 +204,15 @@ export default class SweepProfitAgent extends BaseAgent {
     const currentTotalBalance = (this.totalBalance || this.availableBalance) + totalNetUnrealizedPnl;
 
     if (currentTotalBalance >= this.targetProfitThreshold && !this.isSquaringOff) {
-      this.logger.info(`[SWEEP EXIT] Absolute Milestone Reached! Current Total Balance $${currentTotalBalance.toFixed(2)} >= Threshold $${this.targetProfitThreshold.toFixed(2)}. Triggering mass square-off and shutting down bot!`);
-      
-      this.isSquaringOff = true;
-      this.lastSweepTime = Date.now();
-      await Portfolio.updateOne({ userId: 'system' }, { $set: { isSquaringOff: true, tradingPaused: true } });
+      this.consecutiveSweepTicks++;
+      if (this.consecutiveSweepTicks >= this.requiredSweepTicks) {
+        this.logger.info(`[SWEEP EXIT] Absolute Milestone Reached! Current Total Balance $${currentTotalBalance.toFixed(2)} >= Threshold $${this.targetProfitThreshold.toFixed(2)}. Triggering mass square-off and shutting down bot!`);
+        
+        this.isSquaringOff = true;
+        this.lastSweepTime = Date.now();
+        await Portfolio.updateOne({ userId: 'system' }, { $set: { isSquaringOff: true, tradingPaused: true } });
 
-      for (const [asset, p] of this.openPositions.entries()) {
+        for (const [asset, p] of this.openPositions.entries()) {
         await publishEvent(CHANNELS.EXIT_REQUESTS, {
           asset: p.asset,
           side: p.side,
@@ -293,11 +297,13 @@ export default class SweepProfitAgent extends BaseAgent {
       } catch (err) {
         this.logger.error(`Failed to sweep zombie orders: ${err.message}`);
       }
+      }
     } else if (this.isSquaringOff) {
       // If we are actively squaring off but some positions remain (retry mechanism)
       // Only retry every 15 seconds to prevent DDoS flooding the EMS queue on every 50ms tick
       if (Date.now() - this.lastSweepTime > 15000) {
         this.lastSweepTime = Date.now();
+        this.logger.warn(`[SWEEP] Retrying square-off for ${this.openPositions.size} remaining positions...`);
         for (const [asset, p] of this.openPositions.entries()) {
           await publishEvent(CHANNELS.EXIT_REQUESTS, {
             asset: p.asset,
@@ -305,10 +311,12 @@ export default class SweepProfitAgent extends BaseAgent {
             quantity: p.quantity,
             currentPrice: p.currentPrice,
             forceMarket: true,
-            reason: `Basket Square-Off Active (Retrying exit for ${asset})`
+            reason: `Absolute Sweep Milestone retry`
           });
         }
       }
+    } else {
+      this.consecutiveSweepTicks = 0;
     }
   }
 
