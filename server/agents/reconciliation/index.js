@@ -930,6 +930,14 @@ export default class ReconciliationAgent extends BaseAgent {
 
       for (const trade of openTrades) {
         if (!liveAssets.includes(trade.asset)) {
+          // Grace Period: Give the system 60 seconds to properly process exchange-native Stop-Loss/Take-Profit fills
+          // before aggressively sweeping the trade as a "Ghost".
+          const tradeAgeMs = Date.now() - new Date(trade.updatedAt).getTime();
+          if (tradeAgeMs < 60 * 1000) {
+            this.logger.info(`⏳ [RECONCILIATION] Ghost Position detected for ${trade.asset}, but trade is still within 60s grace period. Deferring sweep...`);
+            continue;
+          }
+
           this.logger.warn(`👻 [RECONCILIATION] Ghost Position Detected! ${trade.asset} is open in DB but missing on Exchange. Sweeping...`);
           
           trade.status = 'failed'; // Mark as failed instead of closed to prevent polluting win/loss statistics (likely old paper trades)

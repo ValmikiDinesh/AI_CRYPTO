@@ -36,6 +36,17 @@ export default class OmsAgent extends BaseAgent {
       this.logger.error(`OMS Startup Sweep failed: ${err.message}`);
     }
 
+    // Initialize Portfolio Cache to prevent MongoDB connection exhaustion
+    this.portfolioCache = await Portfolio.findOne({ userId: 'system' }).lean();
+    if (!this.portfolioCache) {
+      this.portfolioCache = await Portfolio.findOneAndUpdate(
+        { userId: 'system' },
+        { $setOnInsert: { userId: 'system' } },
+        { upsert: true, new: true, lean: true }
+      );
+    }
+    
+    await subscribeToChannel(CHANNELS.PORTFOLIO_UPDATES, (p) => { this.portfolioCache = p; });
     await subscribeToChannel(CHANNELS.FUSED_SIGNALS, this.processSignal.bind(this));
   }
 
@@ -49,13 +60,10 @@ export default class OmsAgent extends BaseAgent {
     
     try {
       this.inFlightAssets.add(signal.asset);
-      let portfolio = await Portfolio.findOne({ userId: 'system' }).lean();
+      let portfolio = this.portfolioCache;
+      
       if (!portfolio) {
-        portfolio = await Portfolio.findOneAndUpdate(
-          { userId: 'system' },
-          { $setOnInsert: { userId: 'system' } },
-          { upsert: true, new: true, lean: true }
-        );
+        portfolio = await Portfolio.findOne({ userId: 'system' }).lean();
       }
 
       // Dynamic Multi-Strategy Engine: Read custom confidence threshold
