@@ -1096,7 +1096,7 @@ export default function Portfolio() {
 
   const closedNetTotal = dateFilteredClosed.reduce((sum, t) => sum + ((t.pnl || 0) - (t.fees || 0)), 0);
 
-  const displayRealizedReturn = (dateFilter === 'all_time' && portfolio.totalPnl !== undefined) 
+  const displayRealizedReturn = (dateFilter === 'all' && portfolio.totalPnl !== undefined) 
     ? portfolio.totalPnl 
     : (dateFilteredClosed.length > 0 ? closedNetTotal : portfolio.totalPnl || 0);
 
