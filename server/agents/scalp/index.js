@@ -133,12 +133,14 @@ export default class ScalpProfitAgent extends BaseAgent {
     const closeFee = (currentPrice * pos.quantity) * this.futuresMakerFeeRate;
     const netPnl = unrealizedPnl - openFee - closeFee;
 
+      if (pos.activeStrategy === 'trend_sniper') continue; // 🛡️ GUARD: Only apply to HFT Scalping trades
+
       // Determine target: Fixed USD takes priority, otherwise fallback to Dynamic ATR
       let target = 0;
       if (this.fixedScalpTargetUsd > 0) {
         target = this.fixedScalpTargetUsd;
       } else {
-        if (!pos.entryAtr || pos.activeStrategy === 'trend_sniper') continue; 
+        if (!pos.entryAtr) continue; 
         target = pos.entryAtr * pos.quantity;
       }
       if (target <= 0) continue;
