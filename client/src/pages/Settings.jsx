@@ -61,6 +61,7 @@ export default function Settings() {
   const [entryOrderType, setEntryOrderType] = useState('market');
   const [exitOrderType, setExitOrderType] = useState('market');
   const [enableDynamicScalp, setEnableDynamicScalp] = useState(false);
+  const [fixedScalpTargetUsd, setFixedScalpTargetUsd] = useState('');
   const [enableTrailingStop, setEnableTrailingStop] = useState(true);
   const [enableTrailingFloor, setEnableTrailingFloor] = useState(true);
   const [minMarginFloor, setMinMarginFloor] = useState('5.0');
@@ -100,8 +101,8 @@ export default function Settings() {
   const [rateInput, setRateInput] = useState('96.54');
 
   const getCurrentStateSnapshot = () => JSON.stringify({
-    baseTradingCapital, maxDailyLossPct, maxDailyTrades, defaultLeverage, basketProfitTargetPct,
-    sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, enableTrailingStop, enableTrailingFloor,
+    baseTradingCapital, maxDailyLossPct, maxDailyTrades, basketProfitTargetPct,
+    sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, fixedScalpTargetUsd, enableTrailingStop, enableTrailingFloor,
     minMarginFloor, trailingStopUsd, trailingStopMinFloorUsd, coinSwitchApiKey,
     coinSwitchApiSecret, telegramBotToken, telegramChatId, enableAILlmPredictions, aiLlmSequence, geminiKeys,
     groqKeys, openaiKeys, activeStrategy, strategySettings, rateInput
@@ -113,7 +114,7 @@ export default function Settings() {
     } else {
       setIsDirty(false);
     }
-  }, [baseTradingCapital, maxDailyLossPct, maxDailyTrades, defaultLeverage, basketProfitTargetPct, sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, enableTrailingStop, enableTrailingFloor, minMarginFloor, trailingStopUsd, trailingStopMinFloorUsd, coinSwitchApiKey, coinSwitchApiSecret, telegramBotToken, telegramChatId, enableAILlmPredictions, aiLlmSequence, geminiKeys, groqKeys, openaiKeys, activeStrategy, strategySettings, rateInput]);
+  }, [baseTradingCapital, maxDailyLossPct, maxDailyTrades, defaultLeverage, basketProfitTargetPct, sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, fixedScalpTargetUsd, enableTrailingStop, enableTrailingFloor, minMarginFloor, trailingStopUsd, trailingStopMinFloorUsd, coinSwitchApiKey, coinSwitchApiSecret, telegramBotToken, telegramChatId, enableAILlmPredictions, aiLlmSequence, geminiKeys, groqKeys, openaiKeys, activeStrategy, strategySettings, rateInput]);
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -148,6 +149,7 @@ export default function Settings() {
           setEntryOrderType(portfolio.entryOrderType || 'market');
           setExitOrderType(portfolio.exitOrderType || 'market');
           setEnableDynamicScalp(portfolio.enableDynamicScalp || false);
+          setFixedScalpTargetUsd(portfolio.fixedScalpTargetUsd || '');
           setEnableTrailingStop(portfolio.enableTrailingStop !== undefined ? portfolio.enableTrailingStop : true);
           setEnableTrailingFloor(portfolio.enableTrailingFloor !== undefined ? portfolio.enableTrailingFloor : true);
           setCoinSwitchApiKey(portfolio.coinSwitchApiKey || '');
@@ -160,7 +162,6 @@ export default function Settings() {
           if (portfolio.aiApiKeys) {
             setGeminiKeys((portfolio.aiApiKeys.gemini || []).join(','));
             setGroqKeys((portfolio.aiApiKeys.groq || []).join(','));
-            setOpenaiKeys((portfolio.aiApiKeys.openai || []).join(','));
             setOpenaiKeys((portfolio.aiApiKeys.openai || []).join(','));
           }
 
@@ -189,7 +190,6 @@ export default function Settings() {
         console.error('Failed to load portfolio settings:', err);
       } finally {
         setLoading(false);
-        // Wait a tick for React state to flush before capturing initial snapshot
         setTimeout(() => {
           setInitialConfig(getCurrentStateSnapshot());
         }, 100);
@@ -216,10 +216,11 @@ export default function Settings() {
           basketProfitTargetPct: Number(basketProfitTargetPct),
           sweepTargetProfitPct: Number(sweepTargetProfitPct),
           entryOrderType,
-          exitOrderType: exitOrderType,
-          enableDynamicScalp: enableDynamicScalp,
-          enableTrailingStop: enableTrailingStop,
-          enableTrailingFloor: enableTrailingFloor,
+          exitOrderType,
+          enableDynamicScalp,
+          fixedScalpTargetUsd: fixedScalpTargetUsd === '' ? 0 : parseFloat(fixedScalpTargetUsd),
+          enableTrailingStop,
+          enableTrailingFloor,
           minMarginFloor: parseFloat(minMarginFloor) || 5.0,
           trailingStopUsd: (!isNaN(parsedTrailing) && parsedTrailing > 0) ? parsedTrailing : null,
           trailingStopMinFloorUsd: parseFloat(trailingStopMinFloorUsd),
@@ -250,6 +251,7 @@ export default function Settings() {
             setEntryOrderType(res.data.data.entryOrderType || 'market');
             setExitOrderType(res.data.data.exitOrderType || 'market');
             setEnableDynamicScalp(res.data.data.enableDynamicScalp || false);
+            setFixedScalpTargetUsd(res.data.data.fixedScalpTargetUsd || '');
             setEnableTrailingStop(res.data.data.enableTrailingStop !== undefined ? res.data.data.enableTrailingStop : true);
             setEnableTrailingFloor(res.data.data.enableTrailingFloor !== undefined ? res.data.data.enableTrailingFloor : true);
             setMinMarginFloor(res.data.data.minMarginFloor !== undefined ? res.data.data.minMarginFloor : 5.0);
@@ -406,6 +408,26 @@ export default function Settings() {
             <p className="text-[11px] text-zinc-500 leading-relaxed">
               If enabled, HFT Scalping trades will instantly auto-close exactly at 1.0x ATR pure profit. Trend Sniper trades are completely ignored.
             </p>
+            {enableDynamicScalp && (
+              <div className="bg-[#1c1c1e] p-4 rounded-xl border border-white/5 space-y-2 mt-4 transition-all duration-300">
+                <label className="text-xs font-semibold text-white/50 tracking-wider">FIXED SCALP TARGET ($ USDT)</label>
+                <div className="flex items-center">
+                  <span className="text-white/40 mr-2">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="e.g. 0.10"
+                    value={fixedScalpTargetUsd}
+                    onChange={(e) => setFixedScalpTargetUsd(e.target.value)}
+                    className="w-full bg-transparent text-sm text-white font-medium border-b border-white/10 pb-1 focus:border-[#bf5af2] focus:outline-none transition-colors"
+                  />
+                </div>
+                <p className="text-[10px] text-white/40 leading-relaxed mt-1">
+                  Optional: If set > 0, the bot will override the Dynamic ATR target and force-close the trade exactly when this net USD profit is reached.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="h-4 w-[1px] bg-[#2c2c2e]/80" />

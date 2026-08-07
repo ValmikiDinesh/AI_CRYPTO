@@ -7,6 +7,7 @@ export default class ScalpProfitAgent extends BaseAgent {
     super('scalp');
     this.openPositions = new Map();
     this.enableDynamicScalp = false;
+    this.fixedScalpTargetUsd = 0;
     this.futuresMakerFeeRate = 0.0005; // 0.05% Taker fee on CoinSwitch
     this.isSquaringOff = false;
   }
@@ -18,6 +19,7 @@ export default class ScalpProfitAgent extends BaseAgent {
     const portfolio = await Portfolio.findOne({ userId: 'system' }).lean();
     if (portfolio) {
       this.enableDynamicScalp = portfolio.enableDynamicScalp || false;
+      this.fixedScalpTargetUsd = portfolio.fixedScalpTargetUsd || 0;
       this.isSquaringOff = portfolio.isSquaringOff;
       if (portfolio.positions) {
         portfolio.positions.forEach(p => {
@@ -58,6 +60,9 @@ export default class ScalpProfitAgent extends BaseAgent {
   handlePortfolioUpdate(portfolio) {
     if (portfolio.enableDynamicScalp !== undefined) {
       this.enableDynamicScalp = portfolio.enableDynamicScalp;
+    }
+    if (portfolio.fixedScalpTargetUsd !== undefined) {
+      this.fixedScalpTargetUsd = portfolio.fixedScalpTargetUsd;
     }
     if (portfolio.isSquaringOff !== undefined) {
       this.isSquaringOff = portfolio.isSquaringOff;
@@ -128,9 +133,14 @@ export default class ScalpProfitAgent extends BaseAgent {
     const closeFee = (currentPrice * pos.quantity) * this.futuresMakerFeeRate;
     const netPnl = unrealizedPnl - openFee - closeFee;
 
-      // Dynamic Scalp Target: 1.0x ATR for this specific position
-      if (!pos.entryAtr || pos.activeStrategy === 'trend_sniper') continue; 
-      const target = pos.entryAtr * pos.quantity;
+      // Determine target: Fixed USD takes priority, otherwise fallback to Dynamic ATR
+      let target = 0;
+      if (this.fixedScalpTargetUsd > 0) {
+        target = this.fixedScalpTargetUsd;
+      } else {
+        if (!pos.entryAtr || pos.activeStrategy === 'trend_sniper') continue; 
+        target = pos.entryAtr * pos.quantity;
+      }
       if (target <= 0) continue;
 
       if (netPnl >= target) {

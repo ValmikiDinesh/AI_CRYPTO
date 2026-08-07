@@ -683,6 +683,7 @@ const handleUpdateConfig = async (req, res, next) => {
       portfolio.defaultLeverage = parseFloat(defaultLeverage);
     }
 
+    if (req.body.fixedScalpTargetUsd !== undefined) portfolio.fixedScalpTargetUsd = parseFloat(req.body.fixedScalpTargetUsd);
     if (minMarginFloor !== undefined) {
       portfolio.minMarginFloor = parseFloat(minMarginFloor);
     }
@@ -846,6 +847,8 @@ const handleUpdateConfig = async (req, res, next) => {
       enableDynamicScalp: portfolio.enableDynamicScalp || false,
       enableTrailingStop: portfolio.enableTrailingStop !== undefined ? portfolio.enableTrailingStop : true,
       enableTrailingFloor: portfolio.enableTrailingFloor !== undefined ? portfolio.enableTrailingFloor : true,
+      fixedScalpTargetUsd: portfolio.fixedScalpTargetUsd || 0,
+      minMarginFloor: portfolio.minMarginFloor || 0,
       trailingStopUsd: (portfolio.trailingStopUsd && portfolio.trailingStopUsd > 0) ? portfolio.trailingStopUsd : null,
       trailingStopMinFloorUsd: portfolio.trailingStopMinFloorUsd || 0.10,
       enableAILlmPredictions: portfolio.enableAILlmPredictions || false,
