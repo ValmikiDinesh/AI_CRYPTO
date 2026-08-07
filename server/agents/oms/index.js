@@ -48,6 +48,26 @@ export default class OmsAgent extends BaseAgent {
     
     await subscribeToChannel(CHANNELS.PORTFOLIO_UPDATES, (p) => { this.portfolioCache = p; });
     await subscribeToChannel(CHANNELS.FUSED_SIGNALS, this.processSignal.bind(this));
+
+    // 🛡️ Continuous Margin Deadlock Sweeper
+    // Automatically releases margin if EMS drops the Redis message or crashes before executing.
+    setInterval(async () => {
+      try {
+        const sixtySecondsAgo = new Date(Date.now() - 60000);
+        const result = await Trade.updateMany(
+          { 
+            status: { $in: ['oms_approved', 'pending'] },
+            createdAt: { $lt: sixtySecondsAgo }
+          },
+          { $set: { status: 'failed', reasoning: 'Orphaned Lock Timeout (60s Sweeper)' } }
+        );
+        if (result.modifiedCount > 0) {
+          this.logger.warn(`🧹 OMS Sweeper: Auto-failed ${result.modifiedCount} orphaned 'oms_approved' trades to release locked margin.`);
+        }
+      } catch (err) {
+        this.logger.error(`OMS Sweeper Error: ${err.message}`);
+      }
+    }, 30000); // Check every 30 seconds
   }
 
   async processSignal(signal) {
