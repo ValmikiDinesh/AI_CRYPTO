@@ -424,7 +424,7 @@ export default function Settings() {
                   />
                 </div>
                 <p className="text-[10px] text-white/40 leading-relaxed mt-1">
-                  Optional: If set > 0, the bot will override the Dynamic ATR target and force-close the trade exactly when this net USD profit is reached.
+                  Optional: If set &gt; 0, the bot will override the Dynamic ATR target and force-close the trade exactly when this net USD profit is reached.
                 </p>
               </div>
             )}
