@@ -62,6 +62,7 @@ export default function Settings() {
   const [exitOrderType, setExitOrderType] = useState('market');
   const [enableDynamicScalp, setEnableDynamicScalp] = useState(false);
   const [fixedScalpTargetUsd, setFixedScalpTargetUsd] = useState('');
+  const [fixedScalpStopLossUsd, setFixedScalpStopLossUsd] = useState('');
   const [enableTrailingStop, setEnableTrailingStop] = useState(true);
   const [enableTrailingFloor, setEnableTrailingFloor] = useState(true);
   const [minMarginFloor, setMinMarginFloor] = useState('5.0');
@@ -102,7 +103,7 @@ export default function Settings() {
 
   const getCurrentStateSnapshot = () => JSON.stringify({
     baseTradingCapital, maxDailyLossPct, maxDailyTrades, basketProfitTargetPct,
-    sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, fixedScalpTargetUsd, enableTrailingStop, enableTrailingFloor,
+    sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, fixedScalpTargetUsd, fixedScalpStopLossUsd, enableTrailingStop, enableTrailingFloor,
     minMarginFloor, trailingStopUsd, trailingStopMinFloorUsd, coinSwitchApiKey,
     coinSwitchApiSecret, telegramBotToken, telegramChatId, enableAILlmPredictions, aiLlmSequence, geminiKeys,
     groqKeys, openaiKeys, activeStrategy, strategySettings, rateInput
@@ -114,7 +115,7 @@ export default function Settings() {
     } else {
       setIsDirty(false);
     }
-  }, [baseTradingCapital, maxDailyLossPct, maxDailyTrades, defaultLeverage, basketProfitTargetPct, sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, fixedScalpTargetUsd, enableTrailingStop, enableTrailingFloor, minMarginFloor, trailingStopUsd, trailingStopMinFloorUsd, coinSwitchApiKey, coinSwitchApiSecret, telegramBotToken, telegramChatId, enableAILlmPredictions, aiLlmSequence, geminiKeys, groqKeys, openaiKeys, activeStrategy, strategySettings, rateInput]);
+  }, [baseTradingCapital, maxDailyLossPct, maxDailyTrades, defaultLeverage, basketProfitTargetPct, sweepTargetProfitPct, entryOrderType, exitOrderType, enableDynamicScalp, fixedScalpTargetUsd, fixedScalpStopLossUsd, enableTrailingStop, enableTrailingFloor, minMarginFloor, trailingStopUsd, trailingStopMinFloorUsd, coinSwitchApiKey, coinSwitchApiSecret, telegramBotToken, telegramChatId, enableAILlmPredictions, aiLlmSequence, geminiKeys, groqKeys, openaiKeys, activeStrategy, strategySettings, rateInput]);
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -150,6 +151,7 @@ export default function Settings() {
           setExitOrderType(portfolio.exitOrderType || 'market');
           setEnableDynamicScalp(portfolio.enableDynamicScalp || false);
           setFixedScalpTargetUsd(portfolio.fixedScalpTargetUsd || '');
+          setFixedScalpStopLossUsd(portfolio.fixedScalpStopLossUsd || '');
           setEnableTrailingStop(portfolio.enableTrailingStop !== undefined ? portfolio.enableTrailingStop : true);
           setEnableTrailingFloor(portfolio.enableTrailingFloor !== undefined ? portfolio.enableTrailingFloor : true);
           setCoinSwitchApiKey(portfolio.coinSwitchApiKey || '');
@@ -219,6 +221,7 @@ export default function Settings() {
           exitOrderType,
           enableDynamicScalp,
           fixedScalpTargetUsd: fixedScalpTargetUsd === '' ? 0 : parseFloat(fixedScalpTargetUsd),
+          fixedScalpStopLossUsd: fixedScalpStopLossUsd === '' ? 0 : parseFloat(fixedScalpStopLossUsd),
           enableTrailingStop,
           enableTrailingFloor,
           minMarginFloor: parseFloat(minMarginFloor) || 5.0,
@@ -252,6 +255,7 @@ export default function Settings() {
             setExitOrderType(res.data.data.exitOrderType || 'market');
             setEnableDynamicScalp(res.data.data.enableDynamicScalp || false);
             setFixedScalpTargetUsd(res.data.data.fixedScalpTargetUsd || '');
+            setFixedScalpStopLossUsd(res.data.data.fixedScalpStopLossUsd || '');
             setEnableTrailingStop(res.data.data.enableTrailingStop !== undefined ? res.data.data.enableTrailingStop : true);
             setEnableTrailingFloor(res.data.data.enableTrailingFloor !== undefined ? res.data.data.enableTrailingFloor : true);
             setMinMarginFloor(res.data.data.minMarginFloor !== undefined ? res.data.data.minMarginFloor : 5.0);
@@ -409,23 +413,53 @@ export default function Settings() {
               If enabled, HFT Scalping trades will instantly auto-close exactly at 1.0x ATR pure profit. Trend Sniper trades are completely ignored.
             </p>
             {enableDynamicScalp && (
-              <div className="bg-[#1c1c1e] p-4 rounded-xl border border-white/5 space-y-2 mt-4 transition-all duration-300">
-                <label className="text-xs font-semibold text-white/50 tracking-wider">FIXED SCALP TARGET ($ USDT)</label>
-                <div className="flex items-center">
-                  <span className="text-white/40 mr-2">$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="e.g. 0.10"
-                    value={fixedScalpTargetUsd}
-                    onChange={(e) => setFixedScalpTargetUsd(e.target.value)}
-                    className="w-full bg-transparent text-sm text-white font-medium border-b border-white/10 pb-1 focus:border-[#bf5af2] focus:outline-none transition-colors"
-                  />
+              <div className="bg-[#1c1c1e] p-4 rounded-xl border border-white/5 space-y-4 mt-4 transition-all duration-300">
+                
+                {/* SCALP TARGET */}
+                <div>
+                  <label className="text-xs font-semibold text-white/50 tracking-wider">FIXED SCALP TARGET ($ USDT)</label>
+                  <div className="flex items-center mt-1">
+                    <span className="text-white/40 mr-2">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g. 0.10"
+                      value={fixedScalpTargetUsd}
+                      onChange={(e) => setFixedScalpTargetUsd(e.target.value)}
+                      className="w-full bg-transparent text-sm text-white font-medium border-b border-white/10 pb-1 focus:border-[#bf5af2] focus:outline-none transition-colors"
+                    />
+                  </div>
+                  <p className="text-[10px] text-white/40 leading-relaxed mt-1">
+                    Optional: If set &gt; 0, forces trade close exactly when this net USD profit is reached.
+                  </p>
                 </div>
-                <p className="text-[10px] text-white/40 leading-relaxed mt-1">
-                  Optional: If set &gt; 0, the bot will override the Dynamic ATR target and force-close the trade exactly when this net USD profit is reached.
-                </p>
+
+                <div className="h-px w-full bg-white/5"></div>
+
+                {/* SCALP STOP LOSS */}
+                <div>
+                  <label className="text-xs font-semibold text-white/50 tracking-wider flex items-center gap-1.5">
+                    FIXED SCALP STOP LOSS ($ USDT)
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">NEW</span>
+                  </label>
+                  <div className="flex items-center mt-1">
+                    <span className="text-red-400/80 mr-2">-$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g. 0.10"
+                      value={fixedScalpStopLossUsd}
+                      onChange={(e) => setFixedScalpStopLossUsd(e.target.value)}
+                      className="w-full bg-transparent text-sm text-red-400 font-medium border-b border-red-500/30 pb-1 focus:border-red-500 focus:outline-none transition-colors"
+                    />
+                  </div>
+                  <p className="text-[10px] text-white/40 leading-relaxed mt-1">
+                    Optional: If set &gt; 0, instantly triggers a Market Exit if Net PnL drops to this negative dollar amount.
+                  </p>
+                </div>
+
               </div>
             )}
           </div>

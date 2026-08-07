@@ -84,6 +84,7 @@ const portfolioSchema = new mongoose.Schema({
   enableTrailingStop: { type: Boolean, default: true },
   enableTrailingFloor: { type: Boolean, default: true },
   fixedScalpTargetUsd: { type: Number, default: 0 },
+  fixedScalpStopLossUsd: { type: Number, default: 0 },
   minMarginFloor: { type: Number, default: 5.0 }, // Dynamic minimum margin floor
   trailingStopUsd: { type: Number },        // null = OFF, positive number = ON with that value
   trailingStopMinFloorUsd: { type: Number, default: 0.10 }, // Configurable minimum locked-in profit floor for trailing stop

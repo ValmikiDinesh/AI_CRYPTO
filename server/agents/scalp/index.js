@@ -8,6 +8,7 @@ export default class ScalpProfitAgent extends BaseAgent {
     this.openPositions = new Map();
     this.enableDynamicScalp = false;
     this.fixedScalpTargetUsd = 0;
+    this.fixedScalpStopLossUsd = 0;
     this.futuresMakerFeeRate = 0.0005; // 0.05% Taker fee on CoinSwitch
     this.isSquaringOff = false;
   }
@@ -20,6 +21,7 @@ export default class ScalpProfitAgent extends BaseAgent {
     if (portfolio) {
       this.enableDynamicScalp = portfolio.enableDynamicScalp || false;
       this.fixedScalpTargetUsd = portfolio.fixedScalpTargetUsd || 0;
+      this.fixedScalpStopLossUsd = portfolio.fixedScalpStopLossUsd || 0;
       this.isSquaringOff = portfolio.isSquaringOff;
       if (portfolio.positions) {
         portfolio.positions.forEach(p => {
@@ -63,6 +65,9 @@ export default class ScalpProfitAgent extends BaseAgent {
     }
     if (portfolio.fixedScalpTargetUsd !== undefined) {
       this.fixedScalpTargetUsd = portfolio.fixedScalpTargetUsd;
+    }
+    if (portfolio.fixedScalpStopLossUsd !== undefined) {
+      this.fixedScalpStopLossUsd = portfolio.fixedScalpStopLossUsd;
     }
     if (portfolio.isSquaringOff !== undefined) {
       this.isSquaringOff = portfolio.isSquaringOff;
@@ -161,6 +166,23 @@ export default class ScalpProfitAgent extends BaseAgent {
           currentPrice: currentPrice,
           forceMarket: true,
           reason: `Scalp Profit Target Reached (+$${netPnl.toFixed(2)} net)`
+        });
+      } else if (this.fixedScalpStopLossUsd > 0 && netPnl <= -this.fixedScalpStopLossUsd) {
+        if (pos.isExiting && (Date.now() - pos.exitTime < 60000)) continue; // Wait 60 seconds before retrying to prevent EMS collision
+
+        this.logger.info(`🛑 Scalp Stop Loss Reached for ${pos.asset}: -$${Math.abs(netPnl).toFixed(2)} Net PnL (Stop Loss: -$${this.fixedScalpStopLossUsd.toFixed(2)})`);
+        
+        // Mark as exiting but do not delete until EMS confirms EXIT
+        pos.isExiting = true;
+        pos.exitTime = Date.now();
+
+        await publishEvent(CHANNELS.EXIT_REQUESTS, {
+          asset: pos.asset,
+          side: pos.side,
+          quantity: pos.quantity,
+          currentPrice: currentPrice,
+          forceMarket: true,
+          reason: `Scalp Fixed Stop Loss Triggered (-$${Math.abs(netPnl).toFixed(2)} net)`
         });
       }
     }
